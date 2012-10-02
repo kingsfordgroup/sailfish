@@ -7,12 +7,16 @@ ${ZLIB_INCLUDE_DIR}
 ${SEQAN_PATH}/core/include
 ${SEQAN_PATH}/extra/include
 /opt/local/include/jellyfish-1.1.6
+/fs/szattic-asmg6/rob/dist/include/jellyfish-1.1.6
+/fs/szattic-asmg6/rob/dist/include
 /opt/local/include
 /opt/local/include/libxml2
 /opt/local/include/eigen3
 )
 
 link_directories( 
+/fs/szattic-asmg6/rob/dist/lib64
+/fs/szattic-asmg6/rob/dist/lib
 /opt/local/lib
 /opt/local/lib/gcc47
 )
@@ -29,4 +33,4 @@ add_executable( MapProbesToGenes ${PROBES_TO_GENES_SRC} )
 target_link_libraries( MapProbesToGenes ${Boost_LIBRARIES} ${ZLIB_LIBRARY})
 
 add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
-target_link_libraries( Sailfish ${Boost_LIBRARIES} ${ZLIB_LIBRARY} jellyfish )
+target_link_libraries( Sailfish ${Boost_LIBRARIES} ${ZLIB_LIBRARY} jellyfish pthread cppa)
