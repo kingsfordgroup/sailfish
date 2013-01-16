@@ -1,10 +1,19 @@
 set ( PROBES_TO_GENES_SRC MapProbesToGenes.cpp affymetrix_utils.cpp )
-set ( SAILFISH_MAIN_SRCS sailfish.cpp affymetrix_utils.cpp )
+set ( SAILFISH_MAIN_SRCS 
+affymetrix_utils.cpp 
+nnls.cpp
+G12.cpp
+myMath.cpp 
+H12.cpp
+sailfish.cpp 
+)
+
 set ( TEST_SRCS tsnnls_is_stupid.cpp )
 
 include_directories( 
 ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
+${GAT_SOURCE_DIR}/external/nnls
 ${GAT_SOURCE_DIR}/external/mlrmcl
 ${GAT_SOURCE_DIR}/external/g2log/src
 ${ZLIB_INCLUDE_DIR}
@@ -21,10 +30,10 @@ ${SEQAN_PATH}/extra/include
 
 link_directories( 
 ${GAT_SOURCE_DIR}/lib
-/fs/szattic-asmg6/rob/dist/lib64
-/fs/szattic-asmg6/rob/dist/lib
 /opt/local/lib
 /opt/local/lib/gcc47
+/fs/szattic-asmg6/rob/dist/lib64
+/fs/szattic-asmg6/rob/dist/lib
 )
 
 if (Boost_FOUND)
@@ -39,9 +48,14 @@ add_executable( MapProbesToGenes ${PROBES_TO_GENES_SRC} )
 message ( "Boost Libraries are ${Boost_LIBRARIES}" )
 target_link_libraries( MapProbesToGenes ${Boost_LIBRARIES} ${ZLIB_LIBRARY} )
 
+message ( "Sailfish sources are ${SAILFISH_MAIN_SRCS}")
 add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
-target_link_libraries( Sailfish ${Boost_LIBRARIES} ${ZLIB_LIBRARY} jellyfish pthread cppa mlrmcl gomp lib_activeobject lib_g2logger 
-nnls blas lapack m )#tsnnls shotgun )
+target_link_libraries( Sailfish 
+	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
+        config4cpp
+	lapack
+	jellyfish pthread cppa mlrmcl 
+    gomp lib_activeobject lib_g2logger blas m tbb)#tsnnls shotgun )
 
 #add_executable( TestTsnnls ${TEST_SRCS} )
 #target_link_libraries( TestTsnnls ${Boost_LIBRARIES} ${ZLIB_LIBRARY} blas lapack gomp lib_activeobject lib_g2logger tsnnls )

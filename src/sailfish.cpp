@@ -14,6 +14,9 @@
 #include <chrono>
 #include <iomanip>
 
+#include <boost/program_options.hpp>
+#include <boost/program_options/parsers.hpp>
+
 #include <seqan/sequence.h>
 #include <seqan/basic.h>
 #include <seqan/file.h>
@@ -38,6 +41,11 @@
 #include "kfitf.hpp"
 #include "linear_system_builder.hpp"
 #include "transcript_segmenter.hpp"
+#include "set_multicover_solver.hpp"
+#include "iterative_optimizer.hpp"
+#include "utils.hpp"
+#include "genomic_feature.hpp"
+#include "CountDB.hpp"
 
 using affymetrix::utils::AffyEntry;
 
@@ -283,7 +291,7 @@ template <typename hash_t, typename stream_t>
 bool countKmersInTranscripts( 
   hash_t& hash, 
   hash_t& transcriptHash, 
-  //std::vector<std::string>& uniqueMers, 
+  std::unordered_set<std::string>& uniqueMers, 
   KFITFCalculator& KFITFCalc, 
   stream_t& inputStream, 
   const std::string& ofname 
@@ -350,7 +358,7 @@ bool countKmersInTranscripts(
   bool done = false;
 
   for (size_t i = 0; i < numActors-1; ++i ) {
-  auto task = [&hash, &q, &workQueue, &transcriptHash, &done, merLen]() -> void {
+  auto task = [&hash, &q, &workQueue, &uniqueMers, &transcriptHash, &done, merLen]() -> void {
     TranscriptEntry* te;
     while ( !done ) {
       while (workQueue.dequeue(te) ) {
@@ -359,8 +367,8 @@ bool countKmersInTranscripts(
       auto readLen = std::distance( seq.begin(), newEnd );
 
       string header = te->header;
-      auto splitPos = header.find('|');
-      auto geneName = header.substr(0, splitPos);
+      //auto splitPos = header.find('.');
+      auto geneName = header;//.substr(0, splitPos);
       size_t offset = 0;
       size_t mapped = 0;
       float weight = 0;
@@ -380,9 +388,11 @@ bool countKmersInTranscripts(
           mappedUniquemers.push_back( std::make_tuple(binMer, hash[mer.c_str()]) );
         }
         */
-        if ( transcriptHash[mer.c_str()] < 5 ) {
-        tfmap[mer] += 1;
-        maxTermFreq = (maxTermFreq > tfmap[mer] ) ? maxTermFreq : tfmap[mer];
+        //bool hasUniquemer = uniqueMers.find(mer) != uniqueMers.end();
+        if ( transcriptHash[mer.c_str()] < 15 ) {
+          tfmap[mer] += 1;
+          maxTermFreq = (maxTermFreq > tfmap[mer] ) ? maxTermFreq : tfmap[mer];
+          //if ( transcriptHash[mer.c_str()] == 1 ) { uniqueMapped += hash[mer]; }
         }
         ++offset;
       }
@@ -402,7 +412,7 @@ bool countKmersInTranscripts(
       for ( auto& mc : tfmap ) {
         auto invWeight = (1.0f / (1.0 + transcriptHash[ mc.first.c_str() ]));
         weight += mc.second * hash[ mc.first.c_str() ] *  invWeight;//KFITFCalc.itf(mc.first);
-        weightLen += invWeight;// KFITFCalc.itf(mer);
+        weightLen += mc.second * invWeight;// KFITFCalc.itf(mer);
       }
       /*
       while ( offset < readLen - merLen )  {
@@ -458,7 +468,7 @@ bool countKmersInTranscripts(
   return true;
 }
 
-std::vector<string> loadUniqueSet( const std::string& fname ) {
+std::unordered_set<string> loadUniqueSet( const std::string& fname ) {
 
   std::ifstream ifile(fname.c_str());
   size_t d = 0;
@@ -468,12 +478,12 @@ std::vector<string> loadUniqueSet( const std::string& fname ) {
   std::cerr << "Using " << d << " mers";
   char str[d];
 
-  std::vector<std::string> us;
+  std::unordered_set<std::string> us;
   us.reserve( numMers );
   size_t i = 0;
   while ( !ifile.eof() ) {
     ifile.read( str, sizeof(str) );
-    us.push_back(str);
+    us.insert(str);
     ++i;
     if ( i % 10000 == 0 ) { std::cerr << i << "\n"; }
   }
@@ -483,7 +493,7 @@ std::vector<string> loadUniqueSet( const std::string& fname ) {
 }
 
 
-int command3(int argc, char* argv[] ) {
+int weightedCount(int argc, char* argv[] ) {
   using std::string;
   try{
     TCLAP::CmdLine cmd("RNASeq!", ' ', "1.0");
@@ -497,7 +507,7 @@ int command3(int argc, char* argv[] ) {
     //TCLAP::ValueArg<uint32_t> merSize("m", "mersize", "size of k-mers to count", true, 10, "uint32_t");
     cmd.add(genesFile);
     cmd.add(hashFile);
-    //cmd.add(uniqueFile);
+    // cmd.add(uniqueFile);
     cmd.add(transcriptHashFile);
     cmd.add(outFile);
     //cmd.add(affyFileName);
@@ -524,7 +534,7 @@ int command3(int argc, char* argv[] ) {
     jellyfish::parse_read parser( fnames, fnames+1, 100);
     jellyfish::parse_read::thread stream = parser.new_thread();
 
-    //auto uniqueKmers = std::vector<string>();//loadUniqueSet( uniqueFile.getValue() );
+    auto uniqueKmers = std::unordered_set<string>();//loadUniqueSet( uniqueFile.getValue() );
     //auto uniqueKmers = loadUniqueSet( uniqueFile.getValue() );
     mapped_file transcriptDB( transcriptHashFile.getValue().c_str() );
     transcriptDB.random().will_need();
@@ -543,12 +553,12 @@ int command3(int argc, char* argv[] ) {
     if(!strncmp(type, jellyfish::raw_hash::file_type, sizeof(type))) {
       raw_inv_hash_query_t hash(dbf);
       raw_inv_hash_query_t transcriptHash(transcriptDB);
-      countKmersInTranscripts( hash, transcriptHash, kf, stream, outFile.getValue() );
+      countKmersInTranscripts( hash, transcriptHash, uniqueKmers, kf, stream, outFile.getValue() );
     } else if(!strncmp(type, jellyfish::compacted_hash::file_type, sizeof(type))) {
 
       hash_query_t hash(hashFile.getValue().c_str());
       hash_query_t transcriptHash(transcriptHashFile.getValue().c_str());
-      countKmersInTranscripts( hash, transcriptHash, kf, stream, outFile.getValue() );
+      countKmersInTranscripts( hash, transcriptHash, uniqueKmers, kf, stream, outFile.getValue() );
    }
 
   } catch (TCLAP::ArgException &e){
@@ -557,22 +567,96 @@ int command3(int argc, char* argv[] ) {
 }
 
 
-int command4(int argc, char* argv[] ) {
+int runNNLS(int argc, char* argv[] ) {
   using std::string;
   try{
     TCLAP::CmdLine cmd("RNASeq!", ' ', "1.0");
     TCLAP::ValueArg<string> genesFile("g", "genes", "gene sequences", true, "", "string");
     TCLAP::ValueArg<string> hashFile("j", "jfhash", "jellyfish hash file", true, "", "string");
     TCLAP::ValueArg<string> transcriptHashFile("t", "thash", "transcript jellyfish hash file", true, "", "string");
+    TCLAP::ValueArg<string> transcriptGeneMap("m", "tgmap", "file that maps transcripts to genes", true, "", "string");
     //TCLAP::ValueArg<string> uniqueFile("u", "unique", "file containing unique kmers", true, "", "string");
     //TCLAP::ValueArg<string> matFileName("m", "matout", "file to store A in", true, "", "string");
     //TCLAP::ValueArg<string> bFileName("b", "bout", "file to store b in", true, "", "string");
     cmd.add(transcriptHashFile);
     cmd.add(genesFile);
     cmd.add(hashFile);
+    cmd.add(transcriptGeneMap);
     //cmd.add(uniqueFile);
     //cmd.add(matFileName);
     //cmd.add(bFileName);
+
+    cmd.parse(argc, argv);
+
+    typedef GenomicFeature<TranscriptGeneID> CustomGenomicFeature;
+
+    std::ifstream transcriptGeneFile(transcriptGeneMap.getValue() );
+    std::vector< CustomGenomicFeature > features;
+    CustomGenomicFeature feat;
+    std::cerr << "parsing gtf file [" << transcriptGeneMap.getValue()  << "] . . . ";
+    while ( transcriptGeneFile >> feat ) { 
+      features.push_back(feat);
+    };
+    std::cerr << "done\n";
+    transcriptGeneFile.close();
+    std::cerr << "building transcript to gene map . . .";
+    auto tgm = utils::transcriptToGeneMapFromFeatures( features );
+    std::cerr << "done\n";
+    /*std::ifstream transcriptGeneFile( transcriptGeneMap.getValue() );
+    auto tgm = utils::readTranscriptToGeneMap( transcriptGeneFile );
+    transcriptGeneFile.close();
+    */
+    
+    mapped_file transcriptDB( transcriptHashFile.getValue().c_str() );
+    transcriptDB.random().will_need();
+    char typeTrans[8];
+    memcpy(typeTrans, transcriptDB.base(), sizeof(typeTrans));
+    
+    mapped_file dbf( hashFile.getValue().c_str() );
+    dbf.random().will_need();
+    char type[8];
+    memcpy(type, dbf.base(), sizeof(type));
+
+    if(!strncmp(type, jellyfish::raw_hash::file_type, sizeof(type))) {
+      std::cerr << "Raw hash not supported!\n";
+      std::abort();
+      /*
+      raw_inv_hash_query_t hash(dbf);
+      raw_inv_hash_query_t transcriptHash(transcriptDB);
+      TranscriptSegmenter<raw_inv_hash_query_t> ts( genesFile.getValue(), hash, tgm );
+      ts.findOverlappingSegments( hash.get_mer_len(), transcriptHash );
+      
+      LinearSystemBuilder<raw_inv_hash_query_t> lsb( genesFile.getValue(), hash);
+      lsb.writeToFiles( matFileName.getValue(), bFileName.getValue() );
+      */
+    } else if(!strncmp(type, jellyfish::compacted_hash::file_type, sizeof(type))) {
+      hash_query_t hash(hashFile.getValue().c_str());
+      hash_query_t transcriptHash(transcriptHashFile.getValue().c_str());
+      TranscriptSegmenter<hash_query_t> ts( genesFile.getValue(), hash, tgm );
+      ts.findOverlappingSegments( hash.get_mer_len(), transcriptHash );
+      /*
+      LinearSystemBuilder<hash_query_t> lsb( genesFile.getValue(), hash);
+      lsb.writeToFiles( matFileName.getValue(), bFileName.getValue() );
+      */
+   }
+
+  } catch (TCLAP::ArgException &e){
+    std::cerr << "error: " << e.error() << " for arg " << e.argId() << std::endl;
+  }
+}
+
+int runSetCover(int argc, char* argv[] ) {
+  using std::string;
+  try{
+    TCLAP::CmdLine cmd("RNASeq!", ' ', "1.0");
+    TCLAP::ValueArg<string> genesFile("g", "genes", "gene sequences", true, "", "string");
+    TCLAP::ValueArg<string> hashFile("j", "jfhash", "jellyfish hash file", true, "", "string");
+    TCLAP::ValueArg<string> transcriptHashFile("t", "thash", "transcript jellyfish hash file", true, "", "string");
+    TCLAP::ValueArg<string> outputFile("o", "output", "output file", true, "", "string");
+    cmd.add(transcriptHashFile);
+    cmd.add(genesFile);
+    cmd.add(hashFile);
+    cmd.add(outputFile);
 
     cmd.parse(argc, argv);
 
@@ -586,24 +670,18 @@ int command4(int argc, char* argv[] ) {
     char type[8];
     memcpy(type, dbf.base(), sizeof(type));
 
-    if(!strncmp(type, jellyfish::raw_hash::file_type, sizeof(type))) {
+   if(!strncmp(type, jellyfish::raw_hash::file_type, sizeof(type))) {
       raw_inv_hash_query_t hash(dbf);
       raw_inv_hash_query_t transcriptHash(transcriptDB);
-      TranscriptSegmenter<raw_inv_hash_query_t> ts( genesFile.getValue(), hash );
-      ts.findOverlappingSegments( hash.get_mer_len(), transcriptHash );
-      /*
-      LinearSystemBuilder<raw_inv_hash_query_t> lsb( genesFile.getValue(), hash);
-      lsb.writeToFiles( matFileName.getValue(), bFileName.getValue() );
-      */
+      //std::cerr << "transcriptHash size is " << transcriptHash.get_distinct() << "\n";
+      SetMulticoverSolver<raw_inv_hash_query_t, raw_inv_hash_query_t> solver( hash, transcriptHash );
+      solver( genesFile.getValue(), outputFile.getValue() );
     } else if(!strncmp(type, jellyfish::compacted_hash::file_type, sizeof(type))) {
       hash_query_t hash(hashFile.getValue().c_str());
       hash_query_t transcriptHash(transcriptHashFile.getValue().c_str());
-      TranscriptSegmenter<hash_query_t> ts( genesFile.getValue(), hash );
-      ts.findOverlappingSegments( hash.get_mer_len(), transcriptHash );
-      /*
-      LinearSystemBuilder<hash_query_t> lsb( genesFile.getValue(), hash);
-      lsb.writeToFiles( matFileName.getValue(), bFileName.getValue() );
-      */
+      std::cerr << "transcriptHash size is " << transcriptHash.get_distinct() << "\n";
+      SetMulticoverSolver<hash_query_t, hash_query_t> solver( hash, transcriptHash );
+      solver( genesFile.getValue(), outputFile.getValue() );
    }
 
   } catch (TCLAP::ArgException &e){
@@ -611,6 +689,149 @@ int command4(int argc, char* argv[] ) {
   }
 }
 
+int runIterativeOptimizer(int argc, char* argv[] ) {
+  using std::string;
+  namespace po = boost::program_options;
+
+  try{
+
+    po::options_description generic("Command Line Options");
+    generic.add_options()
+      ("version,v", "print version string")
+      ("help,h", "produce help message")
+      ("cfg,f", po::value< string >(), "config file")
+    ;
+
+    po::options_description config("Configuration");
+    config.add_options()
+      ("genes,g", po::value< std::vector<string> >(), "gene sequences")
+      ("orderFile,s", po::value<string>(), "file storing order of the kmers")
+      ("count,c", po::value<string>(), "count file")
+      ("thash,t", po::value<string>(), "transcript jellyfish hash file")
+      ("output,o", po::value<string>(), "output file")
+      ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
+      ("iterations,i", po::value<size_t>(), "number of iterations to run the optimzation")
+      ;
+
+    po::options_description programOptions("combined");
+    programOptions.add(generic).add(config);
+
+    po::variables_map vm;
+    po::store(po::command_line_parser(argc, argv).options(programOptions).run(), vm);
+
+    if ( vm.count("help") ){
+      std::cout << "Sailfish\n";
+      std::cout << programOptions << std::endl;
+      std::exit(1);
+    }
+
+    if ( vm.count("cfg") ) {
+      std::cerr << "have detected configuration file\n";
+      string cfgFile = vm["cfg"].as<string>();
+      std::cerr << "cfgFile : [" << cfgFile << "]\n";
+      po::store(po::parse_config_file<char>(cfgFile.c_str(), programOptions, true), vm);
+    }
+    po::notify(vm);
+
+    /*
+    TCLAP::CmdLine cmd("Sailfish", ' ', "1.0");
+    TCLAP::MultiArg<string> genesFile("g", "genes", "gene sequences", true, "string");
+    //TCLAP::ValueArg<string> hashFile("j", "jfhash", "jellyfish hash file", true, "", "string");
+
+    TCLAP::ValueArg<string> orderFile("s", "orderFile", "file storing order of the kmers", true, "", "string");
+    TCLAP::ValueArg<string> hashFile("c", "count", "count file", true, "", "string");
+
+    TCLAP::ValueArg<string> transcriptHashFile("t", "thash", "transcript jellyfish hash file", true, "", "string");
+    TCLAP::ValueArg<string> outputFile("o", "output", "output file", true, "", "string");
+    TCLAP::ValueArg<string> transcriptGeneMap("m", "tgmap", "file that maps transcripts to genes", true, "", "string");
+    TCLAP::ValueArg<size_t> numIter("i", "iterations", "number of iterations to run the optimization", false, 3, "size_t");
+    cmd.add(transcriptHashFile);
+    cmd.add(genesFile);
+    cmd.add(transcriptGeneMap);
+    cmd.add(orderFile);
+    cmd.add(hashFile);
+    cmd.add(outputFile);
+    cmd.add(numIter);
+
+    cmd.parse(argc, argv);
+    */
+
+    std::cerr << "1\n";
+    string transcriptGeneMap = vm["tgmap"].as<string>();
+    std::cerr << "2\n";
+    string hashFile = vm["count"].as<string>();
+    std::cerr << "3\n";
+    std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
+    std::cerr << "4\n";
+    string orderFile = vm["orderFile"].as<string>();
+    std::cerr << "5\n";
+    string transcriptHashFile = vm["thash"].as<string>();
+    std::cerr << "6\n";
+    string outputFile = vm["output"].as<string>();
+    std::cerr << "7\n";
+    size_t numIter = vm["iterations"].as<size_t>();
+    std::cerr << "8\n";
+
+    typedef GenomicFeature<TranscriptGeneID> CustomGenomicFeature;
+
+    std::ifstream transcriptGeneFile(transcriptGeneMap );
+    std::vector< CustomGenomicFeature > features;
+    CustomGenomicFeature feat;
+    std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
+    while ( transcriptGeneFile >> feat ) { 
+      features.push_back(feat);
+    };
+    std::cerr << "done\n";
+    transcriptGeneFile.close();
+    std::cerr << "building transcript to gene map . . .";
+    auto tgm = utils::transcriptToGeneMapFromFeatures( features );
+    std::cerr << "done\n";
+
+    mapped_file transcriptDB( transcriptHashFile.c_str() );
+    transcriptDB.random().will_need();
+    char typeTrans[8];
+    memcpy(typeTrans, transcriptDB.base(), sizeof(typeTrans));    
+
+    std::vector<uint64_t> kmerOrder;
+    utils::readKmerOrder(orderFile, kmerOrder);
+    
+    mapped_file dbf( hashFile.c_str() );
+    dbf.random().will_need();
+    char type[8];
+    memcpy(type, dbf.base(), sizeof(type));
+    
+
+    const std::vector<string>& geneFiles{genesFile};
+
+   if(!strncmp(typeTrans, jellyfish::raw_hash::file_type, sizeof(typeTrans))) {
+    std::cerr << "not implemented!\n";
+    std::abort();
+      /*
+      raw_inv_hash_query_t transcriptHash(transcriptDB);
+      auto merLen = transcriptHash.get_mer_len();
+      CountDB hash(hashFile.getValue(), kmerOrder, merLen);
+      IterativeOptimizer<CountDB, raw_inv_hash_query_t> solver( hash, transcriptHash, tgm );
+      solver.optimize( geneFiles, outputFile.getValue(), numIter.getValue() );
+      */
+    } else if(!strncmp(typeTrans, jellyfish::compacted_hash::file_type, sizeof(typeTrans))) {
+      //hash_query_t hash(hashFile.getValue().c_str());
+      hash_query_t transcriptHash(transcriptHashFile.c_str());
+      std::cerr << "transcriptHash size is " << transcriptHash.get_distinct() << "\n";
+
+      auto merLen = transcriptHash.get_mer_len();
+
+      CountDB hash(hashFile, kmerOrder, merLen);
+
+      IterativeOptimizer<CountDB, hash_query_t> solver( hash, transcriptHash, tgm );
+      solver.optimize( geneFiles, outputFile, numIter );
+   }
+
+  } catch (po::error &e){
+    std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
+    std::exit(1);
+  }
+
+}
 
 int main( int argc, char* argv[] ) {
 
@@ -622,7 +843,13 @@ int main( int argc, char* argv[] ) {
 
   try {
 
-    std::unordered_map<std::string, std::function<int(int, char*[])>> cmds({ {"cmd1", command1}, {"cmd2", command2}, {"cmd3", command3}, {"cmd4", command4} });
+    std::unordered_map<std::string, std::function<int(int, char*[])>> cmds({ 
+      {"cmd1", command1}, 
+      {"cmd2", command2}, 
+      {"wcount", weightedCount}, 
+      {"nnls", runNNLS},
+      {"itopt", runIterativeOptimizer},
+      {"setcover", runSetCover }});
 
     // TCLAP::CmdLine cmd("RNASeq!", ' ', "1.0");
     // TCLAP::SwitchArg cmd1("x", "xx", "cmd1", false);
