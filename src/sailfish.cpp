@@ -705,7 +705,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::options_description config("Configuration");
     config.add_options()
       ("genes,g", po::value< std::vector<string> >(), "gene sequences")
-      ("orderFile,s", po::value<string>(), "file storing order of the kmers")
       ("count,c", po::value<string>(), "count file")
       ("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
@@ -756,21 +755,12 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     cmd.parse(argc, argv);
     */
 
-    std::cerr << "1\n";
     string transcriptGeneMap = vm["tgmap"].as<string>();
-    std::cerr << "2\n";
     string hashFile = vm["count"].as<string>();
-    std::cerr << "3\n";
     std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
-    std::cerr << "4\n";
-    string orderFile = vm["orderFile"].as<string>();
-    std::cerr << "5\n";
     string transcriptHashFile = vm["thash"].as<string>();
-    std::cerr << "6\n";
     string outputFile = vm["output"].as<string>();
-    std::cerr << "7\n";
     size_t numIter = vm["iterations"].as<size_t>();
-    std::cerr << "8\n";
 
     typedef GenomicFeature<TranscriptGeneID> CustomGenomicFeature;
 
@@ -787,44 +777,24 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     auto tgm = utils::transcriptToGeneMapFromFeatures( features );
     std::cerr << "done\n";
 
-    mapped_file transcriptDB( transcriptHashFile.c_str() );
-    transcriptDB.random().will_need();
-    char typeTrans[8];
-    memcpy(typeTrans, transcriptDB.base(), sizeof(typeTrans));    
+    std::cerr << "Reading transcript index from [" << transcriptHashFile << "] . . .";
+    auto transcriptHash = CountDB::fromFile( transcriptHashFile );
+    std::cerr << "done\n";
 
-    std::vector<uint64_t> kmerOrder;
-    utils::readKmerOrder(orderFile, kmerOrder);
-    
-    mapped_file dbf( hashFile.c_str() );
-    dbf.random().will_need();
-    char type[8];
-    memcpy(type, dbf.base(), sizeof(type));
-    
+    // the READ hash
+    std::cerr << "Reading indexed read counts from [" << hashFile << "] . . .";
+    CountDB hash( hashFile, transcriptHash.indexKmers(), transcriptHash.kmerLength() );    
+    std::cerr << "done\n";
 
     const std::vector<string>& geneFiles{genesFile};
+    auto merLen = transcriptHash.kmerLength();
+    
+    std::cerr << "Creating optimizer . . .";
+    IterativeOptimizer<CountDB, CountDB> solver( hash, transcriptHash, tgm );
+    std::cerr << "done\n";
 
-   if(!strncmp(typeTrans, jellyfish::raw_hash::file_type, sizeof(typeTrans))) {
-    std::cerr << "not implemented!\n";
-    std::abort();
-      /*
-      raw_inv_hash_query_t transcriptHash(transcriptDB);
-      auto merLen = transcriptHash.get_mer_len();
-      CountDB hash(hashFile.getValue(), kmerOrder, merLen);
-      IterativeOptimizer<CountDB, raw_inv_hash_query_t> solver( hash, transcriptHash, tgm );
-      solver.optimize( geneFiles, outputFile.getValue(), numIter.getValue() );
-      */
-    } else if(!strncmp(typeTrans, jellyfish::compacted_hash::file_type, sizeof(typeTrans))) {
-      //hash_query_t hash(hashFile.getValue().c_str());
-      hash_query_t transcriptHash(transcriptHashFile.c_str());
-      std::cerr << "transcriptHash size is " << transcriptHash.get_distinct() << "\n";
-
-      auto merLen = transcriptHash.get_mer_len();
-
-      CountDB hash(hashFile, kmerOrder, merLen);
-
-      IterativeOptimizer<CountDB, hash_query_t> solver( hash, transcriptHash, tgm );
-      solver.optimize( geneFiles, outputFile, numIter );
-   }
+    std::cerr << "optimizing for " << numIter << " iterations";
+    solver.optimize( geneFiles, outputFile, numIter );
 
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";

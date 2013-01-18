@@ -170,7 +170,6 @@ private:
     void _initialize( const std::vector<std::string> &transcriptFiles ) { 
 
         char** fnames = new char*[transcriptFiles.size()];
-        //fnames.reserve(transcriptFiles.size());
         size_t z{0};
         size_t numFnames{0};
         for ( auto& s : transcriptFiles ){
@@ -373,7 +372,7 @@ public:
      * Construct the solver with the read and transcript hashes
      */
     IterativeOptimizer( ReadHashT &readHash, TranscriptHashT  &transcriptHash, TranscriptGeneMap& transcriptGeneMap ) :
-        _readHash(readHash), _transcriptHash(transcriptHash), _merLen(transcriptHash.get_mer_len()), 
+        _readHash(readHash), _transcriptHash(transcriptHash), _merLen(transcriptHash.kmerLength()), 
         _transcriptGeneMap(transcriptGeneMap) {}
 
 

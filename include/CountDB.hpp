@@ -6,6 +6,7 @@
 #include <fstream>
 #include <limits>
 #include <algorithm>
+#include <memory>
 
 /**
 *  This class provides low-overhead access to the counts of various
@@ -22,32 +23,66 @@ class CountDB {
    // We'll return this invalid id if a kmer is not found in our DB
    size_t INVALID = std::numeric_limits<size_t>::max();
 
-   CountDB( std::vector<Kmer>& kmers, uint32_t merSize ) : 
-           _kmers(kmers), _counts( std::vector< AtomicCount >( kmers.size() ) ), _merSize( merSize )
+   CountDB( std::shared_ptr<std::vector<Kmer>>& kmers, uint32_t merSize ) : 
+           _kmers(kmers), _counts( std::vector< AtomicCount >( kmers->size() ) ), _merSize( merSize )
    {
-    assert( std::is_sorted( kmers.begin(), kmers.end() ) );
+    assert( std::is_sorted( kmers->begin(), kmers->end() ) );
+   }
+
+   static CountDB fromFile( const std::string& fname ) {
+    std::ifstream in(fname, std::ios::in | std::ios::binary );
+    uint32_t merSize;
+    in.read( reinterpret_cast<char*>(&merSize), sizeof(merSize) );
+    size_t numCounts;
+    in.read( reinterpret_cast<char*>(&numCounts), sizeof(size_t) );
+    auto kmers = std::make_shared<std::vector<Kmer>>(numCounts, Kmer(0));
+    std::vector<AtomicCount> counts(numCounts);
+    in.read( reinterpret_cast<char*>(&((*kmers)[0])), sizeof(Kmer) * numCounts );
+    in.read( reinterpret_cast<char*>(&counts[0]), sizeof(AtomicCount) * numCounts );
+    in.close();
+
+    CountDB index(kmers, merSize);
+    index._counts = std::move(counts);
+    return index;
    }
 
    /**
    *  This constructor populates this CountDB from file, reading the set of counts from fname.
    */
-   CountDB( const std::string& fname, std::vector<Kmer>& kmers, uint32_t merSize ) :  
-           _kmers(kmers), _merSize( merSize ) {
+   CountDB( const std::string& fname, std::shared_ptr<std::vector<Kmer>>& kmers, uint32_t merSize ) :  
+     _kmers(kmers), _merSize( merSize ) {
 
-            assert( std::is_sorted( kmers.begin(), kmers.end() ) );
-        std::ifstream counts(fname, std::ios::in | std::ios::binary );
-        size_t numCounts{0};
-        counts.read( reinterpret_cast<char*>(&numCounts), sizeof(size_t) );
-        _counts = std::vector< AtomicCount >( numCounts );
-        counts.read( reinterpret_cast<char*>(&_counts[0]), sizeof(_counts[0]) * numCounts );
-        counts.close();
+      std::cerr << "checking that kmers are sorted . . . ";
+      assert( std::is_sorted( kmers->begin(), kmers->end() ) );
+      std::cerr << "done\n";
 
+
+      std::ifstream counts(fname, std::ios::in | std::ios::binary );
+      uint32_t fileMerSize{0};
+      counts.read( reinterpret_cast<char*>(&fileMerSize), sizeof(fileMerSize) );
+      std::cerr << "checking that the mersizes are the same . . .";
+      assert( fileMerSize == merSize );
+      std::cerr << "done\n";
+
+      size_t numCounts{0};
+      
+      counts.read( reinterpret_cast<char*>(&numCounts), sizeof(size_t) );
+      
+      std::cerr << "checking that the counts are the same . . .";
+      assert( numCounts == kmers->size() );
+      std::cerr << "done\n";
+
+      _counts = std::vector< AtomicCount >( numCounts );
+      std::cerr << "reading counts from file . . .";
+      counts.read( reinterpret_cast<char*>(&_counts[0]), sizeof(_counts[0]) * numCounts );
+      std::cerr << "done\n";
+      counts.close();
    }
 
    size_t id(Kmer k) {
-    auto it = std::lower_bound( _kmers.begin(), _kmers.end(), k );
+    auto it = std::lower_bound( _kmers->begin(), _kmers->end(), k );
     if ( *it != k ) { return INVALID; }
-    return std::distance(_kmers.begin(), it);
+    return std::distance(_kmers->begin(), it);
    }
 
    uint32_t operator[](uint64_t kmer) {
@@ -58,25 +93,39 @@ class CountDB {
    // increment the count for kmer 'k' by 'amt'
    // returns true if k existed in the database and false otherwise
    bool inc(Kmer k, uint32_t amt=1) {    
-    auto it = std::lower_bound( _kmers.begin(), _kmers.end(), k );
+    auto it = std::lower_bound( _kmers->begin(), _kmers->end(), k );
 
     if ( *it != k ) { return false; }
-    auto idx = std::distance(_kmers.begin(), it);
+    auto idx = std::distance(_kmers->begin(), it);
     
     _counts[idx] += amt;
     return true;
    }
 
-   bool dumpToFile( const std::string& fname ){
+   bool dumpCountsToFile( const std::string& fname ) {
     std::ofstream counts(fname, std::ios::out | std::ios::binary );
-    size_t numCounts = _kmers.size();
+    size_t numCounts = _kmers->size();
+    counts.write( reinterpret_cast<char*>(&_merSize), sizeof(_merSize) );
     counts.write( reinterpret_cast<char*>(&numCounts), sizeof(size_t) );
     counts.write( reinterpret_cast<char*>(&_counts[0]), sizeof(_counts[0]) * numCounts );
     counts.close();
    }
 
+   bool dumpToFile( const std::string& fname ){
+    std::ofstream out(fname, std::ios::out | std::ios::binary );
+    size_t numCounts = _kmers->size();
+    out.write( reinterpret_cast<char*>(&_merSize), sizeof(_merSize) );
+    out.write( reinterpret_cast<char*>(&numCounts), sizeof(size_t) );
+    out.write( reinterpret_cast<char*>(&((*_kmers)[0])), sizeof((*_kmers)[0]) * numCounts );
+    out.write( reinterpret_cast<char*>(&_counts[0]), sizeof(_counts[0]) * numCounts );
+    out.close();
+   }
+
+   std::shared_ptr<std::vector< Kmer >>& indexKmers() { return _kmers; }
+   uint32_t kmerLength() { return _merSize; }
+
   private:
-    std::vector< Kmer >& _kmers;
+    std::shared_ptr<std::vector< Kmer >> _kmers;
     std::vector< AtomicCount > _counts;
     uint32_t _merSize;
 };

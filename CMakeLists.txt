@@ -19,7 +19,7 @@ set (Boost_USE_STATIC_LIBS OFF)
 set (Boost_USE_MULTITHREADED ON)
 set (Boost_USE_STATIC_RUNTIME OFF)
 
-find_package(Boost 1.50.0 COMPONENTS iostreams filesystem system program_options)
+find_package(Boost 1.50.0 COMPONENTS iostreams filesystem system thread timer program_options)
 find_package (ZLIB)
 
 if ( DEFINED SEQAN_PATH )

@@ -8,6 +8,7 @@ H12.cpp
 sailfish.cpp 
 )
 
+set ( BUILD_INDEX_SRCS Indexer.cpp )
 set ( TEST_SRCS tsnnls_is_stupid.cpp )
 
 include_directories( 
@@ -52,10 +53,13 @@ message ( "Sailfish sources are ${SAILFISH_MAIN_SRCS}")
 add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
 target_link_libraries( Sailfish 
 	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
-        config4cpp
 	lapack
 	jellyfish pthread cppa mlrmcl 
     gomp lib_activeobject lib_g2logger blas m tbb)#tsnnls shotgun )
+
+add_executable( BuildIndex ${BUILD_INDEX_SRCS} )
+target_link_libraries( BuildIndex ${Boost_LIBRARIES} jellyfish pthread m tbb)
+
 
 #add_executable( TestTsnnls ${TEST_SRCS} )
 #target_link_libraries( TestTsnnls ${Boost_LIBRARIES} ${ZLIB_LIBRARY} blas lapack gomp lib_activeobject lib_g2logger tsnnls )
