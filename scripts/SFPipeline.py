@@ -20,6 +20,7 @@ import itertools
 import glob
 import subprocess
 import shlex
+import time
 from ruffus import *
 
 ## Can we avoid this global?
@@ -143,8 +144,12 @@ def buildIndex(input, output, config):
 	argString = ' '.join( ' '.join(procArg(k,v)) for k,v in config['arguments'].iteritems() )
 	executable = config['executable']
 	cmd = [executable] + shlex.split(argString)
-	#subprocess.call(cmd)
-
+	tstart = time.time()
+	subprocess.call(cmd)
+	tend = time.time()
+	s = tend-tstart
+	with open('../results/sfindex.time','wb') as ofile:
+		ofile.write('Computing expression took {0} seconds\n'.format(s))
 
 @follows(buildIndex, mkdir("../results"))
 @files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['Sailfish']['depends']])),
@@ -159,7 +164,13 @@ def computeExpression(input, output, config):
 	executable = config['executable']
 	cmd = [executable] + shlex.split(argString)
 	print("\n\nRunning Sailfish with cmd\n====\n {0} \n====\n\n".format(' '.join(cmd)))
-	#subprocess.call(cmd)
+	tstart = time.time()
+	subprocess.call(cmd)
+	tend = time.time()
+	s = tend-tstart
+	with open('../results/sfexpression.time','wb') as ofile:
+		ofile.write('Computing expression took {0} seconds\n'.format(s))
+
 	
 @follows( nobody, mkdir("../results"))
 @files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['QPCRExtraction']['depends']])),
@@ -175,7 +186,6 @@ def extractQPCRValues(input, output, config):
 	cmdString = executable + ' ' + ' '.join( ' '.join([k,v]) for k,v in config['arguments'].iteritems() )
 	cmd = shlex.split(cmdString)
 	subprocess.call(cmd)
-
 
 ####
 #

@@ -51,6 +51,7 @@ private:
     typedef std::string *StringPtrT;
     typedef uint64_t TranscriptScoreT;
     typedef jellyfish::invertible_hash::array<uint64_t, atomic::gcc, allocators::mmap> HashArrayT;
+    typedef size_t ReadLengthT;
 
     // Necessary forward declaration
     struct TranscriptDataT;
@@ -68,7 +69,8 @@ private:
     struct TranscriptInfo {
         std::map<KmerIDT, KmerQuantityT> binMers;
         KmerQuantityT mean;
-        size_t length;
+        ReadLengthT length;
+        ReadLengthT effectiveLength;
     };
 
     // This struct represents a "job" (transcript) that needs to be processed
@@ -119,12 +121,12 @@ private:
         return 1.0 / (1.0 + _transcriptHash[k]);
     }
 
-    KmerQuantityT _computeMean( std::map<KmerIDT, KmerQuantityT> &binMers ) {
+    KmerQuantityT _computeMean( TranscriptInfo* ti ) {
         KmerQuantityT mean = 0.0;
-        auto norm = 1.0 / binMers.size();
-        for ( auto binmer : binMers ) {
+        auto norm = 1.0 / ti->length;//binMers.size();
+        for ( auto binmer : ti->binMers ) {
             if ( this->_genePromiscuousKmers.find(binmer.first) == this->_genePromiscuousKmers.end() ){
-            mean += norm * binmer.second;
+                mean += norm * binmer.second;
             }
         }
         return mean;
@@ -159,7 +161,7 @@ private:
         return mean;
     }
 
-    double _effectiveLength( TranscriptDataT* ts ) {
+    double _effectiveLength( TranscriptInfo* ts ) {
         double length = 0.0;
         for ( auto binmer : ts->binMers ) {
             length += _weight(binmer.first);
@@ -183,9 +185,7 @@ private:
         // Open up the transcript file for reading
         //const char *fnames[] = { transcriptFile.c_str() };
         // Create a jellyfish parser
-        std::cerr << "here1\n";
         jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
-        std::cerr << "here2\n";
 
         // So we can concisely identify each transcript
         TranscriptIDT transcriptIndex {0};
@@ -255,23 +255,32 @@ private:
                         // The binary representation of the kmers in this transcript
                         std::map<KmerIDT, KmerQuantityT> binMers;
 
-                        size_t firstIndex{0};
                         // Iterate over the kmers
-                        for ( auto offset : boost::irange( firstIndex, numKmers ) ) { // < numKmers ) {
+                        ReadLengthT effectiveLength(0);
+                        float weightedLen = 0.0;
+                        size_t coverage = _merLen;
+                        for ( auto offset : boost::irange( size_t(0), numKmers ) ) { // < numKmers ) {
                             auto mer = newSeq.substr( offset, this->_merLen );
                             // Only count and track kmers which should be considered
                             auto binMer = jellyfish::parse_dna::mer_string_to_binary( mer.c_str(), _merLen );
-                            if ( this->_considered(binMer) ) {                                
+                            //if ( this->_considered(binMer) ) {
+                            if ( this->_readHash[binMer] > 0 ) {
+                                weightedLen += (1.0 / (1.0 + this->_transcriptHash[binMer]));
+                                effectiveLength += coverage;
+                                coverage = 1;
                                 binMers[binMer] += 1.0;
                                 //std::get<1>(*ts).push_back(binMer);
                                 this->_transcriptsForKmer[binMer].push_back(transcriptIndex);
+                            } else {
+                                coverage += (coverage < _merLen) ? 1 : 0;
                             }
                         }
                         
                         auto procRead = new TranscriptInfo {
                             binMers, // the set of kmers
                             0.0, // initial desired mean
-                            readLen // real transcript length
+                            readLen, // real transcript length
+                            weightedLen // effective transcript length
                         };
                         this->_transcripts[transcriptIndex] = procRead;
                     }
@@ -334,7 +343,7 @@ private:
                 }
             }
 
-            transcriptData->mean = this->_computeMean( transcriptData->binMers );
+            transcriptData->mean = this->_computeMean( transcriptData );
         }
         );
 
@@ -447,9 +456,11 @@ public:
 
                             double norm = 1.0 / totalMass;
                             for ( auto tid : transcripts ) {
-                                this->_transcripts[tid]->binMers[kmer] =
-                                    norm * this->_readHash[kmer] * this->_transcripts[tid]->mean;
+                                this->_transcripts[tid]->binMers[kmer] = ( totalMass > 0.0 ) ?
+                                  norm * this->_readHash[kmer] * this->_transcripts[tid]->mean :
+                                  0.0;
                             }
+
                         }
                         }
                         ++completedJobs;
@@ -465,10 +476,11 @@ public:
             std::cerr << "\ncomputing new means ... ";
             // compute the new mean for each transcript
             tbb::parallel_for( size_t(0), size_t(_transcripts.size()),
-                [this]( size_t tid ) -> void {
+                [this, iter, numIt]( size_t tid ) -> void {
                         // this thread claimed myJobID;
                         auto ts = this->_transcripts[tid];
-                        ts->mean = this->_computeMean( ts->binMers );
+                        ts->mean = this->_computeMean( ts );
+                        if ( ts->mean <= (iter * 0.0 / numIt) ) { ts->mean = 0.0; }
                 }
             );
             std::cerr << "done\n";
