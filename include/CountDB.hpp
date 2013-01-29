@@ -90,6 +90,12 @@ class CountDB {
     return (idx == INVALID) ? 0 : _counts[idx].load();
    }
 
+   uint32_t atIndex(size_t idx) {
+      return (idx == INVALID) ? 0 : _counts[idx].load();
+   }
+
+   std::vector<AtomicCount>::size_type size() { return _counts.size(); }
+
    // increment the count for kmer 'k' by 'amt'
    // returns true if k existed in the database and false otherwise
    bool inc(Kmer k, uint32_t amt=1) {    

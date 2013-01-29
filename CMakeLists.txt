@@ -4,7 +4,7 @@ project (Sailfish)
 
 set (CMAKE_CXX_COMPILER g++)#-mp-4.7)
 
-set (CMAKE_CXX_FLAGS "-O3 -g -gstabs+ -DHAVE_JFCONFIG_H -std=c++11")
+set (CMAKE_CXX_FLAGS "-O3 -DHAVE_ANSI_TERM -DHAVE_JFCONFIG_H -std=c++11")
 
 set (GAT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 

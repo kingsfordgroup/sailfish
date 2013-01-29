@@ -10,6 +10,7 @@
 #include <thread>
 
 /** Boost Includes */
+#include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/progress.hpp>
 #include <boost/shared_ptr.hpp>
@@ -33,6 +34,8 @@
 
 #include "nnls.h"
 
+#include "ezETAProgressBar.hpp"
+
 template <typename ReadHashT, typename TranscriptHashT>
 class IterativeOptimizer {
 
@@ -47,6 +50,11 @@ private:
     typedef double KmerQuantityT;
     //typedef std::unordered_map< KmerIDT, std::vector<TranscriptIDT> > KmerMapT;
     typedef tbb::concurrent_unordered_map< uint64_t, tbb::concurrent_vector<uint32_t> > KmerMapT;
+
+    struct TranscriptGeneVectors;
+    typedef std::vector<TranscriptGeneVectors> KmerIDMap;
+
+
     typedef std::tuple<TranscriptIDT, std::vector<KmerIDT>> TranscriptKmerSet;
     typedef std::string *StringPtrT;
     typedef uint64_t TranscriptScoreT;
@@ -57,6 +65,11 @@ private:
     struct TranscriptDataT;
     typedef std::tuple<TranscriptScoreT, TranscriptIDT> HeapPair;
     typedef typename boost::heap::fibonacci_heap<HeapPair>::handle_type HandleT;
+
+    struct TranscriptGeneVectors {
+        tbb::concurrent_vector<uint32_t> transcripts;
+        tbb::concurrent_vector<uint32_t> genes;
+    };
 
     struct TranscriptDataT {
         TranscriptIDT id;
@@ -98,7 +111,8 @@ private:
     size_t _promiscuousKmerCutoff {10000};
 
     // Map each kmer to the set of transcripts it occurs in
-    KmerMapT _transcriptsForKmer;
+    //KmerMapT _transcriptsForKmer;
+    KmerIDMap _transcriptsForKmer;
 
     // The actual data for each transcript
     std::vector<TranscriptInfo *> _transcripts;
@@ -107,7 +121,7 @@ private:
 
     tbb::concurrent_unordered_set<uint64_t> _genePromiscuousKmers;
 
-    // Should the given kmer be considered?t
+    // Should the given kmer be considered?
     inline bool _considered( uint64_t mer ) {
         // The kmer is only considered if it exists in the transcript set
         // (i.e. it's possible to cover) and it's less prmiscuous than the
@@ -118,22 +132,14 @@ private:
     }
 
     KmerQuantityT _weight( KmerIDT k ) {
-        return 1.0 / (1.0 + _transcriptHash[k]);
+        //return 1.0 / (_transcriptHash[k]);
+        return 1.0 / (_transcriptHash.atIndex(k));
     }
 
-    KmerQuantityT _computeMean( TranscriptInfo* ti ) {
-        KmerQuantityT mean = 0.0;
-        auto norm = 1.0 / ti->length;//binMers.size();
-        for ( auto binmer : ti->binMers ) {
-            if ( this->_genePromiscuousKmers.find(binmer.first) == this->_genePromiscuousKmers.end() ){
-                mean += norm * binmer.second;
-            }
-        }
-        return mean;
-    }
+    KmerQuantityT _computeMedian( TranscriptInfo* ti ) {
 
-    KmerQuantityT _computeMedian( std::map<KmerIDT, KmerQuantityT> &binMers ) {
         KmerQuantityT median = 0.0;
+        auto& binMers = ti->binMers;
         auto len = binMers.size();
         if ( len > 0 ) {
             if ( len % 2 == 0 ) {
@@ -151,14 +157,32 @@ private:
         return median;
     }
 
-    KmerQuantityT _computeSum( std::map<KmerIDT, KmerQuantityT> &binMers ) {
-        KmerQuantityT mean = 0.0;
-        for ( auto binmer : binMers ) {
+    KmerQuantityT _computeSum( TranscriptInfo* ti ) {
+        KmerQuantityT sum = 0.0;
+        for ( auto binmer : ti->binMers ) {
             if ( this->_genePromiscuousKmers.find(binmer.first) == this->_genePromiscuousKmers.end() ){
-            mean += binmer.second;
+                sum += binmer.second;
             }
         }
-        return mean;
+        return sum;
+    }
+
+    KmerQuantityT _computeMean( TranscriptInfo* ti ) {
+        return 1.0 / ti->length * _computeSum(ti);
+    }
+
+    KmerQuantityT _computeWeightedMean( TranscriptInfo* ti ) {
+        double denom = 0.0;
+        double sum = 0.0;
+        for ( auto binmer : ti->binMers ) {
+          if ( this->_genePromiscuousKmers.find(binmer.first) == this->_genePromiscuousKmers.end() ){
+            auto w = _weight(binmer.first);
+            sum += w * binmer.second;
+            denom += w;
+          }
+        }
+
+        return (denom > 0.0) ? (sum / denom) : 0.0;
     }
 
     double _effectiveLength( TranscriptInfo* ts ) {
@@ -182,25 +206,18 @@ private:
             ++numFnames;
         }
 
-        // Open up the transcript file for reading
-        //const char *fnames[] = { transcriptFile.c_str() };
         // Create a jellyfish parser
         jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
 
         // So we can concisely identify each transcript
         TranscriptIDT transcriptIndex {0};
 
-        // Holds the tasks to be processed
-        boost::lockfree::fifo< TranscriptJob * > workQueue;
-        // Holds the processed transcript data
-        boost::lockfree::fifo< TranscriptDataT * > processedReadQueue;
-        // Holds results that we will use to update the index map
-        boost::lockfree::fifo< TranscriptKmerSet * > q;
-
         size_t numActors = 12;
         std::vector<std::thread> threads;
 
         _transcripts.resize( _transcriptGeneMap.numTranscripts(), nullptr );
+
+        _transcriptsForKmer.resize( _transcriptHash.size() );
 
         bool done {false};
         std::atomic<size_t> numRes {0};
@@ -208,15 +225,17 @@ private:
         // Start the thread that will print the progress bar
         threads.push_back( std::thread( [&numRes, this] () {
             auto numJobs = this->_transcriptGeneMap.numTranscripts();
-            boost::progress_display show_progress( numJobs );
+            ez::ezETAProgressBar show_progress(numJobs);
+            //boost::progress_display show_progress( numJobs );
             size_t lastCount = numRes;
+            show_progress.start();
             while ( lastCount < numJobs ) {
                 auto diff = numRes - lastCount;
                 if ( diff > 0 ) {
-                    show_progress += diff;
+                    show_progress += static_cast<unsigned int>(diff);
                     lastCount += diff;
                 }
-                boost::this_thread::sleep_for(boost::chrono::milliseconds(250));
+                boost::this_thread::sleep_for(boost::chrono::milliseconds(1010));
             }
         }) );
 
@@ -245,6 +264,8 @@ private:
                         auto transcriptIndex = this->_transcriptGeneMap.findTranscriptID( 
                             std::string( read->header, read->hlen ) );
 
+                        auto geneIndex = this->_transcriptGeneMap.gene(transcriptIndex);
+
                         // The set of kmers in this transcript
                         //auto ts = new TranscriptKmerSet {transcriptIndex, {}};
 
@@ -259,18 +280,24 @@ private:
                         ReadLengthT effectiveLength(0);
                         float weightedLen = 0.0;
                         size_t coverage = _merLen;
-                        for ( auto offset : boost::irange( size_t(0), numKmers ) ) { // < numKmers ) {
-                            auto mer = newSeq.substr( offset, this->_merLen );
-                            // Only count and track kmers which should be considered
+                        auto INVALID = this->_transcriptHash.INVALID;
+                        for ( auto offset : boost::irange( size_t(0), numKmers ) ) { 
+                            // the kmer and it's uint64_t representation
+                            auto mer = newSeq.substr( offset, this->_merLen );                            
                             auto binMer = jellyfish::parse_dna::mer_string_to_binary( mer.c_str(), _merLen );
+                            auto binMerId = this->_transcriptHash.id(binMer);
+                            // Only count and track kmers which should be considered
                             //if ( this->_considered(binMer) ) {
-                            if ( this->_readHash[binMer] > 0 ) {
-                                weightedLen += (1.0 / (1.0 + this->_transcriptHash[binMer]));
+                            if ( binMerId != INVALID and this->_readHash.atIndex(binMerId) > 0 ) {
+                                weightedLen += (1.0 / this->_transcriptHash.atIndex(binMerId));
                                 effectiveLength += coverage;
                                 coverage = 1;
-                                binMers[binMer] += 1.0;
-                                //std::get<1>(*ts).push_back(binMer);
-                                this->_transcriptsForKmer[binMer].push_back(transcriptIndex);
+                                //binMers[binMer] += 1.0;
+                                binMers[binMerId] += 1.0;
+                                
+                                //this->_transcriptsForKmer[binMer].push_back(transcriptIndex);
+                                this->_transcriptsForKmer[binMerId].transcripts.push_back(transcriptIndex);
+                                this->_transcriptsForKmer[binMerId].genes.push_back(geneIndex);
                             } else {
                                 coverage += (coverage < _merLen) ? 1 : 0;
                             }
@@ -280,7 +307,7 @@ private:
                             binMers, // the set of kmers
                             0.0, // initial desired mean
                             readLen, // real transcript length
-                            weightedLen // effective transcript length
+                            effectiveLength // effective transcript length
                         };
                         this->_transcripts[transcriptIndex] = procRead;
                     }
@@ -292,39 +319,49 @@ private:
         for ( auto& thread : threads ){ thread.join(); }
 
         numRes = 0;
-        /*
-        auto printProgressBar2 = [&numRes, this] () {
-            auto numJobs = this->_transcriptsForKmer.size();
-            boost::progress_display show_progress( numJobs );
-            size_t lastCount = numRes;
-            while ( lastCount < numJobs ) {
-                auto diff = numRes - lastCount;
-                if ( diff > 0 ) {
-                    show_progress += diff;
-                    lastCount += diff;
-                }
-                boost::this_thread::sleep_for(boost::chrono::milliseconds(250));
-            }
-        };
-        std::cerr << "Processing transcripts\n";
-        tp.schedule(printProgressBar2);
-        */
-
         tbb::task_scheduler_init tbb_init;
 
         std::cerr << "Determining gene-promiscuous kmers ... ";
+        
+        //tbb::parallel_for_each( _transcriptsForKmer.begin(), _transcriptsForKmer.end(),
+        tbb::parallel_for( size_t(0), size_t(_transcriptsForKmer.size()),
+            [&numRes, this]( size_t idx ) { //KmerMapT::value_type& kt ) {
 
-        tbb::parallel_for_each( _transcriptsForKmer.begin(), _transcriptsForKmer.end(),
-            [&numRes, this]( KmerMapT::value_type& kt ) {
-                auto& transcripts = kt.second;
+                /*
+                //auto& transcripts = kt.second;
+                */
+                
+                // Uniqify the transcripts
+                auto& transcripts = this->_transcriptsForKmer[idx].transcripts;
                 std::sort(transcripts.begin(), transcripts.end());
                 auto it = std::unique(transcripts.begin(), transcripts.end()); 
                 transcripts.resize( it - transcripts.begin() );
+                
+                
+                auto numGenes = this->_transcriptsForKmer[idx].genes.size();
+                if (numGenes > 1) {
+                    auto geneId = this->_transcriptsForKmer[idx].genes[0];
+                    for ( auto i : boost::irange(size_t(1), this->_transcriptsForKmer[idx].genes.size()) ) {
+                      auto id = this->_transcriptsForKmer[idx].genes[i];
+                      if( id != geneId) { this->_genePromiscuousKmers.insert(idx); break; }
+                  }
+                }
+                
+
+
+                // auto geneId = this->_transcriptGeneMap.gene(transcripts[0]);
+                // for ( auto i : boost::irange(size_t(1), transcripts.size()) ) {
+                //     auto id = this->_transcriptGeneMap.gene(transcripts[i]);
+                //     if( id != geneId) { this->_genePromiscuousKmers.insert(kt.first); break; }
+                // }
+
+                /*
                 std::unordered_set<uint32_t> geneSet;
                 for ( auto t : transcripts ){
                     geneSet.insert(this->_transcriptGeneMap.gene(t));
                 }
                 if ( geneSet.size() > 1 ){ this->_genePromiscuousKmers.insert(kt.first); }
+                */
                 ++numRes;
             }
         );
@@ -339,11 +376,12 @@ private:
                 auto kmer = kv.first;
                 if ( this->_genePromiscuousKmers.find(kmer) == this->_genePromiscuousKmers.end() ){
                     auto count = kv.second;
-                    kv.second = count * this->_readHash[kmer] * this->_weight(kmer);
+                    //kv.second = count * this->_readHash[kmer] * this->_weight(kmer);
+                    kv.second = count * this->_readHash.atIndex(kmer) * this->_weight(kmer);
                 }
             }
 
-            transcriptData->mean = this->_computeMean( transcriptData );
+            transcriptData->mean = this->_computeWeightedMean( transcriptData );
         }
         );
 
@@ -402,20 +440,22 @@ public:
         std::vector<KmerIDT> kmerList( _transcriptsForKmer.size(), 0 );
         size_t idx = 0;
 
+        /* TranscriptsForKmer change 
         // For each kmer
         for ( auto & kmerTranscripts :  _transcriptsForKmer ) {
             auto kmer = kmerTranscripts.first;
             kmerList[idx] = kmer;
             ++idx;
         }
-        
+        */
+       
         tbb::task_scheduler_init tbb_init;
 
         for ( size_t iter = 0; iter < numIt; ++iter ) {
 
             auto reqNumJobs = _transcriptsForKmer.size();
 
-            std::cerr << "iteraton: " << iter;
+            std::cerr << "iteraton: " << iter << "\n";
 
             globalError = 0.0;
             numJobs = 0;
@@ -424,29 +464,31 @@ public:
             auto pbthread = std::thread( 
                 [&completedJobs, reqNumJobs]() -> bool {
                     auto prevNumJobs = 0;
-                    boost::progress_display show_progress( reqNumJobs );
+                    ez::ezETAProgressBar show_progress(reqNumJobs);
+                    //boost::progress_display show_progress( reqNumJobs );
+                    show_progress.start();
                     while ( prevNumJobs < reqNumJobs ) {
                         if ( prevNumJobs < completedJobs ) {
                             show_progress += completedJobs - prevNumJobs;
                         }
                         prevNumJobs = completedJobs.load();
 
-                        boost::this_thread::sleep_for(boost::chrono::milliseconds(150));
+                        boost::this_thread::sleep_for(boost::chrono::milliseconds(1010));
                     }
+                    show_progress.done();
                     return true;
                 }
             );
 
-            //tp.schedule( pbthread );
-
-
-            tbb::parallel_for( size_t(0), size_t(kmerList.size()),
+            tbb::parallel_for( size_t(0), size_t(_transcriptsForKmer.size()),
                 
                 [&kmerList, &completedJobs, this]( size_t kid ) {
-                        // this thread claimed myJobID;
-                        auto kmer = kmerList[kid];
+
+                        auto kmer = kid;
+
                         if ( this->_genePromiscuousKmers.find(kmer) == this->_genePromiscuousKmers.end() ){
-                        auto &transcripts = this->_transcriptsForKmer[kmer];
+                        //auto &transcripts = this->_transcriptsForKmer[kmer];
+                        auto &transcripts = this->_transcriptsForKmer[kmer].transcripts;
                         if ( transcripts.size() > 1 ) {
 
                             double totalMass = 0.0;
@@ -456,9 +498,13 @@ public:
 
                             double norm = 1.0 / totalMass;
                             for ( auto tid : transcripts ) {
+                                //this->_transcripts[tid]->binMers[kmer] = ( totalMass > 0.0 ) ?
+                                //  norm * this->_readHash[kmer] * this->_transcripts[tid]->mean :
+                                //  0.0;
                                 this->_transcripts[tid]->binMers[kmer] = ( totalMass > 0.0 ) ?
-                                  norm * this->_readHash[kmer] * this->_transcripts[tid]->mean :
+                                  norm * this->_readHash.atIndex(kmer) * this->_transcripts[tid]->mean :
                                   0.0;
+
                             }
 
                         }
@@ -473,25 +519,37 @@ public:
             // reset the job counter
             completedJobs = 0;
 
+            double delta = 0.0;
+            double norm = 1.0 / _transcripts.size();
+
             std::cerr << "\ncomputing new means ... ";
             // compute the new mean for each transcript
             tbb::parallel_for( size_t(0), size_t(_transcripts.size()),
-                [this, iter, numIt]( size_t tid ) -> void {
+                [this, iter, numIt, norm, &delta]( size_t tid ) -> void {
                         // this thread claimed myJobID;
                         auto ts = this->_transcripts[tid];
-                        ts->mean = this->_computeMean( ts );
-                        if ( ts->mean <= (iter * 0.0 / numIt) ) { ts->mean = 0.0; }
+                        auto prevMean = ts->mean;
+                        ts->mean = this->_computeWeightedMean( ts );
+                        delta += std::abs( ts->mean - prevMean ) * norm;
                 }
             );
             std::cerr << "done\n";
+            std::cerr << "average variation in mean = " << delta << "\n";
         }
 
 
+        std::cerr << "Writing output\n";
+        ez::ezETAProgressBar pb(_transcripts.size());
+        pb.start();
+
         std::ofstream ofile( outputFile );
         size_t index = 0;
+        ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << "Weighted Mapped Reads" << '\n';
         for ( auto ts : _transcripts ) {
-            ofile << _transcriptGeneMap.transcriptName(index) << '\t' << ts->length << '\t' << _computeSum(ts->binMers) << "\n";
+            ofile << _transcriptGeneMap.transcriptName(index) << '\t' << ts->length << '\t' <<
+                    ts->effectiveLength << '\t' << _computeSum(ts) << "\n";
             ++index;
+            ++pb;
         }
         ofile.close();
 

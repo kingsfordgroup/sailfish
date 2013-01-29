@@ -1,7 +1,7 @@
 """SFPipeline.py
 
 Usage:
-  SFPipeline.py CMD (--cfg=<cfgfile>) (--targets=<tgt>) (--log=<log>) [--print] [--forced=<forced>] [--verbose=<v>]
+  SFPipeline.py CMD (--cfg=<cfgfile>) (--targets=<tgt>)... (--log=<log>) [--print] [--forced=<forced>]... [--verbose=<v>]
 
 Arguments:
   CMD              The command to run {sf}

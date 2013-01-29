@@ -1,2 +1,1 @@
 Sailfish README
-===============

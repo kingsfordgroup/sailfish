@@ -17,13 +17,6 @@
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 
-#include <seqan/sequence.h>
-#include <seqan/basic.h>
-#include <seqan/file.h>
-#include <seqan/find.h>
-#include <seqan/seq_io.h>
-#include <seqan/modifier.h>
-
 #include "g2logworker.h"
 #include "g2log.h"
 
@@ -36,20 +29,21 @@
 #include <jellyfish/misc.hpp>
 #include <jellyfish/compacted_hash.hpp>
 
-#include "tclap/CmdLine.h"
+#include "utils.hpp"
+#include "genomic_feature.hpp"
+#include "CountDB.hpp"
+#include "iterative_optimizer.hpp"
 #include "affymetrix_utils.hpp"
+
+using affymetrix::utils::AffyEntry;
+
+#if 0
+
 #include "kfitf.hpp"
 #include "linear_system_builder.hpp"
 #include "transcript_segmenter.hpp"
 #include "set_multicover_solver.hpp"
-#include "iterative_optimizer.hpp"
-#include "utils.hpp"
-#include "genomic_feature.hpp"
-#include "CountDB.hpp"
-
-using affymetrix::utils::AffyEntry;
-
-using seqan::DnaString;
+#include "tclap/CmdLine.h"
 
 
 typedef std::tuple< std::string, double, double > record;
@@ -689,6 +683,8 @@ int runSetCover(int argc, char* argv[] ) {
   }
 }
 
+#endif
+
 int runIterativeOptimizer(int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
@@ -731,29 +727,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       po::store(po::parse_config_file<char>(cfgFile.c_str(), programOptions, true), vm);
     }
     po::notify(vm);
-
-    /*
-    TCLAP::CmdLine cmd("Sailfish", ' ', "1.0");
-    TCLAP::MultiArg<string> genesFile("g", "genes", "gene sequences", true, "string");
-    //TCLAP::ValueArg<string> hashFile("j", "jfhash", "jellyfish hash file", true, "", "string");
-
-    TCLAP::ValueArg<string> orderFile("s", "orderFile", "file storing order of the kmers", true, "", "string");
-    TCLAP::ValueArg<string> hashFile("c", "count", "count file", true, "", "string");
-
-    TCLAP::ValueArg<string> transcriptHashFile("t", "thash", "transcript jellyfish hash file", true, "", "string");
-    TCLAP::ValueArg<string> outputFile("o", "output", "output file", true, "", "string");
-    TCLAP::ValueArg<string> transcriptGeneMap("m", "tgmap", "file that maps transcripts to genes", true, "", "string");
-    TCLAP::ValueArg<size_t> numIter("i", "iterations", "number of iterations to run the optimization", false, 3, "size_t");
-    cmd.add(transcriptHashFile);
-    cmd.add(genesFile);
-    cmd.add(transcriptGeneMap);
-    cmd.add(orderFile);
-    cmd.add(hashFile);
-    cmd.add(outputFile);
-    cmd.add(numIter);
-
-    cmd.parse(argc, argv);
-    */
 
     string transcriptGeneMap = vm["tgmap"].as<string>();
     string hashFile = vm["count"].as<string>();
@@ -803,6 +776,26 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
 }
 
+int help(int argc, char* argv[]) {
+  auto helpmsg = R"(
+  Sailfish v0.1
+  =============
+
+  Please invoke sailfish with one of the following quantification
+  methods {itopt, setcover, nnls}.  For more inforation on the 
+  options for theses particular methods, use the -h flag along with
+  the method name.  For example:
+
+  Sailfish itopt -h
+
+  will give you detailed help information about the iterative optimization
+  method.
+  )";
+
+  std::cerr << helpmsg << "\n";
+  return 1;
+}
+
 int main( int argc, char* argv[] ) {
 
   g2LogWorker logger(argv[0], "./" );
@@ -810,32 +803,29 @@ int main( int argc, char* argv[] ) {
   std::cerr << "** log file being written to " << logger.logFileName().get() << "** \n";
   
   using std::string;
+  namespace po = boost::program_options;
 
   try {
-
-    std::unordered_map<std::string, std::function<int(int, char*[])>> cmds({ 
+    std::unordered_map<std::string, std::function<int(int, char*[])>> cmds({
+      {"-h" , help},
+      {"--help", help},
+      {"itopt", runIterativeOptimizer}});
+    /*
       {"cmd1", command1}, 
       {"cmd2", command2}, 
       {"wcount", weightedCount}, 
       {"nnls", runNNLS},
-      {"itopt", runIterativeOptimizer},
       {"setcover", runSetCover }});
-
-    // TCLAP::CmdLine cmd("RNASeq!", ' ', "1.0");
-    // TCLAP::SwitchArg cmd1("x", "xx", "cmd1", false);
-    // TCLAP::SwitchArg cmd2("y", "yy", "cmd2", false);
-
-    // std::vector<TCLAP::Arg*> cmds;
-    // cmds.push_back(&cmd1);
-    // cmds.push_back(&cmd2);
-
-    // cmd.xorAdd( cmds );
-
-    // cmd.parse(argc, argv);
+    */
+   
     char** argv2 = new char*[argc-1];
     argv2[0] = argv[0];
     std::copy_n( &argv[2], argc-2, &argv2[1] );
-    cmds[ argv[1] ](argc-1, argv2);
+    if (cmds.find(argv[1]) == cmds.end()) {
+      help( argc-1, argv2 );
+    } else {
+      cmds[ argv[1] ](argc-1, argv2);
+    }
     delete[] argv2;
 
   } catch (TCLAP::ArgException &e) {
