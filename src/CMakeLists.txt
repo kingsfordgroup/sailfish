@@ -21,6 +21,8 @@ ${GAT_SOURCE_DIR}/external/g2log/src
 ${ZLIB_INCLUDE_DIR}
 ${SEQAN_PATH}/core/include
 ${SEQAN_PATH}/extra/include
+/home/robp/dist/include
+/home/robp/dist/include/jellyfish-1.1.6
 /opt/local/include/jellyfish-1.1.6
 /fs/szattic-asmg6/rob/dist/include/jellyfish-1.1.6
 /fs/szattic-asmg6/rob/dist/include
@@ -32,6 +34,8 @@ ${SEQAN_PATH}/extra/include
 
 link_directories( 
 ${GAT_SOURCE_DIR}/lib
+/home/robp/dist/lib
+/home/robp/dist/lib64
 /opt/local/lib
 /opt/local/lib/gcc47
 /fs/szattic-asmg6/rob/dist/lib64
@@ -46,16 +50,17 @@ if (ZLIB_FOUND)
    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DSEQAN_HAS_ZLIB")
 endif (ZLIB_FOUND)
 
-add_executable( MapProbesToGenes ${PROBES_TO_GENES_SRC} )
-message ( "Boost Libraries are ${Boost_LIBRARIES}" )
-target_link_libraries( MapProbesToGenes ${Boost_LIBRARIES} ${ZLIB_LIBRARY} )
+#add_executable( MapProbesToGenes ${PROBES_TO_GENES_SRC} )
+#target_link_libraries( MapProbesToGenes ${Boost_LIBRARIES} ${ZLIB_LIBRARY} )
 
+message ( "Boost Libraries are ${Boost_LIBRARIES}" )
 message ( "Sailfish sources are ${SAILFISH_MAIN_SRCS}")
 add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
 target_link_libraries( Sailfish 
 	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
-	lapack
-	jellyfish pthread cppa mlrmcl 
+	#lapack
+	jellyfish pthread 
+	#cppa mlrmcl 
     gomp lib_activeobject lib_g2logger blas m tbb)#tsnnls shotgun )
 
 #add_executable( BuildIndex ${BUILD_INDEX_SRCS} )
