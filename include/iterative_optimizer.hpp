@@ -17,7 +17,7 @@
 #include <boost/scoped_ptr.hpp>
 #include <boost/heap/fibonacci_heap.hpp>
 
-#include <Eigen/Core>
+//#include <Eigen/Core>
 
 #include <jellyfish/sequence_parser.hpp>
 #include <jellyfish/parse_read.hpp>
@@ -32,7 +32,7 @@
 #include "tbb/parallel_for_each.h"
 #include "tbb/task_scheduler_init.h"
 
-#include "nnls.h"
+//#include "nnls.h"
 
 #include "ezETAProgressBar.hpp"
 
