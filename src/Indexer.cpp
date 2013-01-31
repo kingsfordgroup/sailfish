@@ -27,7 +27,7 @@
 #include "CountDB.hpp"
 
 
-int main( int argc, char *argv[] ) {
+int indexMain( int argc, char *argv[] ) {
     using std::string;
     namespace po = boost::program_options;
 

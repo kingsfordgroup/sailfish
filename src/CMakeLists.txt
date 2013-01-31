@@ -1,10 +1,11 @@
 set ( PROBES_TO_GENES_SRC MapProbesToGenes.cpp affymetrix_utils.cpp )
 set ( SAILFISH_MAIN_SRCS 
-affymetrix_utils.cpp 
-nnls.cpp
-G12.cpp
-myMath.cpp 
-H12.cpp
+#affymetrix_utils.cpp 
+#nnls.cpp
+#G12.cpp
+#myMath.cpp 
+#H12.cpp
+Indexer.cpp
 sailfish.cpp 
 )
 
@@ -57,8 +58,8 @@ target_link_libraries( Sailfish
 	jellyfish pthread cppa mlrmcl 
     gomp lib_activeobject lib_g2logger blas m tbb)#tsnnls shotgun )
 
-add_executable( BuildIndex ${BUILD_INDEX_SRCS} )
-target_link_libraries( BuildIndex ${Boost_LIBRARIES} jellyfish pthread m tbb)
+#add_executable( BuildIndex ${BUILD_INDEX_SRCS} )
+#target_link_libraries( BuildIndex ${Boost_LIBRARIES} jellyfish pthread m tbb)
 
 
 #add_executable( TestTsnnls ${TEST_SRCS} )
