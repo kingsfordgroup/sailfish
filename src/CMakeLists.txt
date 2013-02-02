@@ -5,7 +5,9 @@ set ( SAILFISH_MAIN_SRCS
 #G12.cpp
 #myMath.cpp 
 #H12.cpp
-Indexer.cpp
+#Indexer.cpp
+PerfectHashIndexer.cpp
+IndexedCounter.cpp
 sailfish.cpp 
 )
 
@@ -59,6 +61,7 @@ add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
 target_link_libraries( Sailfish 
 	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
 	#lapack
+	cmph # perfect hashing library
 	jellyfish pthread 
 	#cppa mlrmcl 
     gomp lib_activeobject lib_g2logger blas m tbb)#tsnnls shotgun )

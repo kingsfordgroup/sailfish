@@ -31,7 +31,7 @@
 
 #include "utils.hpp"
 #include "genomic_feature.hpp"
-#include "CountDB.hpp"
+#include "CountDBNew.hpp"
 #include "iterative_optimizer.hpp"
 #include "tclap/CmdLine.h"
 
@@ -51,8 +51,9 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::options_description config("Configuration");
     config.add_options()
       ("genes,g", po::value< std::vector<string> >(), "gene sequences")
-      ("count,c", po::value<string>(), "count file")
-      ("thash,t", po::value<string>(), "transcript jellyfish hash file")
+      ("counts,c", po::value<string>(), "count file")
+      ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
+      //("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
       ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("iterations,i", po::value<size_t>(), "number of iterations to run the optimzation")
@@ -79,9 +80,12 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::notify(vm);
 
     string transcriptGeneMap = vm["tgmap"].as<string>();
-    string hashFile = vm["count"].as<string>();
+    string hashFile = vm["counts"].as<string>();
     std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
-    string transcriptHashFile = vm["thash"].as<string>();
+    //string transcriptHashFile = vm["thash"].as<string>();
+    string sfIndexBase = vm["index"].as<string>();
+    string sfIndexFile = sfIndexBase+".sfi";
+    string sfTrascriptCountFile = sfIndexBase+".sfc";
     string outputFile = vm["output"].as<string>();
     size_t numIter = vm["iterations"].as<size_t>();
 
@@ -100,20 +104,25 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     auto tgm = utils::transcriptToGeneMapFromFeatures( features );
     std::cerr << "done\n";
 
-    std::cerr << "Reading transcript index from [" << transcriptHashFile << "] . . .";
-    auto transcriptHash = CountDB::fromFile( transcriptHashFile );
+    std::cerr << "Reading transcript index from [" << sfIndexFile << "] . . .";
+    auto sfIndex = PerfectHashIndex::fromFile( sfIndexFile );
+    auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
+    auto sfIndexPtr = std::shared_ptr<PerfectHashIndex>( &sfIndex, del );
+    std::cerr << "done\n";
+
+    std::cerr << "Reading transcript counts from [" << sfTrascriptCountFile << "] . . .";
+    auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
     std::cerr << "done\n";
 
     // the READ hash
-    std::cerr << "Reading indexed read counts from [" << hashFile << "] . . .";
-    CountDB hash( hashFile, transcriptHash.indexKmers(), transcriptHash.kmerLength() );    
+    std::cerr << "Reading read counts from [" << hashFile << "] . . .";
+    auto hash = CountDBNew::fromFile( hashFile, sfIndexPtr );
     std::cerr << "done\n";
-
     const std::vector<string>& geneFiles{genesFile};
-    auto merLen = transcriptHash.kmerLength();
+    auto merLen = sfIndex.kmerLength();
     
     std::cerr << "Creating optimizer . . .";
-    IterativeOptimizer<CountDB, CountDB> solver( hash, transcriptHash, tgm );
+    IterativeOptimizer<CountDBNew, CountDBNew> solver( hash, transcriptHash, tgm );
     std::cerr << "done\n";
 
     std::cerr << "optimizing for " << numIter << " iterations";
@@ -146,7 +155,9 @@ int help(int argc, char* argv[]) {
   return 1;
 }
 
-int indexMain( int argc, char* argv[] );
+//int indexMain( int argc, char* argv[] );
+int mainIndex( int argc, char* argv[] );
+int mainCount( int argc, char* argv[] );
 
 int main( int argc, char* argv[] ) {
 
@@ -162,7 +173,8 @@ int main( int argc, char* argv[] ) {
       {"-h" , help},
       {"--help", help},
       {"itopt", runIterativeOptimizer},
-      {"index", indexMain}});
+      {"index", mainIndex},
+      {"count", mainCount}});
   
     char** argv2 = new char*[argc-1];
     argv2[0] = argv[0];

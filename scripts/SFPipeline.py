@@ -141,7 +141,9 @@ def buildIndex(input, output, config):
 			v = ' '.join(glob.glob(v))
 		return [k,v]
 
+
 	argString = ' '.join( ' '.join(procArg(k,v)) for k,v in config['arguments'].iteritems() )
+    
 	executable = config['executable']
 	cmd = [executable] + shlex.split(argString)
 	tstart = time.time()
@@ -149,7 +151,28 @@ def buildIndex(input, output, config):
 	tend = time.time()
 	s = tend-tstart
 	with open('../results/sfindex.time','wb') as ofile:
-		ofile.write('Computing expression took {0} seconds\n'.format(s))
+		ofile.write('Building index took {0} seconds\n'.format(s))
+
+@follows(nobody, mkdir('../results'))
+@files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['CountKmers']['depends']])),
+        configFile['CountKmers']['produces'],
+        configFile['CountKmers']
+      )
+def countKmers(input, output, config):
+    def procArg(k,v):
+        if k == '--reads':
+            v = ' '.join(glob.glob(v))
+        return [k,v]
+
+    argString = ' '.join( ' '.join(procArg(k,v)) for k,v in config['arguments'].iteritems() )
+    executable = config['executable']
+    cmd = [executable] + shlex.split(argString)
+    tstart = time.time()
+    subprocess.call(cmd)
+    tend = time.time()
+    s = tend-tstart
+    with open('../results/sfcount.time','wb') as ofile:
+        ofile.write('Counting kmers took {0} seconds\n'.format(s))
 
 @follows(buildIndex, mkdir("../results"))
 @files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['Sailfish']['depends']])),

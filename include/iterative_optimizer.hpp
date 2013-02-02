@@ -9,10 +9,11 @@
 #include <mutex>
 #include <thread>
 
+#include "btree_map.h"
+
 /** Boost Includes */
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
-#include <boost/progress.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/heap/fibonacci_heap.hpp>
@@ -80,7 +81,7 @@ private:
     };
 
     struct TranscriptInfo {
-        std::map<KmerIDT, KmerQuantityT> binMers;
+        btree::btree_map<KmerIDT, KmerQuantityT> binMers;
         KmerQuantityT mean;
         ReadLengthT length;
         ReadLengthT effectiveLength;
@@ -273,8 +274,14 @@ private:
                         size_t numKmers {readLen - this->_merLen + 1};
                         //std::get<1>(*ts).reserve(numKmers);
                         
+                        auto procRead = new TranscriptInfo {
+                            btree::btree_map<KmerIDT, KmerQuantityT>(),
+                            0.0,
+                            readLen,
+                            0
+                        };
                         // The binary representation of the kmers in this transcript
-                        std::map<KmerIDT, KmerQuantityT> binMers;
+                        //btree::btree_map<KmerIDT, KmerQuantityT> binMers;
 
                         // Iterate over the kmers
                         ReadLengthT effectiveLength(0);
@@ -293,7 +300,7 @@ private:
                                 effectiveLength += coverage;
                                 coverage = 1;
                                 //binMers[binMer] += 1.0;
-                                binMers[binMerId] += 1.0;
+                                procRead->binMers[binMerId] += 1.0;
                                 
                                 //this->_transcriptsForKmer[binMer].push_back(transcriptIndex);
                                 this->_transcriptsForKmer[binMerId].transcripts.push_back(transcriptIndex);
@@ -302,13 +309,14 @@ private:
                                 coverage += (coverage < _merLen) ? 1 : 0;
                             }
                         }
-                        
+                        procRead->effectiveLength = effectiveLength;
+                        /*
                         auto procRead = new TranscriptInfo {
                             binMers, // the set of kmers
                             0.0, // initial desired mean
                             readLen, // real transcript length
                             effectiveLength // effective transcript length
-                        };
+                        };*/
                         this->_transcripts[transcriptIndex] = procRead;
                     }
             }) );
