@@ -194,7 +194,7 @@ private:
         return length;
     }
 
-    void _initialize( const std::vector<std::string> &transcriptFiles ) { 
+    size_t _initialize( const std::vector<std::string> &transcriptFiles ) { 
 
         char** fnames = new char*[transcriptFiles.size()];
         size_t z{0};
@@ -375,6 +375,14 @@ private:
         );
         std::cerr << "done\n";
 
+        std::cerr << "computing number of mapped (usable) reads\n";
+        size_t mappedReads = 0;
+        for ( auto kidx : boost::irange(size_t(0), _transcriptsForKmer.size()) ) {
+            if ( _genePromiscuousKmers.find(kidx) == _genePromiscuousKmers.end() ) {
+                mappedReads += _readHash.atIndex(kidx);
+            }
+        }
+
         std::cerr << "Computing initial coverage estimates ... ";
 
         tbb::parallel_for( size_t(0), size_t(_transcriptGeneMap.numTranscripts()),
@@ -395,6 +403,7 @@ private:
 
 
         std::cerr << "done\n";
+        return mappedReads;
     }
 
     void _dumpCoverage( const std::string &cfname ) {
@@ -421,6 +430,83 @@ private:
         ofile.close();
 
     }
+
+
+    std::vector<double> _estimateIsoformAbundance( const size_t geneID, const size_t mappedReads
+      //std::vector<std::vector<uint64_t>> &transcriptKmers,
+      //std::vector<double>& transcriptLengths,
+      //size_t mappedReads,
+      //tbb::concurrent_unordered_map<uint64_t, uint32_t>& genePromiscuousKmers
+      ) {
+
+        typedef std::vector<std::vector<double>> IsoOptMatrix;
+        typedef std::vector<double> IsoOptVector;
+
+        auto transcripts = _transcriptGeneMap.transcriptsForGene( geneID );
+        size_t numTranscripts = transcripts.size();
+
+        std::unordered_map<uint64_t, size_t> kmerIDs;
+        std::unordered_set<uint64_t> geneKmers;
+        // reindex the kmers for this gene
+        for ( size_t i = 0; i < transcripts.size(); ++i ) {
+            for ( auto kc : _transcripts[ transcripts[i] ]->binMers ) {
+                auto kmer = kc.first;
+                auto kmerIt = geneKmers.find(kmer);
+                if ( kmerIt == geneKmers.end() ) {
+                    kmerIDs[kmer] = geneKmers.size();
+                    geneKmers.insert(kmer);
+                }
+            }            
+        }
+
+        size_t numKmers = geneKmers.size();
+        if ( numKmers == 0 ) {
+            return IsoOptVector();
+        }
+
+        // Create a numTranscripts x numKmers matrix to hold the "rates"
+        IsoOptVector x(numTranscripts, 0.0);
+        IsoOptMatrix A(numTranscripts, IsoOptVector(numKmers, 0.0) );
+        IsoOptVector counts(numKmers, 0.0);
+        double numReads = 0.0;
+
+        for ( size_t i = 0; i < transcripts.size(); ++i ) {
+            for ( auto kc : _transcripts[ transcripts[i] ]->binMers ) {
+                auto kmer = kc.first; auto count = kc.second;
+                size_t j = kmerIDs[kmer];
+                A[i][j] = 1.0;
+                if ( counts[j] == 0 ) {
+                    auto promIt = _genePromiscuousKmers.find(kmer);
+                    double normFact = (promIt == _genePromiscuousKmers.end() ) ? 1.0 : 0.0;
+                    counts[j] = _readHash.atIndex(kmer) * normFact;
+                    numReads += counts[j];
+                }
+            }
+        }
+
+        
+        std::unique_ptr<IsoOptMatrix> collapsedA;
+        std::unique_ptr<IsoOptVector> collapsedCounts;
+        matrix_tools::collapseIntoCategories(A, counts, collapsedA, collapsedCounts);
+        
+        for (size_t i = 0; i < collapsedA->size(); ++i) {
+            auto tlen = _transcripts[ transcripts[i] ]->length;
+            for (size_t j = 0; j < (*collapsedA)[0].size(); ++j) {
+                (*collapsedA)[i][j] = (*collapsedA)[i][j] / ( tlen * mappedReads / 1000000000.0 );
+            //(*collapsedA)[i][j] *= numReads;
+            }
+        }
+
+        //transcriptLengths[transcripts[i]] / 1000.0 * mappedReads / 1000000.0;
+
+        solve_likelihood( *collapsedA, *collapsedCounts, x, false );
+
+        //solve_likelihood( A, counts, x, false );
+        //for ( auto& e : x ) { e *= numReads; }
+        return x;
+    }
+
+
 
 public:
     /**
@@ -568,6 +654,85 @@ public:
         }
 
     }
+
+    KmerQuantityT optimizePoisson( const std::vector<std::string> &transcriptFiles, const std::string &outputFile ) {
+
+        auto mappedReads = _initialize(transcriptFiles);
+
+        // Holds results that we will use to update the index map
+        boost::lockfree::fifo<KmerIDT> q;
+        size_t numActors = 1;
+        boost::threadpool::pool tp(numActors);
+
+        KmerQuantityT globalError {0.0};
+        bool done {false};
+        std::atomic<size_t> numJobs {0};
+        std::atomic<size_t> completedJobs {0};
+        std::mutex nnlsmutex;
+        std::vector<KmerIDT> kmerList( _transcriptsForKmer.size(), 0 );
+        size_t idx = 0;
+
+
+        std::vector<double> abundances( _transcriptGeneMap.numTranscripts(), 0.0 );
+
+        std::atomic<size_t> numGenesProcessed{0};
+
+        auto abundanceEstimateProgress = std::thread( [&numGenesProcessed, this] () -> void {
+            auto numJobs = this->_transcriptGeneMap.numGenes();
+            ez::ezETAProgressBar pbar(numJobs);
+            pbar.start();
+            size_t lastCount = numGenesProcessed;
+            while ( lastCount < numJobs ) {
+                auto diff = numGenesProcessed - lastCount;
+                if ( diff > 0 ) {
+                    pbar += diff;
+                    lastCount += diff;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1010));
+            }
+        };
+        std::cerr << "Processing abundances\n";
+
+        // process each gene and solve the estimation problem
+        tbb::parallel_for( size_t {0}, _transcriptGeneMap.numGenes(), size_t {1},
+            [this]( const size_t & geneID ) {
+
+                auto abundance = this->_estimateIsoformAbundance(geneID, mappedReads);
+                auto transcripts = this->_transcriptGeneMap.transcriptsForGene(geneID);
+
+                for ( size_t i = 0; i < abundance.size(); ++i ) {
+                    abundances[ transcripts[i] ] = abundance[i];
+                }
+                ++numGenesProcessed;
+            }
+        );
+
+        abundanceEstimateProgress.join();
+
+        std::cerr << "Writing output\n";
+        ez::ezETAProgressBar pb(_transcripts.size());
+        pb.start();
+
+        std::ofstream ofile( outputFile );
+        size_t index = 0;
+        ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << "Abundance" << '\n';
+        for ( auto ts : _transcripts ) {
+            ofile << _transcriptGeneMap.transcriptName(index) << '\t' << ts->length << '\t' <<
+                    ts->effectiveLength << '\t' << abundances[index] << "\n";
+            ++index;
+            ++pb;
+        }
+        ofile.close();
+
+        auto writeCoverageInfo = false;
+        if ( writeCoverageInfo ) {
+            std::string cfname("transcriptCoverage.txt");
+            _dumpCoverage( cfname );
+        }
+
+    }
+
+
 };
 
 #endif // ITERATIVE_OPTIMIZER_HPP

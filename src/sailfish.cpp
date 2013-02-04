@@ -175,7 +175,7 @@ int main( int argc, char* argv[] ) {
       {"itopt", runIterativeOptimizer},
       {"index", mainIndex},
       {"count", mainCount}});
-  
+    
     char** argv2 = new char*[argc-1];
     argv2[0] = argv[0];
     std::copy_n( &argv[2], argc-2, &argv2[1] );

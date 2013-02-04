@@ -75,7 +75,7 @@ class CountDBNew {
    }
 
    inline uint32_t kmerLength() { return index_->kmerLength(); }
-
+   const std::vector<Kmer>& kmers() { return index_->kmers(); }
   private:
     std::shared_ptr<PerfectHashIndex> index_;
     std::vector< AtomicCount > counts_;
