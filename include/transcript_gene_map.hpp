@@ -22,10 +22,10 @@ private:
 
         _genesToTranscripts.resize( _geneNames.size(), {});
 
-        size_t geneID;
-        size_t transcriptID = 0;
+        Index geneID;
+        Index transcriptID = 0;
         size_t maxNumTrans = 0;
-        std::string maxGene;
+        Index maxGene;
         for ( size_t transcriptID = 0; transcriptID < _transcriptsToGenes.size(); ++transcriptID ) {
             _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].push_back( transcriptID );
             if ( maxNumTrans < _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].size() ) {
@@ -33,7 +33,7 @@ private:
                 maxGene = _transcriptsToGenes[transcriptID];
             }
         }
-        std::cerr << "max # of transcripts in a gene was " << maxNumTrans << " in gene " << maxGene << "\n";
+        std::cerr << "max # of transcripts in a gene was " << maxNumTrans << " in gene " << _geneNames[maxGene] << "\n";
     }
 
 public:

@@ -14,6 +14,7 @@
 #include <boost/program_options/parsers.hpp>
 
 #include "boost/timer/timer.hpp"
+#include "boost/range/irange.hpp"
 
 #include "tbb/parallel_for_each.h"
 #include "tbb/parallel_for.h"
@@ -45,6 +46,7 @@ int mainCount( int argc, char *argv[] ) {
     ("index,i", po::value<string>(), "transcript index file [Sailfish format]")
     ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
     ("counts,c", po::value<string>(), "File where Sailfish read count is written")
+    ("threads,p", po::value<uint32_t>()->default_value(12), "The number of threads to use when counting kmers")
     ;
 
     po::variables_map vm;
@@ -69,18 +71,20 @@ same index, and the counts will be written to the file [counts].
 
         string countsFile = vm["counts"].as<string>();
 
-        auto phi = PerfectHashIndex::fromFile( vm["index"].as<string>() );
+        string sfIndexBase = vm["index"].as<string>();
+        string sfTrascriptIndexFile = sfIndexBase+".sfi";
+
+        auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
         std::cerr << "index contained " << phi.numKeys() << " kmers\n";
 
         size_t nkeys = phi.numKeys();
         size_t merLen = phi.kmerLength();
 
-        size_t numActors = 12;
+        size_t numActors = vm["threads"].as<uint32_t>();
         std::vector<std::thread> threads;
 
         auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
         auto phiPtr = std::shared_ptr<PerfectHashIndex>(&phi, del);
-        CountDBNew thash( phiPtr );
 
         std::atomic<uint64_t> readNum{0};
         std::atomic<uint64_t> processedReads{0};
@@ -109,8 +113,8 @@ same index, and the counts will be written to the file [counts].
         jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
 
         {
+          std::atomic<size_t> unmappedKmers{0};
           boost::timer::auto_cpu_timer t;
-
           auto start = std::chrono::steady_clock::now();
 
           // Start the desired number of threads to parse the reads
@@ -118,35 +122,74 @@ same index, and the counts will be written to the file [counts].
           for (size_t k = 0; k < numActors; ++k) {
 
             threads.push_back( std::thread( 
-                [&parser, &readNum, &rhash, &start, merLen]() -> void {
+                [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
                     // Each thread gets it's own stream
                     jellyfish::parse_read::read_t* read;
                     jellyfish::parse_read::thread stream = parser.new_thread();
-                    while ( (read = stream.next_read()) ) {
 
+                    typedef uint64_t BinMer;
+                    std::vector<BinMer> fwdMers;
+                    std::vector<BinMer> revMers;
+
+                    while ( (read = stream.next_read()) ) {
                         ++readNum;
-                        if (readNum % 250000 == 0) {
+                        if (readNum % 500000 == 0) {
                             auto end = std::chrono::steady_clock::now();
                             auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
                             auto nsec = sec.count();
                             auto rate = (nsec > 0) ? readNum / sec.count() : 0;
-                            std::cerr << "processed " << readNum << " reads (" << rate << ") reads/s\r";
+                            std::cerr << "processed " << readNum << " reads (" << rate << ") reads/s\r\r";
                         }
-
                         std::string seq = std::string(read->seq_s, std::distance(read->seq_s, read->seq_e) - 1 );
                         auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
                         auto readLen = std::distance( seq.begin(), newEnd );
+                        if ( readLen < merLen ) { continue; }
                         size_t numKmers = readLen - merLen + 1;
-                        size_t offset = 0;
-                        while ( offset < numKmers ) {
-                            auto mer = seq.substr( offset, merLen );
-                            auto binMer = jellyfish::parse_dna::mer_string_to_binary( mer.c_str(), merLen );
-                            auto rmer = jellyfish::parse_dna::reverse_complement( binMer, merLen );
-                            
-                            binMer = (binMer < rmer) ? binMer : rmer;
-                            rhash.inc(binMer);
-                            ++offset;
+                        
+                        if ( numKmers > fwdMers.size() ) {
+                            fwdMers.resize(numKmers);
+                            revMers.resize(numKmers);
                         }
+
+                        //size_t offset = 0;
+
+                        // The number of valid hits using the forward strand
+                        // and the reverse-complement strand
+                        size_t fCount = 0;
+                        size_t rCount = 0;
+                        auto INVALID = phi.INVALID;
+
+                        for ( auto offset : boost::irange(size_t{0},numKmers) ){
+                            auto mer = seq.substr(offset, merLen);
+                            auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen);
+                            auto rmer = jellyfish::parse_dna::reverse_complement(binMer, merLen);
+                            auto binMerId = phi.index(binMer);
+                            auto rMerId = phi.index(rmer);
+                            fwdMers[offset] = binMer;
+                            revMers[offset] = rmer;
+                            fCount += (binMerId != INVALID);
+                            rCount += (rMerId != INVALID);
+                        }
+
+
+                        //enum Strand : uint32_t { forward, reverse, canonical };
+                        //Strand s = (fCount > rCount) ? forward : reverse;
+
+                        auto& mers = (fCount > rCount) ? fwdMers : revMers;
+                        for ( auto offset : boost::irange(size_t{0},numKmers) ){
+                            bool inserted = rhash.inc(mers[offset]);
+                            if (!inserted) { unmappedKmers++; }
+                        }
+
+                        // original version
+                        // for ( auto offset : boost::irange(0,numKmers) ){
+                        //     auto mer = seq.substr( offset, merLen );
+                        //     auto binMer = jellyfish::parse_dna::mer_string_to_binary( mer.c_str(), merLen );
+                        //     auto rmer = jellyfish::parse_dna::reverse_complement( binMer, merLen );
+                        //     binMer = (binMer < rmer) ? binMer : rmer;
+                        //     rhash.inc(binMer);
+                        // }
+
                     }
 
                 }) 
@@ -158,6 +201,15 @@ same index, and the counts will be written to the file [counts].
         for ( auto& thread : threads ){ thread.join(); }
         std::cerr << "\n" << std::endl;
         rhash.dumpCountsToFile(countsFile);
+
+        // Total kmers
+        size_t totalCount = 0;
+        for (auto i : boost::irange(size_t(0), rhash.kmers().size())) {
+            totalCount += rhash.atIndex(i);
+        }
+        std::cerr << "There were " << totalCount << ", kmers; " << unmappedKmers << " could not be mapped\n";
+        std::cerr << "Mapped " << 
+                     (totalCount / static_cast<double>(totalCount + unmappedKmers)) * 100.0 << "% of the kmers\n";
 
         }
 

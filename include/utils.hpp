@@ -17,6 +17,21 @@ typedef std::vector<string> NameVector;
 typedef std::vector<size_t> IndexVector;
 typedef std::vector<uint64_t> KmerVector;
 
+size_t numberOfReadsInFastaFile(const std::string& fname) {
+    constexpr size_t bufferSize = 16184;
+    char buffer[bufferSize];
+    std::ifstream ifile(fname, std::ifstream::in);
+    ifile.rdbuf()->pubsetbuf(buffer, bufferSize);
+
+    size_t numReads = 0;
+    std::string s;
+    while (ifile >> s) { if (s.front() == '>') { ++numReads; } }
+
+    ifile.close();
+
+    return numReads;
+}
+
 bool readKmerOrder( const std::string& fname, std::vector<uint64_t>& kmers ) {
 
   std::ifstream mlist(fname, std::ios::in | std::ios::binary);

@@ -1,10 +1,7 @@
 """SFPipeline.py
 
 Usage:
-  SFPipeline.py CMD (--cfg=<cfgfile>) (--targets=<tgt>)... (--log=<log>) [--print] [--forced=<forced>]... [--verbose=<v>]
-
-Arguments:
-  CMD              The command to run {sf}
+  SFPipeline.py (--cfg=<cfgfile>) (--targets=<tgt>)... [--log=<log>] [--print] [--forced=<forced>]... [--verbose=<v>]
 
 Options:
   -h --help          Help
@@ -153,7 +150,7 @@ def buildIndex(input, output, config):
 	with open('../results/sfindex.time','wb') as ofile:
 		ofile.write('Building index took {0} seconds\n'.format(s))
 
-@follows(nobody, mkdir('../results'))
+@follows(buildIndex , mkdir('../results'))
 @files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['CountKmers']['depends']])),
         configFile['CountKmers']['produces'],
         configFile['CountKmers']
@@ -174,7 +171,7 @@ def countKmers(input, output, config):
     with open('../results/sfcount.time','wb') as ofile:
         ofile.write('Counting kmers took {0} seconds\n'.format(s))
 
-@follows(buildIndex, mkdir("../results"))
+@follows(countKmers, mkdir("../results"))
 @files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['Sailfish']['depends']])),
 		configFile['Sailfish']['produces'],
 		configFile['Sailfish']

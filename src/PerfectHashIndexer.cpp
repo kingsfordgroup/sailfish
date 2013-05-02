@@ -148,7 +148,7 @@ the Jellyfish database [thash] of the transcripts.
         string thashFile = vm["thash"].as<string>();
 
         /**
-        *  Read in the Jellyfish has of the transcripts
+        *  Read in the Jellyfish hash of the transcripts
         */
         mapped_file transcriptDB(thashFile.c_str());
         transcriptDB.random().will_need();

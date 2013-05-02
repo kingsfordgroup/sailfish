@@ -11,6 +11,25 @@ IndexedCounter.cpp
 sailfish.cpp 
 )
 
+set( ANALYZE_TRANSCRIPT_GRAPH 
+AnalyzeTranscriptGraph.cpp
+IndexedCounter.cpp
+PerfectHashIndexer.cpp
+)
+
+set( BUILD_LUT_SRCS 
+BuildLUT.cpp
+IndexedCounter.cpp
+PerfectHashIndexer.cpp
+)
+
+set( COMPUTE_TGRAPH_SRCS
+ComputeTranscriptGraph.cpp
+IndexedCounter.cpp
+PerfectHashIndexer.cpp
+)
+
+
 set ( BUILD_INDEX_SRCS Indexer.cpp )
 set ( TEST_SRCS tsnnls_is_stupid.cpp )
 
@@ -18,6 +37,7 @@ include_directories(
 ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/nnls
+${GAT_SOURCE_DIR}/external/tsnnls
 ${GAT_SOURCE_DIR}/external/mlrmcl
 ${GAT_SOURCE_DIR}/external/g2log/src
 ${ZLIB_INCLUDE_DIR}
@@ -60,11 +80,35 @@ message ( "Sailfish sources are ${SAILFISH_MAIN_SRCS}")
 add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
 target_link_libraries( Sailfish 
 	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
-	#lapack
 	cmph # perfect hashing library
 	jellyfish pthread 
 	#cppa mlrmcl 
+	nnls
+	#tsnnls lapack
     gomp lib_activeobject lib_g2logger blas m tbb)#tsnnls shotgun )
+
+add_executable( BuildLUT ${BUILD_LUT_SRCS} )
+target_link_libraries( BuildLUT 
+	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
+	cmph # perfect hashing library
+	jellyfish pthread 
+    gomp lib_activeobject lib_g2logger blas m tbb)
+
+add_executable( ComputeTranscriptGraph ${COMPUTE_TGRAPH_SRCS} )
+target_link_libraries( ComputeTranscriptGraph
+	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
+	cmph # perfect hashing library
+	jellyfish pthread 
+    gomp lib_activeobject lib_g2logger blas m tbb nnls)
+
+
+add_executable( AnalyzeTranscriptGraph ${ANALYZE_TRANSCRIPT_GRAPH} )
+target_link_libraries( AnalyzeTranscriptGraph 
+	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
+	cmph # perfect hashing library
+	jellyfish pthread 
+    gomp lib_activeobject lib_g2logger blas m tbb)
+
 
 #add_executable( BuildIndex ${BUILD_INDEX_SRCS} )
 #target_link_libraries( BuildIndex ${Boost_LIBRARIES} jellyfish pthread m tbb)

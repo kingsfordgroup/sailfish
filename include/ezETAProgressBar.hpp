@@ -30,7 +30,7 @@ v2.0.2 20130123 rob Switched over to C++11 timer facilities
 
 namespace ez {
 // One-line refreshing progress bar inspired by wget that shows ETA (time remaining).
-// 90% [##################################################     ] ETA 12d 23h 56s
+// 90% [========================================>     ] ETA 12d 23h 56s
 class ezETAProgressBar {
 private:
 	typedef std::chrono::system_clock system_clock;
@@ -41,19 +41,28 @@ public:
 	void reset( uint64_t _n ) { n = _n; pct = 0; cur = 0; }
 	void start() { 
 		startTime = system_clock::now();
+		lastCheck = startTime;
 		setPct(0); 
 	}
 	
 	void operator++() {
 		if (cur >= n) return;
 		++cur;		
-		setPct( static_cast<double>(cur)/n );
+		endTime = system_clock::now();
+		if ( (endTime - lastCheck) >= std::chrono::seconds(1) or (cur == n) ) {
+			setPct( static_cast<double>(cur)/n );
+			lastCheck = endTime;
+		}
 	};
 
 	void operator+=( const unsigned int d ) {
 		if (cur >= n) return;
 		cur += d;
-		setPct(static_cast<double>(cur)/n);
+		endTime = system_clock::now();
+		if ( (endTime - lastCheck) >= std::chrono::seconds(1) or (cur == n) ) {
+			setPct(static_cast<double>(cur)/n);
+			lastCheck = endTime;
+		}
 	};
 
 	void done() {
@@ -166,12 +175,7 @@ public:
 	    #ifdef HAVE_ANSI_TERM
 		 effLen -= 11;
 		#endif //HAVE_ANSI_TERM
-		if (effLen > width ) {
-			std::cerr << "WTF!!\n";
-			std::cerr << "line is |" << out << "|\n";
-			std::cerr << "has length " << out.length() << " max is " << width << "\n";
-			exit(0);
-		}
+
 		// Pad end with spaces to overwrite previous string that may have been longer.
 		if (effLen < width) {
 			out.append(width-effLen,' ');
@@ -188,7 +192,7 @@ public:
 		uint64_t cur;
 	    unsigned short pct; // Stored as 0-1000, so 2.5% is encoded as 25.
 	    unsigned char width; // How many chars the entire line can be.
-	    std::chrono::system_clock::time_point startTime, endTime;
+	    std::chrono::system_clock::time_point startTime, endTime, lastCheck;
 };
 }
 #endif // EZ_ETAPROGRESSBAR_H

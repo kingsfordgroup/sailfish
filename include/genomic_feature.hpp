@@ -1,6 +1,10 @@
 #ifndef GENOMIC_FEATURE_HPP
 #define GENOMIC_FEATURE_HPP
 
+#include <boost/thread/thread.hpp>
+#include <boost/lockfree/queue.hpp>
+
+#include <thread>
 #include <fstream>
 #include <boost/tokenizer.hpp>
 
@@ -51,9 +55,10 @@ std::ostream& operator<< ( std::ostream& out, const GenomicFeature<StaticAttribu
           "strand : " << gf.strand << ", " <<
           "phase : " << gf.phase << " ** ";
    out << gf.sattr << ", ";
-   for ( auto& kv : gf.attributes ) {
+  /*for ( auto& kv : gf.attributes ) {
       out << kv.first << " => " << kv.second << ", ";
    }
+   */
    return out;
 }
 
@@ -109,6 +114,143 @@ std::istream& operator>> ( std::istream& in, GenomicFeature<StaticAttributes>& g
   }
 
   return in;
+}
+
+namespace GTFParser {
+
+  template< typename CustomGenomicFeature >
+  void genomicFeatureFromLine( std::string& l, CustomGenomicFeature& gf ) {
+    
+    size_t head = 0;
+    size_t tail = l.find_first_of('\t');
+    
+    gf.seqID = l.substr(head,tail);
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+
+    gf.source = l.substr(head, tail-head);
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+  
+    gf.type = l.substr(head, tail-head);
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+  
+    gf.start = atoi(l.substr(head, tail-head).c_str());
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+
+    gf.end = atoi(l.substr(head, tail-head).c_str());
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+
+    gf.score = atoi(l.substr(head, tail-head).c_str());
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+
+    gf.strand = l.substr(tail, tail-head)[0];
+    head = tail+1;
+    tail = l.find_first_of('\t', head);
+
+    gf.phase = l.substr(tail, tail-head)[0];
+    head = tail+1;
+    tail = l.find_first_of('\n', head);
+  
+    auto line = l.substr(head, tail-head);
+
+    typedef boost::tokenizer<boost::char_separator<char> > 
+    tokenizer;
+    boost::char_separator<char> sep(";");  
+    tokenizer tokens(line, sep);
+
+    for ( auto tokIt : tokens ) {       
+    // Currently, we'll handle the following separators
+    // '\s+'
+    // '\s*=\s*'
+      tokIt = tokIt.substr(tokIt.find_first_not_of(' '));
+      auto kvsepStart = tokIt.find('=');
+    
+    // If we reached the end of the key, value token, then the string must have been
+    // separated by some set of spaces, and NO '='.  If this is the case, find the 'spaces' so that
+    // we can split on it.
+      if ( kvsepStart == tokIt.npos ) {
+        kvsepStart = tokIt.find(' ');
+      } 
+    
+      auto key = tokIt.substr(0, kvsepStart);
+      key = key.substr(0, key.find(' '));
+
+      auto kvsepStop = 1 + kvsepStart + tokIt.substr(kvsepStart+1).find_first_not_of(' ');
+      auto val = (tokIt[kvsepStop] == '"') ? tokIt.substr(kvsepStop+1, (tokIt.length() - (kvsepStop+2))) : tokIt.substr(kvsepStop, (tokIt.length() - (kvsepStop+1)));
+      gf.sattr.parseAttribute( key, val );
+    }
+
+  }
+
+  template <typename StaticAttributes>
+  std::vector<GenomicFeature<StaticAttributes>> readGTFFile( const std::string& fname ) {
+
+    typedef std::string* StringPtr;
+    std::vector<GenomicFeature<StaticAttributes>> feats;
+
+    std::ifstream ifile(fname);
+    bool done = false;
+    std::vector<std::thread> threads;
+
+    boost::lockfree::queue<StringPtr> queue(5000);
+    threads.push_back(
+    std::thread([&ifile, &queue, &done]() {
+      StringPtr line = new std::string();
+      while( !std::getline(ifile, *line).eof() ) {
+        StringPtr ownedLine = line;        
+        while( !queue.push(ownedLine) ) {}
+        line = new std::string();
+      }
+      done = true;
+    })
+    );
+
+    size_t nreader=10;
+    std::atomic<size_t> tctr{nreader};
+    boost::lockfree::queue<GenomicFeature<StaticAttributes>*> outQueue(5000);
+    
+    for( size_t i = 0; i < nreader; ++i ) {
+      threads.push_back(
+      std::thread([&queue, &outQueue, &done, &tctr]() -> {
+
+        StringPtr l = nullptr;
+        while( !done or queue.pop(l) ) {
+          if ( l != nullptr ) {
+            auto gf = new GenomicFeature<StaticAttributes>();
+            genomicFeatureFromLine(*l, *gf);
+            while( !outQueue.push(gf) ) {}
+              delete l;
+            l = nullptr;
+          }
+        }
+        --tctr;
+      }
+      ));
+    }
+    
+    threads.push_back(
+      std::thread([&outQueue, &feats, &tctr]() -> {
+        GenomicFeature<StaticAttributes>* f = nullptr;
+        while( outQueue.pop(f) or tctr > 0 ) {
+          if ( f != nullptr ) {
+            feats.push_back(*f);
+          }
+        }
+      }
+      ));
+
+    // Wait for all of the threads to finish
+    for ( auto& thread : threads ){ thread.join(); }
+
+
+    ifile.close();
+    return feats;
+  }
 }
 
 #endif // GENOMIC_FEATURE_HPP
