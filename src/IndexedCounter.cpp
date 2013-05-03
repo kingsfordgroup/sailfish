@@ -39,6 +39,8 @@ int mainCount( int argc, char *argv[] ) {
     using std::string;
     namespace po = boost::program_options;
 
+    uint32_t maxThreads = std::thread::hardware_concurrency();
+
     po::options_description generic("Command Line Options");
     generic.add_options()
     ("version,v", "print version string")
@@ -46,7 +48,7 @@ int mainCount( int argc, char *argv[] ) {
     ("index,i", po::value<string>(), "transcript index file [Sailfish format]")
     ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
     ("counts,c", po::value<string>(), "File where Sailfish read count is written")
-    ("threads,p", po::value<uint32_t>()->default_value(12), "The number of threads to use when counting kmers")
+    ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
     ;
 
     po::variables_map vm;
@@ -74,7 +76,9 @@ same index, and the counts will be written to the file [counts].
         string sfIndexBase = vm["index"].as<string>();
         string sfTrascriptIndexFile = sfIndexBase+".sfi";
 
+        std::cerr << "reading index . . . ";
         auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
+        std::cerr << "done\n";
         std::cerr << "index contained " << phi.numKeys() << " kmers\n";
 
         size_t nkeys = phi.numKeys();
@@ -151,15 +155,13 @@ same index, and the counts will be written to the file [counts].
                             revMers.resize(numKmers);
                         }
 
-                        //size_t offset = 0;
-
                         // The number of valid hits using the forward strand
                         // and the reverse-complement strand
                         size_t fCount = 0;
                         size_t rCount = 0;
                         auto INVALID = phi.INVALID;
 
-                        for ( auto offset : boost::irange(size_t{0},numKmers) ){
+                        for ( auto offset : boost::irange(size_t{0}, numKmers) ){
                             auto mer = seq.substr(offset, merLen);
                             auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen);
                             auto rmer = jellyfish::parse_dna::reverse_complement(binMer, merLen);
@@ -171,14 +173,10 @@ same index, and the counts will be written to the file [counts].
                             rCount += (rMerId != INVALID);
                         }
 
-
-                        //enum Strand : uint32_t { forward, reverse, canonical };
-                        //Strand s = (fCount > rCount) ? forward : reverse;
-
                         auto& mers = (fCount > rCount) ? fwdMers : revMers;
-                        for ( auto offset : boost::irange(size_t{0},numKmers) ){
+                        for ( auto offset : boost::irange(size_t{0}, numKmers) ){
                             bool inserted = rhash.inc(mers[offset]);
-                            if (!inserted) { unmappedKmers++; }
+                            if (!inserted) { ++unmappedKmers; }
                         }
 
                         // original version

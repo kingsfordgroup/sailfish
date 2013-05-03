@@ -44,6 +44,8 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
    bool poisson = false;
 
+   uint32_t maxThreads = std::thread::hardware_concurrency();
+
     po::options_description generic("Command Line Options");
     generic.add_options()
       ("version,v", "print version string")
@@ -53,7 +55,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
     po::options_description config("Configuration");
     config.add_options()
-      ("poisson,p" , po::bool_switch(&poisson), "Solve via Poisson method.")
       ("genes,g", po::value< std::vector<string> >(), "gene sequences")
       ("counts,c", po::value<string>(), "count file")
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
@@ -64,6 +65,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       ("filter,f", po::value<double>()->default_value(0.0), "during iterative optimization, remove transcripts with a mean less than filter")
       ("iterations,i", po::value<size_t>(), "number of iterations to run the optimzation")
       ("lutfile,l", po::value<string>(), "Lookup table prefix")
+      ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
       ;
 
     po::options_description programOptions("combined");
@@ -144,7 +146,8 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     BiasIndex bidx = vm.count("bias") ? BiasIndex( vm["bias"].as<string>() ) : BiasIndex();
 
     std::cerr << "Creating optimizer . . .";
-    CollapsedIterativeOptimizer<CountDBNew> solver(hash, tgm, bidx);
+    uint32_t numThreads = vm["threads"].as<uint32_t>();
+    CollapsedIterativeOptimizer<CountDBNew> solver(hash, tgm, bidx, numThreads);
     // IterativeOptimizer<CountDBNew, CountDBNew> solver( hash, transcriptHash, tgm, bidx );
     std::cerr << "done\n";
 

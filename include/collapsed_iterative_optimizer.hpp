@@ -17,6 +17,7 @@
 #include "btree_map.h"
 
 /** Boost Includes */
+#include <boost/dynamic_bitset/dynamic_bitset.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/shared_ptr.hpp>
@@ -41,20 +42,21 @@
 #include "tbb/concurrent_unordered_set.h"
 #include "tbb/concurrent_vector.h"
 #include "tbb/concurrent_unordered_map.h"
+#include "tbb/concurrent_queue.h"
 #include "tbb/parallel_for.h"
 #include "tbb/parallel_for_each.h"
 #include "tbb/parallel_reduce.h"
 #include "tbb/blocked_range.h"
 #include "tbb/task_scheduler_init.h"
 
-//#include "nnls.h"
+
 #include "BiasIndex.hpp"
-#include "poisson_solver.hpp"
-#include "matrix_tools.hpp"
 #include "ezETAProgressBar.hpp"
 #include "LookUpTableUtils.hpp"
+//#include "poisson_solver.hpp"
+//#include "matrix_tools.hpp"
 //#include "CompatibilityGraph.hpp"
-
+//#include "nnls.h"
 
 template <typename ReadHash>
 class CollapsedIterativeOptimizer {
@@ -122,6 +124,7 @@ private:
         std::vector<KmerID> updatedBinmers;
     };
 
+    uint32_t numThreads_;
     size_t merLen_;
     ReadHash & readHash_;
     BiasIndex& biasIndex_;
@@ -519,7 +522,7 @@ private:
             }
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-        std::cerr << "\n";
+        if (!pb.isDone()) { pb.done(); }
      });
 
      // For every kmer, compute it's kmer group.
@@ -609,7 +612,7 @@ private:
         size_t numKmers = readHash_.size();
         auto merSize = readHash_.kmerLength();        
 
-        size_t numActors = 12;
+        size_t numActors = numThreads_;
         std::vector<std::thread> threads;
 
         transcripts_.resize(transcriptGeneMap_.numTranscripts());
@@ -639,6 +642,7 @@ private:
         });
 
         // compute the equivalent kmer sets
+        std::cerr << "\n";
         collapseKmers_(isActiveKmer);
 
         // we have no biases currently
@@ -734,8 +738,10 @@ private:
 
         std::cerr << "Dumping coverage statistics to " << cfname << "\n";
 
-        boost::lockfree::queue<StringPtr> covQueue(transcripts_.size());
-        
+
+        tbb::concurrent_queue<StringPtr> covQueue;
+        // boost::lockfree::queue<StringPtr> covQueue(transcripts_.size());
+                
         tbb::parallel_for( size_t{0}, transcripts_.size(),
             [this, &covQueue] (size_t index) -> void {
 
@@ -748,7 +754,9 @@ private:
                 }
                 ostream << "\n";
                 std::string* ostr = new std::string(ostream.str());
-                while(!covQueue.push(ostr));
+                covQueue.push(ostr);
+                // for boost lockfree
+                // while(!covQueue.push(ostr));
             }
         );
 
@@ -759,7 +767,7 @@ private:
 
         std::string* sptr = nullptr;
         while ( numProc < numTrans ) {
-            while( covQueue.pop(sptr) ) {
+            while( covQueue.try_pop(sptr) ) {
                 ofile << (*sptr);
                 ++pb;
                 ++numProc;
@@ -792,7 +800,7 @@ private:
             prevNumJobs = completedJobs.load();
             boost::this_thread::sleep_for(boost::chrono::seconds(1));
           }
-          std::cerr << "\n";
+          if (!show_progress.isDone()) { show_progress.done(); }
           return true;
         });
 
@@ -853,9 +861,10 @@ public:
      * Construct the solver with the read and transcript hashes
      */
     CollapsedIterativeOptimizer( ReadHash &readHash, TranscriptGeneMap& transcriptGeneMap,
-                                 BiasIndex& biasIndex ) : 
+                                 BiasIndex& biasIndex, uint32_t numThreads ) : 
                                  readHash_(readHash), merLen_(readHash.kmerLength()), 
-                                 transcriptGeneMap_(transcriptGeneMap), biasIndex_(biasIndex) {}
+                                 transcriptGeneMap_(transcriptGeneMap), biasIndex_(biasIndex),
+                                 numThreads_(numThreads) {}
 
 
     KmerQuantity optimize(const std::string& klutfname,
@@ -937,9 +946,10 @@ public:
         // Right now, the # of iterations is fixed, but termination should
         // also be based on tolerance
         for ( size_t iter = 0; iter < numIt; ++iter ) {
-          std::cerr << "SQUAREM iteraton: " << iter << "\n";
+          std::cerr << "SQUAREM iteraton [" << iter << "]\n";
 
           // Theta_1 = EMUpdate(Theta_0)
+          std::cerr << "1/3\n";
           EMUpdate_(means0, means1);
 
           if (!std::isfinite(negLogLikelihoodOld)) {
@@ -947,6 +957,7 @@ public:
           }
 
           // Theta_2 = EMUpdate(Theta_1)
+          std::cerr << "2/3\n";
           EMUpdate_(means1, means2);
 
           // r = Theta_1 - Theta_0
@@ -973,6 +984,8 @@ public:
           
           // Stabilization step
           if ( std::abs(alphaS - 1.0) > 0.01) {
+            std::cerr << "alpha = " << alphaS << ". ";
+            std::cerr << "Performing a stabilization step.\n";
             EMUpdate_(meansPrime, meansPrime);
           }
 
@@ -981,9 +994,9 @@ public:
           /** If there is **/
           if (std::isfinite(nonMonotonicity)) {
             negLogLikelihoodNew = -logLikelihood_(meansPrime);
-            std::cerr << "\nlogLikelihood = " << -negLogLikelihoodNew << "\n";
+            std::cerr << "logLikelihood = " << -negLogLikelihoodNew << ", ";
           } else {
-            std::cerr << "not implemented yet!\n";
+            negLogLikelihoodNew = negLogLikelihoodOld;
           }
 
           if (negLogLikelihoodNew > negLogLikelihoodOld + nonMonotonicity) {
@@ -992,41 +1005,18 @@ public:
             if (alphaS == maxStep) { maxStep = std::max(maxStep0, maxStep/mStep); }
             alphaS = 1.0;
           }
-          std::cerr << "alpha = " << alphaS << "\n";
+          std::cerr << "alpha = " << alphaS << ", ";
 
-/** R Code 
-  if (class(p.new) == "try-error" | any(is.nan(p.new))) {
-    p.new <- p2
-    lnew <- try(objfn(p2, ...), silent=TRUE)
-    leval <- leval + 1
-    if (alpha == step.max) step.max <- max(step.max0, step.max/mstep)
-    alpha <- 1
-    extrap <- FALSE
-  } else {
-    if (is.finite(objfn.inc)) {
-      lnew <- try(objfn(p.new, ...), silent=TRUE)
-      leval <- leval + 1
-    } else lnew <- lold
-    if (class(lnew) == "try-error" | is.nan(lnew) | 
-    (lnew > lold + objfn.inc)) {
-      p.new <- p2
-      lnew <- try(objfn(p2, ...), silent=TRUE)
-      leval <- leval + 1
-      if (alpha==step.max) step.max <- max(step.max0, step.max/mstep)
-      alpha <- 1
-      extrap <- FALSE
-    }
-  } 
-  */
-
-          EMUpdate_(meansPrime, means0);
           if (alphaS == maxStep) { maxStep = mStep * maxStep; }
           if (minStep < 0 and alphaS == minStep) { minStep = mStep * minStep; }
+          std::swap(meansPrime, means0);//EMUpdate_(meansPrime, means0);
 
           double delta = pabsdiff_(means0, means1);
-          std::cerr << "\ndelta: " << delta << "\n";
+          std::cerr << "delta = " << delta << "\n";
 
-          negLogLikelihoodOld = negLogLikelihoodNew;
+          if (!std::isnan(negLogLikelihoodNew)) {
+            negLogLikelihoodOld = negLogLikelihoodNew;
+          }
 
         }
         
@@ -1147,7 +1137,7 @@ public:
         pb.start();
 
         std::atomic<size_t> totalNumKmers{0};
-        //  E-Step : reassign the kmer group counts proportionally to each transcript
+        //  count the total number of kmers
         tbb::parallel_for( size_t(0), size_t(transcriptsForKmer_.size()),
           // for each kmer group
           [&totalNumKmers, this]( size_t kid ) {
@@ -1178,154 +1168,6 @@ public:
         }
 
     }
-
-    KmerQuantity optimizeNNLASSO(const std::string& klutfname,
-                           const std::string& tlutfname,
-                           const std::string &outputFile, 
-                           size_t numIt, 
-                           double minMean) {
-
-        const bool discardZeroCountKmers = false;
-        initialize_(klutfname, tlutfname, discardZeroCountKmers);
-
-
-        typedef Eigen::SparseMatrix<double> EigenSpMat;
-        typedef Eigen::Triplet<double> T;
-
-        boost::dynamic_bitset<> isActiveTranscript(transcripts_.size());
-
-        std::atomic<size_t> numActiveTranscripts{0};
-        tbb::parallel_for(size_t(0), transcripts_.size(),
-            [this, &isActiveTranscript, &numActiveTranscripts](const size_t i) -> void {
-                if (this->transcripts_[i].binMers.size() > 0) {
-                    isActiveTranscript[i] = 1;
-                    ++numActiveTranscripts;
-                }
-        });
-
-        std::cerr << "computed numActiveTranscripts as " << numActiveTranscripts << "\n";
-        size_t numRows = transcriptsForKmer_.size();
-        size_t numCols = numActiveTranscripts;
-
-        EigenSpMat X(numRows, numCols);
-        std::vector<T> trips;
-        size_t idx = 0;
-        for (auto& ts : transcripts_) {
-            if (ts.binMers.size() > 0) {
-                for (auto& kv : ts.binMers) {
-                    trips.push_back(T(kv.first, idx, kv.second));
-                }
-                idx++;
-            }
-        }
-
-        std::cerr << "made array of " << trips.size() << " nonzero elements; creating matrix" << "\n";
-        X.setFromTriplets(trips.begin(), trips.end());
-        //X.makeCompressed();
-        std::cerr << "set matrix from triplets\n";
-
-        std::vector<double> x(transcriptsForKmer_.size(), 0.0);
-        tbb::parallel_for(size_t(0), transcriptsForKmer_.size(),
-            [this, &x](size_t kid) ->void {
-                x[kid] = this->kmerGroupCounts_[kid];
-            });
-
-        std::cerr << "set x values\n";
-
-        auto res = matrix_tools::shotgunSolve(X, x);
-
-        std::cerr << "done\n";
-        std::ofstream ofile( outputFile );
-        size_t index = 0;
-        size_t nonZeroIndex = 0;
-        ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << "Weighted Mapped Reads" << '\n';
-        for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
-          auto& ts = transcripts_[i];
-          auto expression = isActiveTranscript[index] ? res[nonZeroIndex++] : 0.0;
-          ofile << transcriptGeneMap_.transcriptName(index) << '\t' << ts.length << '\t' <<
-                   ts.effectiveLength << '\t' << expression << "\n";
-          ++index;
-        }
-        ofile.close();
-
-
-    }
-
-    // KmerQuantityT optimizePoisson( const std::vector<std::string> &transcriptFiles, const std::string &outputFile ) {
-
-    //     auto mappedReads = _initialize(transcriptFiles);
-
-    //     // Holds results that we will use to update the index map
-    //     size_t numActors = 1;
-
-    //     KmerQuantityT globalError {0.0};
-    //     bool done {false};
-    //     std::atomic<size_t> numJobs {0};
-    //     std::atomic<size_t> completedJobs {0};
-    //     std::mutex nnlsmutex;
-    //     std::vector<KmerID> kmerList( transcriptsForKmer_.size(), 0 );
-    //     size_t idx = 0;
-
-
-    //     std::vector<double> abundances( transcriptGeneMap_.numTranscripts(), 0.0 );
-
-    //     transcriptGeneMap_.needReverse();
-    //     std::atomic<size_t> numGenesProcessed{0};
-
-    //     auto abundanceEstimateProgress = std::thread( [&numGenesProcessed, this] () -> void {
-    //         auto numJobs = this->transcriptGeneMap_.numGenes();
-    //         ez::ezETAProgressBar pbar(numJobs);
-    //         pbar.start();
-    //         size_t lastCount = numGenesProcessed;
-    //         while ( lastCount < numJobs ) {
-    //             auto diff = numGenesProcessed - lastCount;
-    //             if ( diff > 0 ) {
-    //                 pbar += diff;
-    //                 lastCount += diff;
-    //             }
-    //             boost::this_thread::sleep_for(boost::chrono::milliseconds(1010));
-    //         }
-    //     });
-    //     std::cerr << "Processing abundances\n";
-
-    //     // process each gene and solve the estimation problem
-    //     tbb::parallel_for( size_t {0}, transcriptGeneMap_.numGenes(), 
-    //         [this, mappedReads, &abundances, &numGenesProcessed]( const size_t & geneID ) {
-    //             //auto abundance = this->_estimateIsoformAbundance(geneID, mappedReads);
-    //             auto abundance = this->_estimateIsoformNNLS(geneID, mappedReads);
-    //             auto transcripts = this->transcriptGeneMap_.transcriptsForGene(geneID);
-
-    //             for ( size_t i = 0; i < abundance.size(); ++i ) {
-    //                 abundances[ transcripts[i] ] = abundance[i];
-    //             }
-    //             ++numGenesProcessed;
-    //         }
-    //     );
-
-    //     abundanceEstimateProgress.join();
-
-    //     std::cerr << "Writing output\n";
-    //     ez::ezETAProgressBar pb(transcripts_.size());
-    //     pb.start();
-
-    //     std::ofstream ofile( outputFile );
-    //     size_t index = 0;
-    //     ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << "Abundance" << '\n';
-    //     for ( auto ts : transcripts_ ) {
-    //         ofile << transcriptGeneMap_.transcriptName(index) << '\t' << ts->length << '\t' <<
-    //                 ts->effectiveLength << '\t' << abundances[index] << "\n";
-    //         ++index;
-    //         ++pb;
-    //     }
-    //     ofile.close();
-
-    //     auto writeCoverageInfo = false;
-    //     if ( writeCoverageInfo ) {
-    //         std::string cfname("transcriptCoverage.txt");
-    //         _dumpCoverage( cfname );
-    //     }
-
-    // }
 
 
 };

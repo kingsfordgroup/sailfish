@@ -65,6 +65,7 @@ public:
 		}
 	};
 
+	bool isDone() { return cur == n; }
 	void done() {
 		cur = n;
 		setPct(1.0);
@@ -130,7 +131,7 @@ public:
 		#endif //HAVE_ANSI_TERM
 
 		out.append(std::max(0,ntics-1),'=');
-		out.append( Pct == 1.0 ? "=" : ">");
+		out.append(Pct == 1.0 ? "=" : ">");
 		out.append(nticsMax-ntics,' ');
 
 		#ifdef HAVE_ANSI_TERM
@@ -149,10 +150,15 @@ public:
 			// Print overall time and newline.
 			tstr = durationString(dt);
 			out.append(tstr);
-			if (out.size() < width)
-				out.append(width-out.size(),' ');
+			size_t effLen = out.length();
+    	    #ifdef HAVE_ANSI_TERM
+	   		 effLen -= 11;
+     		#endif //HAVE_ANSI_TERM
+			if (effLen < width) {
+				out.append(width-effLen,' ');
+			}
 
-			out.append("\n");
+			out.append("\r\n");
 			std::cout << out;
 			return;
 		} else {

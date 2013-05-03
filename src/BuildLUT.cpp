@@ -62,16 +62,17 @@ void buildLUTs(
   CountDBNew& transcriptHash,                      //!< Count of kmers in transcripts
   TranscriptGeneMap& tgmap,                        //!< Transcript => Gene map
   const std::string& tlutfname,                    //!< Transcript lookup table filename
-  const std::string& klutfname                     //!< Kmer lookup table filename
+  const std::string& klutfname,                    //!< Kmer lookup table filename
+  uint32_t numThreads                              //!< Number of threads to use in parallel
   ) {
 
   char** fnames = new char*[transcriptFiles.size()];
   size_t z{0};
   size_t numFnames{0};
   for ( auto& s : transcriptFiles ){
-            // Ugly, yes?  But this is not as ugly as the alternatives.
-            // The char*'s contained in fname are owned by the transcriptFiles
-            // vector and need not be manually freed.
+    // Ugly, yes?  But this is not as ugly as the alternatives.
+    // The char*'s contained in fname are owned by the transcriptFiles
+    // vector and need not be manually freed.
     fnames[numFnames] = const_cast<char*>(s.c_str());
     ++numFnames;
   }
@@ -79,9 +80,7 @@ void buildLUTs(
   // Create a jellyfish parser
   jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
 
-  size_t numActors = 8;
   std::vector<std::thread> threads;
-
   std::vector<TranscriptList> transcriptsForKmer;
 
   size_t numTranscripts = tgmap.numTranscripts();
@@ -91,9 +90,11 @@ void buildLUTs(
   auto merLen = transcriptHash.kmerLength();
   bool done {false};
   std::atomic<size_t> numRes {0};
-  std::atomic<size_t> nworking{numActors-1};
+  std::atomic<size_t> nworking{numThreads-1};
 
   // Start the thread that will print the progress bar
+  std::cerr << "number of kmers : " << transcriptHash.size() << "\n";
+  std::cerr << "Building transcript <-> kmer lookup tables \n";
   threads.push_back( std::thread( [&numRes, &nworking, numTranscripts] () {
     size_t lastCount = numRes;
     ez::ezETAProgressBar show_progress(numTranscripts);
@@ -106,14 +107,14 @@ void buildLUTs(
       }
       boost::this_thread::sleep_for(boost::chrono::milliseconds(1010));
     }
+    show_progress += static_cast<unsigned int>(numTranscripts - lastCount);
+    std::cerr << "\n";
   }) );
 
-  std::cerr << "Processing transcripts\n";
   std::mutex tmut;
-  std::cerr << "num kmers = " << transcriptHash.size() << "\n";
 
   transcriptsForKmer.resize( transcriptHash.size() );
-  boost::lockfree::queue<ContainingTranscript> q(10000000);
+  tbb::concurrent_queue<ContainingTranscript> q;
 
   /**
    * spawn off a thread to build the kmer look up table
@@ -122,7 +123,7 @@ void buildLUTs(
     [&q, &transcriptsForKmer, &nworking]() {
       ContainingTranscript ct;
       while( nworking > 0 ) {
-        while( q.pop(ct) ) {
+        while( q.try_pop(ct) ) {
           transcriptsForKmer[ct.kmerID].push_back(ct.transcriptID);
         }
       }
@@ -132,7 +133,8 @@ void buildLUTs(
   transcriptsForKmer.resize( transcriptHash.size() );
 
   using LUTTools::TranscriptInfo;
-  boost::lockfree::queue<TranscriptInfo*> tq(numTranscripts);
+  tbb::concurrent_queue<TranscriptInfo*> tq;
+  //boost::lockfree::queue<TranscriptInfo*> tq(numTranscripts);
 
   /**
    * spawn off a thread to dump the transcript lookup table to file
@@ -145,7 +147,7 @@ void buildLUTs(
 
       TranscriptInfo* ti = nullptr;
       while( nworking > 0 ) {
-        while( tq.pop(ti) ) {
+        while( tq.try_pop(ti) ) {
           LUTTools::writeTranscriptInfo(ti, tlutstream);
           delete ti;
           ++numRec;
@@ -163,7 +165,7 @@ void buildLUTs(
 
   // Start the desired number of threads to parse the transcripts
   // and build our data structure.
-  for (size_t i = 0; i < numActors - 1; ++i) {
+  for (size_t i = 0; i < numThreads - 1; ++i) {
 
     threads.push_back( std::thread( 
       [&numRes, &q, &tq, &tgmap, &parser, &transcriptHash, &nworking, &transcriptsForKmer, &tmut, merLen]() -> void {
@@ -223,13 +225,16 @@ void buildLUTs(
               auto tcount = transcriptHash.atIndex(binMerId);
               if ( tcount > 0 ) {
                ContainingTranscript c{binMerId, transcriptIndex};
-               while(!q.push( c ));
-               //tinfo->kmers[offset] = binMerId;
+               q.push(c);
+               // for boost lockfree queue
+               // while(!q.push( c ));
              }
            }
          }
 
-         while(!tq.push(tinfo));
+         tq.push(tinfo);
+         // for boost lockfree queue
+         // while(!tq.push(tinfo));
          //transcripts[transcriptIndex] = tinfo;
        }
               
@@ -254,7 +259,7 @@ int main(int argc, char* argv[] ) {
 
   try{
 
-   bool poisson = false;
+   uint32_t maxThreads = std::thread::hardware_concurrency();
 
     po::options_description generic("Command Line Options");
     generic.add_options()
@@ -268,6 +273,7 @@ int main(int argc, char* argv[] ) {
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
       ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("lutfile,l", po::value<string>(), "Lookup table prefix")
+      ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
       ;
 
     po::options_description programOptions("combined");
@@ -317,7 +323,8 @@ int main(int argc, char* argv[] ) {
     auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
     std::cerr << "done\n";
 
-    buildLUTs(genesFile, sfIndex, transcriptHash, tgm, tlutfname, klutfname);
+    uint32_t numThreads = vm["threads"].as<uint32_t>();
+    buildLUTs(genesFile, sfIndex, transcriptHash, tgm, tlutfname, klutfname, numThreads);
 
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";

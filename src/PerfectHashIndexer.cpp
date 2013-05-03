@@ -9,6 +9,7 @@
 #include <thread>
 #include <functional>
 #include <memory>
+#include <cassert>
 
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -32,19 +33,18 @@
 #include "PerfectHashIndex.hpp"
 
 void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& counts, 
-                           size_t merLen, const std::string& indexBaseName ) {
+                           size_t merLen, const std::string& indexBaseName) {
 
     size_t nkeys = keys.size();
 
     std::vector<uint64_t> orderedMers(nkeys, 0);
 
-    FILE* mphf_fd = fopen("temp.mph", "w");
+    // Source of keys -- oh C, how I love thee
+    cmph_io_adapter_t *source = cmph_io_struct_vector_adapter(static_cast<void *>(&keys[0]),
+                                                              static_cast<cmph_uint32>(sizeof(uint64_t)), 
+                                                              0, sizeof(uint64_t), nkeys);
 
-    // Source of keys
-    cmph_io_adapter_t *source = cmph_io_struct_vector_adapter((void *)&keys[0],(cmph_uint32)sizeof(uint64_t), 
-        0, sizeof(uint64_t), nkeys);
-
-    std::cerr << "reading from JFHash into perfect hash\n";
+    std::cerr << "Building a perfect hash from the Jellyfish hash.\n";
     cmph_t *hash = nullptr;
     size_t i = 0;
     { 
@@ -52,65 +52,56 @@ void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& c
       //Create minimal perfect hash function using the brz algorithm.
       cmph_config_t *config = cmph_config_new(source);
       cmph_config_set_algo(config, CMPH_BDZ);
-      cmph_config_set_mphf_fd(config, mphf_fd);
       cmph_config_set_memory_availability(config, 1000);
       cmph_config_set_b(config, 3);
       cmph_config_set_keys_per_bin(config, 1);
 
       hash = cmph_new(config);
-      cmph_config_destroy(config);
-      cmph_dump(hash, mphf_fd); 
-      cmph_destroy(hash);   
-      fclose(mphf_fd);
     }
 
-    //Find key
-    mphf_fd = fopen("temp.mph", "r");
-    hash = cmph_load(mphf_fd);
-    fclose(mphf_fd);
-
+    assert(hash != nullptr);
     std::unique_ptr<cmph_t, std::function<void(cmph_t*)>> ownedHash(hash, cmph_destroy);
 
     std::cerr << "saving keys in perfect hash . . .";
     auto start = std::chrono::steady_clock::now();
-      {
-        boost::timer::auto_cpu_timer t;
-        tbb::parallel_for_each( keys.begin(), keys.end(), 
-            [&ownedHash, &orderedMers]( uint64_t k ) {
-                char *key = (char*)(&k);
-                unsigned int id = cmph_search(ownedHash.get(), key, sizeof(uint64_t));
-                orderedMers[id] = k;
-            }
-        );
-        
-      }
-      std::cerr << "done\n";
-      auto end = std::chrono::steady_clock::now();
-      auto ms = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-      std::cerr << "took: " << static_cast<double>(ms.count()) / keys.size() << " us / key\n";
+    {
+      boost::timer::auto_cpu_timer t;
+      tbb::parallel_for_each( keys.begin(), keys.end(), 
+        [&ownedHash, &orderedMers]( uint64_t k ) -> void {
+          char *key = (char*)(&k);
+          unsigned int id = cmph_search(ownedHash.get(), key, sizeof(uint64_t));
+          orderedMers[id] = k;
+        });
 
-      PerfectHashIndex phi(orderedMers, ownedHash, merLen);
+    }
+
+    std::cerr << "done\n";
+    auto end = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
+    std::cerr << "took: " << static_cast<double>(ms.count()) / keys.size() << " us / key\n";
+
+    PerfectHashIndex phi(orderedMers, ownedHash, merLen);
       
-      std::cerr << "writing index to file " << indexBaseName+".sfi\n";
-      auto dthread1 = std::thread( [&phi, indexBaseName]() -> void { phi.dumpToFile(indexBaseName+".sfi"); } );
+    std::cerr << "writing index to file " << indexBaseName+".sfi\n";
+    auto dthread1 = std::thread( [&phi, indexBaseName]() -> void { phi.dumpToFile(indexBaseName+".sfi"); } );
 
-      auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
-      auto phiPtr = std::shared_ptr<PerfectHashIndex>(&phi, del);
-      CountDBNew thash( phiPtr );
+    auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
+    auto phiPtr = std::shared_ptr<PerfectHashIndex>(&phi, del);
+    CountDBNew thash( phiPtr );
 
-      tbb::parallel_for( size_t{0}, keys.size(),
-            [&thash, &keys, &counts]( size_t idx ) {
-                auto k = keys[idx]; auto c = counts[idx];
-                thash.inc(k, c);
-            }
-      );
-      std::cerr << "writing transcript counts to file " << indexBaseName+".sfc\n";
-      auto dthread2 = std::thread( [&thash, indexBaseName]() -> void { thash.dumpCountsToFile(indexBaseName+".sfc"); } );
+    tbb::parallel_for( size_t{0}, keys.size(),
+      [&thash, &keys, &counts]( size_t idx ) {
+        auto k = keys[idx]; auto c = counts[idx];
+        thash.inc(k, c);
+      });
 
-      dthread1.join();
-      std::cerr << "done writing index\n";
-      dthread2.join();
-      std::cerr << "done writing transcript counts\n";
+    std::cerr << "writing transcript counts to file " << indexBaseName+".sfc\n";
+    auto dthread2 = std::thread( [&thash, indexBaseName]() -> void { thash.dumpCountsToFile(indexBaseName+".sfc"); } );
+
+    dthread1.join();
+    std::cerr << "done writing index\n";
+    dthread2.join();
+    std::cerr << "done writing transcript counts\n";
 }
 
 
@@ -118,12 +109,15 @@ int mainIndex( int argc, char *argv[] ) {
     using std::string;
     namespace po = boost::program_options;
 
+    uint32_t maxThreads = std::thread::hardware_concurrency();
+
     po::options_description generic("Command Line Options");
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ("thash,t", po::value<string>(), "transcript hash file [Jellyfish format]")
     ("index,i", po::value<string>(), "transcript index file [Sailfish format]")
+    ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
     ;
 
     po::variables_map vm;
@@ -147,9 +141,7 @@ the Jellyfish database [thash] of the transcripts.
 
         string thashFile = vm["thash"].as<string>();
 
-        /**
-        *  Read in the Jellyfish hash of the transcripts
-        */
+        // Read in the Jellyfish hash of the transcripts
         mapped_file transcriptDB(thashFile.c_str());
         transcriptDB.random().will_need();
         char typeTrans[8];
@@ -163,7 +155,8 @@ the Jellyfish database [thash] of the transcripts.
         std::vector<uint64_t> keys(nkeys,0);
         std::vector<uint32_t> counts(nkeys,0);
 
-        tbb::task_scheduler_init init(12);
+        uint32_t numThreads = vm["threads"].as<uint32_t>();
+        tbb::task_scheduler_init init(numThreads);
         auto it = transcriptHash.iterator_all();
         size_t i = 0;
         while ( it.next() ) {

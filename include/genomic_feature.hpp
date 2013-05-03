@@ -2,11 +2,11 @@
 #define GENOMIC_FEATURE_HPP
 
 #include <boost/thread/thread.hpp>
-#include <boost/lockfree/queue.hpp>
-
 #include <thread>
 #include <fstream>
 #include <boost/tokenizer.hpp>
+
+#include "tbb/concurrent_queue.h"
 
 struct TranscriptGeneID {
   std::string transcript_id;
@@ -197,13 +197,16 @@ namespace GTFParser {
     bool done = false;
     std::vector<std::thread> threads;
 
-    boost::lockfree::queue<StringPtr> queue(5000);
+    tbb::concurrent_queue<StringPtr> queue;
+    //boost::lockfree::queue<StringPtr> queue(5000);
     threads.push_back(
     std::thread([&ifile, &queue, &done]() {
       StringPtr line = new std::string();
       while( !std::getline(ifile, *line).eof() ) {
-        StringPtr ownedLine = line;        
-        while( !queue.push(ownedLine) ) {}
+        StringPtr ownedLine = line;  
+        queue.push(ownedLine);
+        // for boost lockfree
+        // while( !queue.push(ownedLine) ) {}
         line = new std::string();
       }
       done = true;
@@ -212,19 +215,22 @@ namespace GTFParser {
 
     size_t nreader=10;
     std::atomic<size_t> tctr{nreader};
-    boost::lockfree::queue<GenomicFeature<StaticAttributes>*> outQueue(5000);
+    tbb::concurrent_queue<GenomicFeature<StaticAttributes>*> outQueue;
+    // boost::lockfree::queue<GenomicFeature<StaticAttributes>*> outQueue(5000);
     
     for( size_t i = 0; i < nreader; ++i ) {
       threads.push_back(
       std::thread([&queue, &outQueue, &done, &tctr]() -> {
 
         StringPtr l = nullptr;
-        while( !done or queue.pop(l) ) {
+        while( !done or queue.try_pop(l) ) {
           if ( l != nullptr ) {
             auto gf = new GenomicFeature<StaticAttributes>();
             genomicFeatureFromLine(*l, *gf);
-            while( !outQueue.push(gf) ) {}
-              delete l;
+            outQueue.push(gf);
+            // for boost lockfree
+            // while( !outQueue.push(gf) ) {}
+            delete l;
             l = nullptr;
           }
         }
@@ -236,7 +242,7 @@ namespace GTFParser {
     threads.push_back(
       std::thread([&outQueue, &feats, &tctr]() -> {
         GenomicFeature<StaticAttributes>* f = nullptr;
-        while( outQueue.pop(f) or tctr > 0 ) {
+        while( outQueue.try_pop(f) or tctr > 0 ) {
           if ( f != nullptr ) {
             feats.push_back(*f);
           }

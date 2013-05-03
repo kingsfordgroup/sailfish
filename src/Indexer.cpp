@@ -31,10 +31,13 @@ int indexMain( int argc, char *argv[] ) {
     using std::string;
     namespace po = boost::program_options;
 
+    uint32_t maxThreads = std::thread::hardware_concurrency();
+
     po::options_description generic("Command Line Options");
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
+    ("processors,p", po::value<uint32_t>(maxThreads), "Number of threads to use in parallel")
     ("thash,t", po::value<string>(), "transcript hash file [Jellyfish format]")
     ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
     ("idx,i", po::value<string>(), "File where Sailfish transcript index is written")
@@ -128,8 +131,8 @@ int indexMain( int argc, char *argv[] ) {
         // Open up the transcript file for reading
         // Create a jellyfish parser
         jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
-
-        size_t numActors = 26;
+        
+        size_t numActors = vm["processors"].as<uint32_t>();
         boost::threadpool::pool tp(numActors);
         //std::vector< std::atomic<uint32_t> > readHash( mers.size() );
         std::atomic<uint64_t> readNum {0};

@@ -47,7 +47,6 @@ class PerfectHashIndex {
    }
 
    static PerfectHashIndex fromFile( const std::string& fname ) {
-   	
    	FILE* in = fopen(fname.c_str(),"r");
 
    	// read the key set
