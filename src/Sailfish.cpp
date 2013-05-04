@@ -19,9 +19,6 @@
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 
-#include "g2logworker.h"
-#include "g2log.h"
-
 #include <jellyfish/sequence_parser.hpp>
 #include <jellyfish/parse_read.hpp>
 #include <jellyfish/mer_counting.hpp>
@@ -195,16 +192,29 @@ int help(int argc, char* argv[]) {
   return 1;
 }
 
+/**
+ * Bonus! 
+ */
+int mainSailfish(int argc, char* argv[]) {
+
+  std::cerr << R"(
+   _____       _ _______      __  
+  / ___/____ _(_) / __(_)____/ /_ 
+  \__ \/ __ `/ / / /_/ / ___/ __ \
+ ___/ / /_/ / / / __/ (__  ) / / /
+/____/\__,_/_/_/_/ /_/____/_/ /_/ 
+)";
+
+  return 0;
+
+}
+
 //int indexMain( int argc, char* argv[] );
 int mainIndex( int argc, char* argv[] );
 int mainCount( int argc, char* argv[] );
+int mainBuildLUT(int argc, char* argv[] );
 
-int main( int argc, char* argv[] ) {
-
-  g2LogWorker logger(argv[0], "./" );
-  g2::initializeLogging(&logger);
-  std::cerr << "** log file being written to " << logger.logFileName().get() << "** \n";
-  
+int main( int argc, char* argv[] ) {  
   using std::string;
   namespace po = boost::program_options;
 
@@ -214,7 +224,10 @@ int main( int argc, char* argv[] ) {
       {"--help", help},
       {"itopt", runIterativeOptimizer},
       {"index", mainIndex},
-      {"count", mainCount}});
+      {"buildlut", mainBuildLUT},
+      {"count", mainCount},
+      {"sf", mainSailfish}
+    });
     
     char** argv2 = new char*[argc-1];
     argv2[0] = argv[0];

@@ -28,9 +28,6 @@
 #include "tbb/concurrent_queue.h"
 #include "tbb/parallel_for_each.h"
 
-#include "g2logworker.h"
-#include "g2log.h"
-
 #include <jellyfish/sequence_parser.hpp>
 #include <jellyfish/parse_read.hpp>
 #include <jellyfish/mer_counting.hpp>
@@ -253,7 +250,7 @@ void buildLUTs(
 
 
 
-int main(int argc, char* argv[] ) {
+int mainBuildLUT(int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
 

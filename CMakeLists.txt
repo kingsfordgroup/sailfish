@@ -1,10 +1,25 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 2.8)
 
 project (Sailfish)
 
-set (CMAKE_CXX_COMPILER g++)
-
+# set (CMAKE_CXX_COMPILER g++)
 set (CMAKE_CXX_FLAGS "-O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11")
+
+# Compiler-specific C++11 activation.
+# http://stackoverflow.com/questions/10984442/how-to-detect-c11-support-of-a-compiler-with-cmake
+if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
+    execute_process(
+        COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION)
+    if (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
+        message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
+    endif ()
+elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+else ()
+    message(FATAL_ERROR "Your C++ compiler does not support C++11.")
+endif ()
+
+
 
 set (GAT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -38,11 +53,30 @@ find_package (ZLIB)
 
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 
+##
+# Logging library; currently unused so the dependency is temporarily removed
+##
+# message(status "Building and Installing g2log")
+# message(status "============================")
+# include(ExternalProject)
+# ExternalProject_Add(libg2log
+#     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+#     URL http://www.cs.cmu.edu/~robp/files/g2log.tgz
+#     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
+#     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+#     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+#     BUILD_COMMAND make
+#     #BUILD_IN_SOURCE 1
+#     INSTALL_COMMAND sh -c "cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib && cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include"
+# )
+# message(status "g2log installed.")
+
 message(status "Building and Installing CMPH")
 message(status "============================")
 include(ExternalProject)
 ExternalProject_Add(libcmph
-	DOWNLOAD_COMMAND ""
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://www.cs.cmu.edu/~robp/files/cmph-2.0.tar.gz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cmph-2.0
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/cmph-2.0/configure --prefix=<INSTALL_DIR>
@@ -72,7 +106,6 @@ message(status "============================")
 # These are useful for the custom install step we'll do later
 set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
 	URL http://threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb41_20130314oss_src.tgz
@@ -85,13 +118,25 @@ ExternalProject_Add(libtbb
 )
 message(status "TBB installed.")
 
-add_subdirectory ( external )
-
 ###
 #
 # Done building external dependencies.
 #
 ###
 
+set (CPACK_SOURCE_IGNORE_FILES 
+"/build/"
+"/bin/"
+"/experimental_configs/"
+"/scripts/"
+"/external/"
+".git/")
+
+message("CPACK_SOURCE_IGNORE_FILES = ${CPACK_SOURCE_IGNORE_FILES}")
+
 # Recurse into Sailfish source directory
 add_subdirectory ( src )
+
+# build a CPack driven installer package
+include (CPack)
+

@@ -142,6 +142,7 @@ def buildIndex(input, output, config):
 
     executable = config['executable']
     cmd = [executable] + shlex.split(argString)
+    print("buildIndex command : {}".format(' '.join(cmd)))
     tstart = time.time()
     subprocess.call(cmd)
     tend = time.time()
