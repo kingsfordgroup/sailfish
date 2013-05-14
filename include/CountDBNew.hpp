@@ -65,6 +65,10 @@ class CountDBNew {
     return valid;
    }
 
+   // bool incAtIndex(size_t idx, uint32_t amt=1) {
+    
+   // }
+
    bool dumpCountsToFile( const std::string& fname ) {
     std::ofstream counts(fname, std::ios::out | std::ios::binary );
     size_t numCounts = counts_.size();

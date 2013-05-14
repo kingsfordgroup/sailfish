@@ -7,9 +7,12 @@ Sailfish.cpp
 # them into a single executable was causing 
 # multiple symbold definition errors).
 set (SAILFISH_LIB_SRCS
-BuildLUT.cpp
+QuantificationDriver.cpp
 PerfectHashIndexer.cpp
+BuildLUT.cpp
 IndexedCounter.cpp
+GenomicFeature.cpp
+utils.cpp
 )
 
 include_directories( 
@@ -30,7 +33,7 @@ ${Boost_LIBRARY_DIRS}
 # Build the Sailfish library
 add_library(sailfish SHARED ${SAILFISH_LIB_SRCS})
 # Build the Sailfish executable
-add_executable( Sailfish ${SAILFISH_MAIN_SRCS} )
+add_executable( Sailfish ${SAILFISH_MAIN_SRCS} GenomicFeature.cpp )
 # Link the executable
 target_link_libraries( Sailfish 
 	sailfish 
@@ -59,8 +62,12 @@ install(TARGETS Sailfish sailfish
                 ARCHIVE DESTINATION lib
         )
 
+# install(FILES ${GAT_SOURCE_DIR}/scripts/SFPipeline.py DESTINATION scripts/SFPipeline.py )
+# install(FILES ${GAT_SOURCE_DIR}/experimental_configs/SRX016368_25mers.cfg DESTINATION experimental_configs/SRX016368_25mers.cfg )
+
 include(InstallRequiredSystemLibraries)
 set(CPACK_GENERATOR "TGZ")
+set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_NAME "Sailfish")
 set(CPACK_SOURCE_PACKAGE_NAME "Sailfish-Src")
 set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")

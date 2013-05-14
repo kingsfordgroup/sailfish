@@ -1,12 +1,12 @@
-"""SFPipeline.py
+"""
 
-Usage:
-  SFPipeline.py (--cfg=<cfgfile>) (--targets=<tgt>)... [--log=<log>] [--print] [--forced=<forced>]... [--verbose=<v>]
+Usage: 
+  SFPipeline.py (--cfg=<cfgfile>) (--targets=<tgt>)... [--log=<log>] [--print] [--forced=<fname>]... [--verbose=<v>]
 
 Options:
   -h --help          Help
   --cfg=<cfgfile>    Config file
-  --targets=<tname>  Target tasks
+  --targets=<tgt>    Target tasks
   --forced=<fname>   Forced tasks
   --log=<lfile>      Log file [default:sfpipeline.log]
   --verbose=<v>      Verbosity level [default:10]
@@ -119,7 +119,34 @@ def nobody():
     '''
     pass
 
-@follows(nobody, mkdir(configFile['resultBase']))
+
+@follows(nobody, mkdir(configFile['transcriptCountBase']))
+@files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['Jellyfish']['depends']])),
+        configFile['Jellyfish']['produces'],
+        configFile['Jellyfish']
+      )
+def runJellyfish(input, output, config):
+    '''
+    Run Jellyfish on the transcript set.
+    '''
+    def procArg(k, v):
+        return [k, v]
+
+    argString = ' '.join(' '.join(procArg(k, v)) for k, v in config['arguments'].iteritems())
+
+    executable = config['executable']
+    cmd = [executable] + shlex.split(argString)
+    print("jellyfish command : {}".format(' '.join(cmd)))
+    tstart = time.time()
+    subprocess.call(cmd)
+    tend = time.time()
+    s = tend-tstart
+
+    with open(os.path.sep.join([configFile['resultBase'], 'jf.time']), 'wb') as ofile:
+        ofile.write('Running jellyfish took {0} seconds\n'.format(s))
+
+
+@follows(runJellyfish, mkdir(configFile['resultBase']))
 @files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['BuildIndex']['depends']])),
         configFile['BuildIndex']['produces'],
         configFile['BuildIndex']
@@ -152,6 +179,37 @@ def buildIndex(input, output, config):
         ofile.write('Building index took {0} seconds\n'.format(s))
 
 @follows(buildIndex, mkdir(configFile['resultBase']))
+@files( list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['BuildLUT']['depends']])),
+        configFile['BuildLUT']['produces'],
+        configFile['BuildLUT']
+      )
+def buildLUT(input, output, config):
+    '''
+    Build the look up tables (kmer -> transcript and transcript -> kmer) for Sailfish.  
+    The underlying program takes the index that results from the buildIndex step,
+    the actual transcript sequences, and a gtf file giving the transcript <=> gene mappings
+    It produces a pair of Sailfish lookup tables, that consists of a mapping from the 
+    transcripts to the kmers they contained and the kmers to the transcripts in which they
+    appear.
+    '''
+    def procArg(k, v):
+        return [k, v]
+
+    argString = ' '.join(' '.join(procArg(k, v)) for k, v in config['arguments'].iteritems())
+
+    executable = config['executable']
+    cmd = [executable] + shlex.split(argString)
+    print("buildLUT command : {}".format(' '.join(cmd)))
+    tstart = time.time()
+    subprocess.call(cmd)
+    tend = time.time()
+    s = tend-tstart
+
+    with open(os.path.sep.join([configFile['resultBase'], 'sfBuildLUT.time']), 'wb') as ofile:
+        ofile.write('Building LUTs took {0} seconds\n'.format(s))
+
+
+@follows(buildLUT, mkdir(configFile['resultBase']))
 @files(list(itertools.chain(*[glob.glob(fpattern) for fpattern in configFile['CountKmers']['depends']])),
        configFile['CountKmers']['produces'],
        configFile['CountKmers']

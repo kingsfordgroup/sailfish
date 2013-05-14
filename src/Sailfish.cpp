@@ -30,12 +30,15 @@
 #include "genomic_feature.hpp"
 #include "CountDBNew.hpp"
 #include "collapsed_iterative_optimizer.hpp"
+#include "SailfishConfig.hpp"
 //#include "iterative_optimizer.hpp"
-#include "tclap/CmdLine.h"
+//#include "tclap/CmdLine.h"
 
 int runIterativeOptimizer(int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
+
+  string cmdString = "estimate";
 
   try{
 
@@ -52,7 +55,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
     po::options_description config("Configuration");
     config.add_options()
-      ("genes,g", po::value< std::vector<string> >(), "gene sequences")
+      //("genes,g", po::value< std::vector<string> >(), "gene sequences")
       ("counts,c", po::value<string>(), "count file")
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
       ("bias,b", po::value<string>(), "bias index prefix (without .bin/.dict)")
@@ -73,11 +76,15 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
  
     //bool poisson = ( vm.count("poisson") ) ? true : false;
     
+    if ( vm.count("version") ) {
+      std::cout << "version : " << Sailfish::version <<"\n";
+      std::exit(0);
+    }
 
     if ( vm.count("help") ){
       std::cout << "Sailfish\n";
       std::cout << programOptions << std::endl;
-      std::exit(1);
+      std::exit(0);
     }
 
     if ( vm.count("cfg") ) {
@@ -88,9 +95,12 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     }
     po::notify(vm);
 
+    uint32_t numThreads = vm["threads"].as<uint32_t>();
+    tbb::task_scheduler_init init(numThreads);
+
     string transcriptGeneMap = vm["tgmap"].as<string>();
     string hashFile = vm["counts"].as<string>();
-    std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
+    //std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
     //string transcriptHashFile = vm["thash"].as<string>();
     string sfIndexBase = vm["index"].as<string>();
     string sfIndexFile = sfIndexBase+".sfi";
@@ -137,13 +147,12 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     std::cerr << "Reading read counts from [" << hashFile << "] . . .";
     auto hash = CountDBNew::fromFile( hashFile, sfIndexPtr );
     std::cerr << "done\n";
-    const std::vector<string>& geneFiles{genesFile};
+    //const std::vector<string>& geneFiles{genesFile};
     auto merLen = sfIndex.kmerLength();
     
     BiasIndex bidx = vm.count("bias") ? BiasIndex( vm["bias"].as<string>() ) : BiasIndex();
 
     std::cerr << "Creating optimizer . . .";
-    uint32_t numThreads = vm["threads"].as<uint32_t>();
     CollapsedIterativeOptimizer<CountDBNew> solver(hash, tgm, bidx, numThreads);
     // IterativeOptimizer<CountDBNew, CountDBNew> solver( hash, transcriptHash, tgm, bidx );
     std::cerr << "done\n";
@@ -168,8 +177,13 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
     std::exit(1);
+  } catch (...) {
+    std::cerr << argv[0] << " " << cmdString << " was invoked improperly.\n";
+    std::cerr << "For usage information, try " << argv[0] << " " << cmdString << " --help\nExiting.\n";
+    std::exit(1);
   }
 
+  return 0;
 }
 
 int help(int argc, char* argv[]) {
@@ -210,39 +224,79 @@ int mainSailfish(int argc, char* argv[]) {
 }
 
 //int indexMain( int argc, char* argv[] );
-int mainIndex( int argc, char* argv[] );
-int mainCount( int argc, char* argv[] );
+int mainIndex(int argc, char* argv[]);
+int mainCount(int argc, char* argv[]);
+int mainQuantify(int argc, char* argv[]);
 int mainBuildLUT(int argc, char* argv[] );
 
 int main( int argc, char* argv[] ) {  
   using std::string;
   namespace po = boost::program_options;
 
+
   try {
-    std::unordered_map<std::string, std::function<int(int, char*[])>> cmds({
-      {"-h" , help},
-      {"--help", help},
-      {"itopt", runIterativeOptimizer},
+    
+    po::options_description sfopts("Sailfish");
+    sfopts.add_options()
+    ("command", po::value<string>(), "command to run {index, estimate, sf}")
+    ("version,v", "print version string")
+    ("help,h", "produce help message")
+    ;
+
+    // po::options_description sfopts("Command");
+    // sfopts.add_options()
+
+    po::positional_options_description pd;
+    pd.add("command", 1);
+
+    po::variables_map vm;
+    po::store(po::command_line_parser(2, argv).options(sfopts).positional(pd).allow_unregistered().run(), vm);
+
+    if (vm.count("version")) {
+      std::cerr << "version : " << Sailfish::version << "\n";
+      std::exit(0);
+    }
+
+    po::notify(vm);
+    
+
+    if (!vm.count("command") and vm.count("help")) {
+      std::cout << sfopts << std::endl;
+      std::exit(0);
+    }
+  
+    std::unordered_map<string, std::function<int(int, char*[])>> cmds({
+      {"estimate", runIterativeOptimizer},
       {"index", mainIndex},
       {"buildlut", mainBuildLUT},
+      {"quant", mainQuantify},
       {"count", mainCount},
       {"sf", mainSailfish}
     });
-    
+
+    //string cmd = argv[1];
+    string cmd = vm["command"].as<string>();
+
     char** argv2 = new char*[argc-1];
     argv2[0] = argv[0];
     std::copy_n( &argv[2], argc-2, &argv2[1] );
-    if (cmds.find(argv[1]) == cmds.end()) {
+
+    auto cmdMain = cmds.find(cmd);
+    if (cmdMain == cmds.end()) {
       help( argc-1, argv2 );
     } else {
-      cmds[ argv[1] ](argc-1, argv2);
+      std::cerr << "COMMAND: " << cmdMain->first << "\n";
+      cmdMain->second(argc-1, argv2);
     }
     delete[] argv2;
 
-  } catch (TCLAP::ArgException &e) {
-    std::cerr << "error: " << e.error() << " for arg " << e.argId() << std::endl;
+  } catch (po::error &e) {
+    std::cerr << "Program Option Error (main) : [" << e.what() << "].\n Exiting.\n";
+    std::exit(1);
+  } catch (...) {
+    std::cerr << argv[0] << " was invoked improperly.\n";
+    std::cerr << "For usage information, try " << argv[0] << " --help\nExiting.\n";
   }
 
-
-return 0;
+  return 0;
 }

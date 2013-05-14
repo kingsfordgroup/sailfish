@@ -13,8 +13,12 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     if (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
         message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
     endif ()
+    set (BOOST_CONFIGURE_TOOLSET "")
+    set (BOOST_EXTRA_FLAGS "")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
+    set (BOOST_EXTRA_FLAGS "toolset=clang cxxflags=\"-stdlib=libc++\"  linkflags=\"-stdlib=libc++\"")
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
@@ -37,11 +41,48 @@ set (Boost_USE_STATIC_RUNTIME OFF)
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options)
 
-if (NOT Boost_FOUND)
+if (NOT Boost_FOUND AND NOT FETCH_BOOST)
 	message(FATAL_ERROR 
-		"Sailfish cannot be compiled without Boost.\nPlease visit http://www.boost.org/ and install Boost")
+		"Sailfish cannot be compiled without Boost.\n"
+        "It is recommended to visit http://www.boost.org/ and install Boost according to those instructions.\n"
+        "This build system can also download and install a local version of boost for you (this takes a lot of time).\n"
+        "To fetch and build boost locally, call cmake with -DFETCH_BOOST=TRUE"
+    )
+elseif(FETCH_BOOST)
+    message("Fetching Boost")
+    message(status "Building and Installing BOOST")
+    message(status "============================")
+    include(ExternalProject)
+    ExternalProject_Add(libboost
+        DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+        URL http://www.cs.cmu.edu/~robp/files/boost-1.53.0.tar.gz
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0
+        INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0/bootstrap.sh ${BOOST_TOOLSET_STRING} --prefix=<INSTALL_DIR>
+        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0/b2 ${BOOST_EXTRA_FLAGS} install
+        BUILD_IN_SOURCE 1
+        INSTALL_COMMAND ""
+    )
+    message(status "BOOST installed.")
+
+    ExternalProject_Add_Step(libboost reconfigure
+        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DFETCH_BOOST=TRUE
+        DEPENDEES install
+    )
 endif()
 
+if (NOT Boost_FOUND)
+    unset(Boost_FOUND CACHE)
+    unset(Boost_INCLUDE_DIR CACHE)
+    unset(Boost_LIBRARY_DIR CACHE) 
+    unset(BOOST_ROOT CACHE)
+    set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    message("BOOST_ROOT = ${BOOST_ROOT}")
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options)
+endif()
+
+message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIRS}")
+message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
 
 find_package (ZLIB)
 
@@ -126,9 +167,12 @@ message(status "TBB installed.")
 
 set (CPACK_SOURCE_IGNORE_FILES 
 "/build/"
+"/scripts/AggregateToGeneLevel.py"
+"/scripts/ExpressionTools.py"
+"/scripts/GenerateExpressionFiles.sh"
+"/scripts/ParseSoftFile.py"
+"/scripts/PlotCorrelation.py"
 "/bin/"
-"/experimental_configs/"
-"/scripts/"
 "/external/"
 ".git/")
 

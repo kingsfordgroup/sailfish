@@ -489,7 +489,7 @@ private:
 
 /**
  * Collapses all kmer which share the same transcript multiset.  Such kmers can be
- * treated as a "batch" which a count whose value is the sum of individual "batch"
+ * treated as a "batch" with a count whose value is the sum of individual "batch"
  * members.
  * @param  isActiveKmer       [A bitvector which designates, for each kmer,
  *                             whether or not that kmer is active in the current
@@ -570,12 +570,9 @@ private:
 
         // Aggregate the counts attributable to each kmer into its repective
         // group's counts.
-        //accumulator_set<double, stats<tag::median> > acc;
         for (auto kid : kv.second) {
-            //acc(readHash_.atIndex(kid));
             kmerGroupCounts[index] += readHash_.atIndex(kid);
         }
-        //kmerGroupCounts[index] = kv.second.size() * median(acc);
 
         // Update the total number of kmers we're accounting for
         // and the index of the current kmer group.
@@ -635,10 +632,15 @@ private:
         // determine which kmers are active
         tbb::parallel_for(size_t(0), numKmers, 
             [&](size_t kid) {  
-                if (discardZeroCountKmers and readHash_.atIndex(kid) == 0) {
-                } else {
-                    isActiveKmer[kid] = 1;
-                }
+              if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
+                isActiveKmer[kid] = 1;
+              }
+              /*
+              if (discardZeroCountKmers and readHash_.atIndex(kid) == 0) {
+              } else {
+                isActiveKmer[kid] = 1;
+              }
+              */
         });
 
         // compute the equivalent kmer sets
@@ -883,7 +885,7 @@ public:
         std::vector<KmerID> kmerList( transcriptsForKmer_.size(), 0 );
         size_t idx = 0;
 
-        tbb::task_scheduler_init tbb_init;
+        tbb::task_scheduler_init tbb_init(numThreads_);
 
         std::cerr << "Computing initial coverage estimates ... ";
 

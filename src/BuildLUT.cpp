@@ -19,14 +19,12 @@
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
-#include <boost/graph/adjacency_list.hpp>
-#include <boost/graph/graphml.hpp>
-#include <boost/graph/connected_components.hpp>
 
 #include "tbb/concurrent_vector.h"
 #include "tbb/concurrent_unordered_set.h"
 #include "tbb/concurrent_queue.h"
 #include "tbb/parallel_for_each.h"
+#include "tbb/task_scheduler_init.h"
 
 #include <jellyfish/sequence_parser.hpp>
 #include <jellyfish/parse_read.hpp>
@@ -53,7 +51,7 @@ struct ContainingTranscript{
   TranscriptID transcriptID;
 };
 
-void buildLUTs( 
+int buildLUTs( 
   const std::vector<std::string>& transcriptFiles, //!< File from which transcripts are read
   PerfectHashIndex& transcriptIndex,               //!< Index of transcript kmers
   CountDBNew& transcriptHash,                      //!< Count of kmers in transcripts
@@ -244,11 +242,12 @@ void buildLUTs(
   for ( auto& thread : threads ){ thread.join(); }
 
   std::cerr << "writing kmer lookup table . . . ";
+  std::cerr << "table size = " << transcriptsForKmer.size() << " . . . ";
   LUTTools::dumpKmerLUT(transcriptsForKmer, klutfname);
   std::cerr << "done\n";
+
+  return 0;
 }
-
-
 
 int mainBuildLUT(int argc, char* argv[] ) {
   using std::string;
@@ -293,6 +292,9 @@ int mainBuildLUT(int argc, char* argv[] ) {
     }
     po::notify(vm);
 
+    uint32_t numThreads = vm["threads"].as<uint32_t>();
+    tbb::task_scheduler_init init(numThreads);
+
     string transcriptGeneMap = vm["tgmap"].as<string>();
     std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
     string sfIndexBase = vm["index"].as<string>();
@@ -312,7 +314,7 @@ int mainBuildLUT(int argc, char* argv[] ) {
 	
     std::cerr << "Reading transcript index from [" << sfIndexFile << "] . . .";
     auto sfIndex = PerfectHashIndex::fromFile( sfIndexFile );
-    auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
+    auto del = []( PerfectHashIndex* h ) -> void { };
     auto sfIndexPtr = std::shared_ptr<PerfectHashIndex>( &sfIndex, del );
     std::cerr << "done\n";
 
@@ -320,7 +322,6 @@ int mainBuildLUT(int argc, char* argv[] ) {
     auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
     std::cerr << "done\n";
 
-    uint32_t numThreads = vm["threads"].as<uint32_t>();
     buildLUTs(genesFile, sfIndex, transcriptHash, tgm, tlutfname, klutfname, numThreads);
 
   } catch (po::error &e){
