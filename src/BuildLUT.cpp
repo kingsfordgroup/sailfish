@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include <boost/thread/thread.hpp>
 #include <boost/lockfree/queue.hpp>
 
@@ -34,10 +56,9 @@
 #include <jellyfish/parse_dna.hpp>
 
 #include "LookUpTableUtils.hpp"
-#include "utils.hpp"
-#include "genomic_feature.hpp"
+#include "Utils.hpp"
+#include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
-#include "tclap/CmdLine.h"
 #include "ezETAProgressBar.hpp"
 
 typedef uint32_t TranscriptID;
@@ -51,6 +72,10 @@ struct ContainingTranscript{
   TranscriptID transcriptID;
 };
 
+/**
+ * This function builds both a kmer => transcript and transcript => kmer
+ * lookup table.
+ */
 int buildLUTs( 
   const std::vector<std::string>& transcriptFiles, //!< File from which transcripts are read
   PerfectHashIndex& transcriptIndex,               //!< Index of transcript kmers
@@ -238,7 +263,7 @@ int buildLUTs(
 
   }
 
-        // Wait for all of the threads to finish
+  // Wait for all of the threads to finish
   for ( auto& thread : threads ){ thread.join(); }
 
   std::cerr << "writing kmer lookup table . . . ";
@@ -249,6 +274,16 @@ int buildLUTs(
   return 0;
 }
 
+/**
+ * This function is the main command line driver for the lookup table
+ * building phase of Sailfish.  The 'buildlut' command that invokes this
+ * driver is part of the 'advanced' Sailfish interface and thus, this function
+ * is not usually called by the main pipeline.
+ * 
+ * @param  argc number of tokens on command line
+ * @param  argv command line tokens
+ * @return      0 on success; a different value otherwise
+ */
 int mainBuildLUT(int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
@@ -295,7 +330,6 @@ int mainBuildLUT(int argc, char* argv[] ) {
     uint32_t numThreads = vm["threads"].as<uint32_t>();
     tbb::task_scheduler_init init(numThreads);
 
-    string transcriptGeneMap = vm["tgmap"].as<string>();
     std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
     string sfIndexBase = vm["index"].as<string>();
     string sfIndexFile = sfIndexBase+".sfi";
@@ -304,14 +338,39 @@ int mainBuildLUT(int argc, char* argv[] ) {
     auto tlutfname = lutprefix + ".tlut";
     auto klutfname = lutprefix + ".klut";
 
-    std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
-    auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
-    std::cerr << "done\n";
+    TranscriptGeneMap tgmap;
 
-    std::cerr << "building transcript to gene map . . .";
-    auto tgm = utils::transcriptToGeneMapFromFeatures( features );
-    std::cerr << "done\n";
-	
+    // If the user procided a GTF file, then use that to enumerate the
+    // transcripts and build the transcript <-> gene map
+    if (vm.count("tgmap") ) { 
+      string transcriptGeneMap = vm["tgmap"].as<string>();
+      std::cerr << "building transcript to gene map using gtf file [" <<
+                   transcriptGeneMap << "] . . .\n";
+      auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
+      tgmap = utils::transcriptToGeneMapFromFeatures( features );
+      std::cerr << "done\n";
+    } else {
+    // Otherwise, build the transcript <-> gene map directly from the
+    // provided fasta file of transcripts
+      std::cerr << "building transcript to gene map using transcript fasta file [" <<
+                   genesFile[0] << "] . . .\n";
+      tgmap = utils::transcriptToGeneMapFromFasta(genesFile[0]);
+      std::cerr << "done\n";
+    }
+
+    
+    // save transcript <-> gene map to archive
+    { 
+      string tgmOutFile = sfIndexBase+".tgm";
+      std::cerr << "Saving transcritpt to gene map to [" << tgmOutFile << "] . . . ";
+      std::ofstream ofs(tgmOutFile, std::ios::binary);
+      boost::archive::binary_oarchive oa(ofs);
+      // write class instance to archive
+      oa << tgmap;
+      std::cerr << "done\n";
+    } // archive and stream closed when destructors are called
+
+
     std::cerr << "Reading transcript index from [" << sfIndexFile << "] . . .";
     auto sfIndex = PerfectHashIndex::fromFile( sfIndexFile );
     auto del = []( PerfectHashIndex* h ) -> void { };
@@ -322,7 +381,7 @@ int mainBuildLUT(int argc, char* argv[] ) {
     auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
     std::cerr << "done\n";
 
-    buildLUTs(genesFile, sfIndex, transcriptHash, tgm, tlutfname, klutfname, numThreads);
+    buildLUTs(genesFile, sfIndex, transcriptHash, tgmap, tlutfname, klutfname, numThreads);
 
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";

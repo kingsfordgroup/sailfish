@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #ifndef COLLAPSED_ITERATIVE_OPTIMIZER_HPP
 #define COLLAPSED_ITERATIVE_OPTIMIZER_HPP
 
@@ -130,7 +152,7 @@ private:
     BiasIndex& biasIndex_;
 
     // The number of occurences above whcih a kmer is considered promiscuous
-    size_t promiscuousKmerCutoff_ {50};
+    size_t promiscuousKmerCutoff_ {std::numeric_limits<size_t>::max()};
 
     // Map each kmer to the set of transcripts it occurs in
     KmerIDMap transcriptsForKmer_;
@@ -233,9 +255,7 @@ private:
     KmerQuantity _computeSum( const TranscriptInfo& ti ) {
         KmerQuantity sum = 0.0;
         for ( auto binmer : ti.binMers ) {
-            if ( this->genePromiscuousKmers_.find(binmer.first) == this->genePromiscuousKmers_.end() ){
-                sum += kmerGroupBiases_[binmer.first] * binmer.second;
-            }
+          sum += kmerGroupBiases_[binmer.first] * binmer.second;
         }
         return sum;
     }
@@ -328,20 +348,20 @@ private:
     }
 
     template <typename T>
+    T psumAccumulate(const tbb::blocked_range<T*>& r, T value) {
+            return std::accumulate(r.begin(),r.end(),value);
+    }
+
+    template <typename T>
     T psum_(std::vector<T>& v) {
+      auto func = std::bind( std::mem_fn(&CollapsedIterativeOptimizer<ReadHash>::psumAccumulate<T>), 
+                             this, std::placeholders::_1, std::placeholders::_2 );
       auto sum = tbb::parallel_reduce(
-        tbb::blocked_range<size_t>(size_t(0), v.size()),
-          double(0.0),  // identity element for summation
-          [&]( const tbb::blocked_range<size_t>& r, double current_sum ) -> double {
-            for (size_t i=r.begin(); i!=r.end(); ++i) {
-              double x = v[i];
-              current_sum += x;
-            }
-            return current_sum; // body returns updated value of the accumulator
-          },
-          []( double s1, double s2 ) {
-               return s1+s2;       // "joins" two accumulated values
-      });
+        tbb::blocked_range<T*>(&v[0], &v[v.size()]),
+          T{0},  // identity element for summation
+          func,
+          std::plus<T>()
+        );
       return sum;
     }
 
@@ -525,7 +545,7 @@ private:
         if (!pb.isDone()) { pb.done(); }
      });
 
-     // For every kmer, compute it's kmer group.
+     //For every kmer, compute it's kmer group.
      tbb::parallel_for( size_t(0), transcriptsForKmer_.size(),
         [&]( size_t j ) {
           if (isActiveKmer[j]) {
@@ -536,7 +556,6 @@ private:
 
      // wait for the parallel hashing to finish
      t.join();
-
 
      std::cerr << "Out of " << transcriptsForKmer_.size() << " potential kmers, "
                << "there were " << m.size() << " distinct groups\n";
@@ -588,6 +607,21 @@ private:
       std::swap(kmerGroupPromiscuities, kmerGroupPromiscuities_);
       std::swap(kmerGroupCounts, kmerGroupCounts_);
       std::swap(transcriptsForKmer, transcriptsForKmer_);
+
+      /*
+      uint64_t groupCounts = 0;
+      for(auto c : kmerGroupCounts_) { groupCounts += c; }
+      auto tmp = psum_(kmerGroupCounts_);
+      std::cerr << "groupCount(" << groupCounts << ") - parallelCount(" << tmp << ") = " << groupCounts - tmp << "\n";
+      std::atomic<uint64_t> individualCounts{0};
+      tbb::parallel_for(size_t{0}, readHash_.size(),
+        [&](size_t i) { 
+          if (isActiveKmer[i]) {
+            individualCounts += readHash_.atIndex(i);
+          } });
+      auto diff = groupCounts - individualCounts;
+      std::cerr << "groupTotal(" << groupCounts << ") - totalNumKmers(" << individualCounts << ") = " << diff << "\n";
+      */
   }
 
   /**
@@ -629,19 +663,20 @@ private:
         LUTTools::readKmerLUT(klutfname, transcriptsForKmer_);
 
         boost::dynamic_bitset<> isActiveKmer(numKmers);
+
+        for (auto kid : boost::irange(size_t{0}, numKmers)) {
+          if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
+            isActiveKmer[kid] = 1;
+          }
+        }
+        // DYNAMIC_BITSET is *NOT* concurrent?!?!
         // determine which kmers are active
-        tbb::parallel_for(size_t(0), numKmers, 
-            [&](size_t kid) {  
-              if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
-                isActiveKmer[kid] = 1;
-              }
-              /*
-              if (discardZeroCountKmers and readHash_.atIndex(kid) == 0) {
-              } else {
-                isActiveKmer[kid] = 1;
-              }
-              */
-        });
+        // tbb::parallel_for(size_t(0), numKmers, 
+        //     [&](size_t kid) {  
+        //       if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
+        //         isActiveKmer[kid] = 1;
+        //       }
+        // });
 
         // compute the equivalent kmer sets
         std::cerr << "\n";
@@ -664,14 +699,14 @@ private:
         ifile.close();
         // --- done ---
 
-       tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
-           [this]( size_t idx ) { 
-               auto& transcript = this->transcripts_[idx];
-               transcript.effectiveLength = transcript.effectiveLength - transcript.binMers.size();
-               for (auto binmer : transcript.binMers) {
-                transcript.effectiveLength += this->_weight(binmer.first);
-               }
-       });
+       // tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
+       //     [this]( size_t idx ) { 
+       //         auto& transcript = this->transcripts_[idx];
+       //         transcript.effectiveLength = transcript.effectiveLength - transcript.binMers.size();
+       //         for (auto binmer : transcript.binMers) {
+       //          transcript.effectiveLength += this->_weight(binmer.first);
+       //         }
+       // });
 
 
 
@@ -1139,24 +1174,76 @@ public:
         pb.start();
 
         std::atomic<size_t> totalNumKmers{0};
-        //  count the total number of kmers
-        tbb::parallel_for( size_t(0), size_t(transcriptsForKmer_.size()),
-          // for each kmer group
-          [&totalNumKmers, this]( size_t kid ) {
-            if ( this->readHash_.atIndex(kid) <= this->promiscuousKmerCutoff_ ) {
-              totalNumKmers += this->readHash_.atIndex(kid);
-            }
+        //  Count the total number of kmers (i.e. mapped reads)
+        tbb::parallel_for( size_t{0}, readHash_.size(),
+          [&]( size_t kid ) { totalNumKmers += this->readHash_.atIndex(kid);} );
+
+        //std::vector<double> fracNuc(means0.size(), 0.0);
+        std::vector<double> cha(means0.size(), 0.0);
+        std::vector<double> fracTran(means0.size(), 0.0);
+        std::vector<double> tranExp(means0.size(), 0.0);
+        std::vector<double> transcriptReads(means0.size(), 0.0);
+        auto estimatedGroupTotal = psum_(kmerGroupCounts_);
+
+        // Compute transcript fraction (\tau_i in RSEM)
+        tbb::parallel_for(size_t(0), transcripts_.size(), 
+          [&](size_t i) { 
+            auto& ts = transcripts_[i];
+            cha[i] = means0[i] * ts.effectiveLength * 1.1231075637550727;
           });
+        normalize_(cha);
 
+        // Compute transcript fraction (\tau_i in RSEM)
+        tbb::parallel_for(size_t(0), transcripts_.size(), 
+          [&](size_t i) { 
+            auto& ts = transcripts_[i];
+            fracTran[i] = (ts.effectiveLength > 0.0) ? means0[i] / ts.effectiveLength : 0.0;
+            tranExp[i] = estimatedGroupTotal * cha[i];
+            //tranExp[i] = _computeSum(ts);
+            transcriptReads[i] = _computeSum(ts);
+        });
+        normalize_(fracTran);
 
+        auto estimatedTotal = psum_(tranExp);
+        double estimatedReadLength = readHash_.averageLength();
+        double kmersPerRead = ((estimatedReadLength - merLen_) + 1);
+
+        double estimatedNumReads = estimatedTotal / kmersPerRead;
+
+        std::cerr << "averageLength = " << readHash_.averageLength() << "\n";
+        std::cerr << "kmersPerRead = " << kmersPerRead << "\n";
+        std::cerr << "estimatedNumReads = " << estimatedNumReads << "\n";
+
+        auto diff = estimatedTotal - totalNumKmers;
+        auto diff2 = estimatedGroupTotal - totalNumKmers;
+        std::cerr << "estimatedTotal(" << estimatedTotal << ") - totalNumKmers(" <<
+                     totalNumKmers << ") = " << diff << "\n";
+
+        std::cerr << "estimatedGroupTotal(" << estimatedGroupTotal << ") - totalNumKmers(" <<
+                     totalNumKmers << ") = " << diff2 << "\n";
 
         std::ofstream ofile( outputFile );
         size_t index = 0;
-        ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << "Weighted Mapped Reads" << '\n';
+        double million = std::pow(10.0, 6);
+        double billion = std::pow(10.0, 9);
+        ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << 
+                 "TPM" << '\t' << "RPKM" << '\t' << "Weighted Mapped Reads\n";
         for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
           auto& ts = transcripts_[i]; 
-          ofile << transcriptGeneMap_.transcriptName(index) << '\t' << ts.length << '\t' <<
-                    ts.effectiveLength << '\t' << totalNumKmers * ts.effectiveLength * means0[i] << "\n";
+          // expected # of kmers coming from transcript i
+          auto ci = tranExp[i] * 2;
+          // expected # of reads coming from transcript i
+          auto ri = ci / kmersPerRead;
+          auto effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
+          auto rpkm = (effectiveLength > 0 and ri > 0.0) ? 
+                      (billion * (ci / (estimatedGroupTotal * ts.effectiveLength))) : 0.0;
+               rpkm = (rpkm < 0.01) ? 0.0 : rpkm;
+          ofile << transcriptGeneMap_.transcriptName(index) << 
+                   '\t' << ts.length << '\t' <<
+                   ts.effectiveLength << '\t' <<
+                   fracTran[i] * million << '\t' << 
+                   rpkm << '\t' <<
+                   ri << "\n";
  
           ++index;
           ++pb;

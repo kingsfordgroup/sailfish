@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include <boost/thread/thread.hpp>
 #include <boost/lockfree/queue.hpp>
 
@@ -16,6 +38,8 @@
 #include <chrono>
 #include <iomanip>
 
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 
@@ -26,11 +50,12 @@
 #include <jellyfish/compacted_hash.hpp>
 
 #include "BiasIndex.hpp"
-#include "utils.hpp"
-#include "genomic_feature.hpp"
+#include "Utils.hpp"
+#include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
-#include "collapsed_iterative_optimizer.hpp"
+#include "CollapsedIterativeOptimizer.hpp"
 #include "SailfishConfig.hpp"
+#include "VersionChecker.hpp"
 //#include "iterative_optimizer.hpp"
 //#include "tclap/CmdLine.h"
 
@@ -61,7 +86,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       ("bias,b", po::value<string>(), "bias index prefix (without .bin/.dict)")
       //("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
-      ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
+      //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("filter,f", po::value<double>()->default_value(0.0), "during iterative optimization, remove transcripts with a mean less than filter")
       ("iterations,i", po::value<size_t>(), "number of iterations to run the optimzation")
       ("lutfile,l", po::value<string>(), "Lookup table prefix")
@@ -98,7 +123,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     uint32_t numThreads = vm["threads"].as<uint32_t>();
     tbb::task_scheduler_init init(numThreads);
 
-    string transcriptGeneMap = vm["tgmap"].as<string>();
     string hashFile = vm["counts"].as<string>();
     //std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
     //string transcriptHashFile = vm["thash"].as<string>();
@@ -111,25 +135,32 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     auto tlutfname = lutprefix + ".tlut";
     auto klutfname = lutprefix + ".klut";
 
-    typedef GenomicFeature<TranscriptGeneID> CustomGenomicFeature;
-    /*
-    std::ifstream transcriptGeneFile(transcriptGeneMap );
-    std::vector< CustomGenomicFeature > features;
-    CustomGenomicFeature feat;
-    std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
-    while ( transcriptGeneFile >> feat ) { 
-      features.push_back(feat);
-    };
-    std::cerr << "done\n";
-    transcriptGeneFile.close();
-    */
-    std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
-    auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
-    std::cerr << "done\n";
+    // typedef GenomicFeature<TranscriptGeneID> CustomGenomicFeature;
+    // if (vm.count("tgmap") ) { // if we have a GTF file
+    //   string transcriptGeneMap = vm["tgmap"].as<string>();
+    //   std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
+    //   auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
+    //   std::cerr << "done\n";
+    //   std::cerr << "building transcript to gene map . . .";
+    //   tgm = utils::transcriptToGeneMapFromFeatures( features );
+    //   std::cerr << "done\n";
+    // } else {
+    //   std::exit(-1);
+    //   std::cerr << "building transcript to gene map from transcript fasta file . . .";
+    //   //tgm = utils::transcriptToGeneMapFromFasta(transcriptFiles[0]);
+    //   std::cerr << "done\n";
+    // }
 
-    std::cerr << "building transcript to gene map . . .";
-    auto tgm = utils::transcriptToGeneMapFromFeatures( features );
-    std::cerr << "done\n";
+    TranscriptGeneMap tgm;
+    { // read the serialized transcript <-> gene map from file
+      string tgmFile = sfIndexBase+".tgm";
+      std::cerr << "Reading the transcript <-> gene map from [" <<
+                   tgmFile << "]\n";
+      std::ifstream ifs(tgmFile, std::ios::binary);
+      boost::archive::binary_iarchive ia(ifs);
+      ia >> tgm;
+      std::cerr << "done\n";
+    }
 
     std::cerr << "Reading transcript index from [" << sfIndexFile << "] . . .";
     auto sfIndex = PerfectHashIndex::fromFile( sfIndexFile );
@@ -242,6 +273,8 @@ int main( int argc, char* argv[] ) {
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ;
+
+    printVersionInformation();
 
     // po::options_description sfopts("Command");
     // sfopts.add_options()

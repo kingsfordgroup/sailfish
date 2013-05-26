@@ -1,7 +1,36 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #ifndef TRANSCRIPT_GENE_MAP_HPP
 #define TRANSCRIPT_GENE_MAP_HPP
 
+// Allows for the serialization of this class
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/string.hpp>
+
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 class TranscriptGeneMap {
@@ -36,12 +65,31 @@ private:
         std::cerr << "max # of transcripts in a gene was " << maxNumTrans << " in gene " << _geneNames[maxGene] << "\n";
     }
 
+    friend class boost::serialization::access;
+
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int version)
+    {
+        ar & _transcriptNames;
+        ar & _geneNames;
+        ar & _transcriptsToGenes;
+        ar & _genesToTranscripts;
+        ar & _haveReverseMap;
+    }
+
 public:
+    TranscriptGeneMap() :
+        _transcriptNames(NameVector()), _geneNames(NameVector()),
+        _transcriptsToGenes(IndexVector()), _haveReverseMap(false) {}
+
+
     TranscriptGeneMap( const NameVector &transcriptNames,
                        const NameVector &geneNames,
                        const IndexVector &transcriptsToGenes ) :
         _transcriptNames(transcriptNames), _geneNames(geneNames),
         _transcriptsToGenes(transcriptsToGenes), _haveReverseMap(false) {}
+
+
 
     Index INVALID { std::numeric_limits<Index>::max() };
 

@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #ifndef SAILFISH_UTILS_HPP
 #define SAILFISH_UTILS_HPP
 
@@ -8,8 +30,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "transcript_gene_map.hpp"
-#include "genomic_feature.hpp"
+#include "TranscriptGeneMap.hpp"
+#include "GenomicFeature.hpp"
 
 namespace utils {
 using std::string;
@@ -91,6 +113,9 @@ TranscriptGeneMap transcriptToGeneMapFromFeatures( std::vector<GenomicFeature<T>
 }
 
 TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile );
+
+TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFile );
+
 }
 
 #endif // UTILS_HPP

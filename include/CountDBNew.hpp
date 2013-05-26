@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #ifndef COUNTDBNEW_HPP
 #define COUNTDBNEW_HPP
 
@@ -8,6 +30,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "tbb/concurrent_hash_map.h"
 #include "PerfectHashIndex.hpp"
 
 /**
@@ -19,29 +42,55 @@ class CountDBNew {
   typedef uint64_t Kmer;
   typedef uint32_t Count;
   typedef std::atomic<Count> AtomicCount;
+  typedef uint64_t Length;
+  typedef std::atomic<Length> AtomicLength;
+  typedef std::atomic<Length> AtomicLengthCount;
 
   public:
    // We'll return this invalid id if a kmer is not found in our DB
    size_t INVALID = std::numeric_limits<size_t>::max();
 
    CountDBNew( std::shared_ptr<PerfectHashIndex>& index ) : 
-      index_(index), counts_( std::vector< AtomicCount >( index->numKeys() ) ) {}
+      index_(index), counts_( std::vector< AtomicCount >( index->numKeys() ) ),
+      length_(0), numLengths_(0) {}
 
    CountDBNew( CountDBNew&& other ) {
     counts_ = std::move(other.counts_);
     index_ = other.index_;
+    length_ = other.length_.load();
+    numLengths_ = other.numLengths_.load();
    }
 
    static CountDBNew fromFile( const std::string& fname, std::shared_ptr<PerfectHashIndex>& index ) {
     std::ifstream in(fname, std::ios::in | std::ios::binary );
+
+    // Read in the total read length and # of reads
+    uint64_t length = 0;
+    uint64_t numLengths = 0;
+    in.read(reinterpret_cast<char*>(&length), sizeof(length));
+    in.read(reinterpret_cast<char*>(&numLengths), sizeof(numLengths));
+
+    std::cerr << "read length = " << length << ", numLengths = " << numLengths << "\n";
+    // Read in the count vector
     std::vector<AtomicCount> counts(index->numKeys());
     in.read( reinterpret_cast<char*>(&counts[0]), sizeof(AtomicCount) * index->numKeys() );
     in.close();
+
     CountDBNew cdb(index);
     cdb.counts_ = std::move(counts);
+    cdb.length_ = length;
+    cdb.numLengths_ = numLengths;
     return cdb;
    }
 
+   inline void appendLength(uint32_t l, uint64_t count=1) {
+    length_ += l;
+    numLengths_ += count;
+   }
+
+   inline double averageLength() {
+    return (numLengths_ > 0) ? (static_cast<double>(length_) / numLengths_) : 0.0;
+   }
 
    inline size_t id(Kmer k) { return index_->index(k); }
 
@@ -65,15 +114,13 @@ class CountDBNew {
     return valid;
    }
 
-   // bool incAtIndex(size_t idx, uint32_t amt=1) {
-    
-   // }
-
    bool dumpCountsToFile( const std::string& fname ) {
     std::ofstream counts(fname, std::ios::out | std::ios::binary );
+    uint64_t length = length_.load();
+    uint64_t numLengths = numLengths_.load();
+    counts.write(reinterpret_cast<char*>(&length), sizeof(length));
+    counts.write(reinterpret_cast<char*>(&numLengths), sizeof(numLengths));
     size_t numCounts = counts_.size();
-    //counts.write( reinterpret_cast<char*>(&_merSize), sizeof(_merSize) );
-    //counts.write( reinterpret_cast<char*>(&numCounts), sizeof(size_t) );
     counts.write( reinterpret_cast<char*>(&counts_[0]), sizeof(counts_[0]) * numCounts );
     counts.close();
    }
@@ -83,6 +130,8 @@ class CountDBNew {
   private:
     std::shared_ptr<PerfectHashIndex> index_;
     std::vector< AtomicCount > counts_;
+    AtomicLength length_;
+    AtomicLengthCount numLengths_;
 };
 
 

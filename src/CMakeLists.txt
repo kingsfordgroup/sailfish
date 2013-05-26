@@ -12,7 +12,9 @@ PerfectHashIndexer.cpp
 BuildLUT.cpp
 IndexedCounter.cpp
 GenomicFeature.cpp
-utils.cpp
+JellyfishMerCounter.cpp
+VersionChecker.cpp
+Utils.cpp
 )
 
 include_directories( 

@@ -1,3 +1,26 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
+#include <boost/thread/thread.hpp>
 #include <algorithm>
 #include <iostream>
 #include <tuple>
@@ -5,9 +28,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "transcript_gene_map.hpp"
-#include "genomic_feature.hpp"
-#include "utils.hpp"
+#include <jellyfish/sequence_parser.hpp>
+#include <jellyfish/parse_read.hpp>
+#include <jellyfish/parse_dna.hpp>
+
+#include "TranscriptGeneMap.hpp"
+#include "GenomicFeature.hpp"
+#include "Utils.hpp"
 
 namespace utils {
 using std::string;
@@ -136,5 +163,39 @@ TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile ) {
     return TranscriptGeneMap(transcriptNames, geneNames, t2g);
 }
 
+
+TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFile ) {
+    typedef std::vector<string> NameVector;
+    typedef std::vector<size_t> IndexVector;
+
+    NameVector transcriptNames;
+    NameVector geneNames {"gene"};
+
+    char* fnames[1]  = { const_cast<char*>(transcriptsFile.c_str()) };
+    // Create a jellyfish parser
+    jellyfish::parse_read parser( fnames, fnames+1, 1000);
+
+    // Each thread gets it's own stream
+    jellyfish::parse_read::thread stream = parser.new_thread();
+    jellyfish::parse_read::read_t* read;
+
+    // while there are transcripts left to process
+    while ( (read = stream.next_read()) ) { 
+      // The transcript name
+      std::string fullHeader(read->header, read->hlen);
+      std::string header = fullHeader.substr(0, fullHeader.find(' '));
+      transcriptNames.emplace_back(header);
+    }
+
+    // Sort the transcript names
+    std::sort(transcriptNames.begin(), transcriptNames.end());
+    
+    // Since we have no real gene groupings, the t2g vector is trivial,
+    // everything maps to gene 0.
+    IndexVector t2g(transcriptNames.size(), 0);
+
+    return TranscriptGeneMap(transcriptNames, geneNames, t2g);
+
+}
 
 }

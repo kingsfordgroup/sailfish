@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include <boost/thread/thread.hpp>
 
 #include <cstdio>
@@ -13,11 +35,18 @@
 #include <memory>
 #include <cassert>
 
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
+#include <boost/filesystem.hpp>
 
 #include "tbb/parallel_for_each.h"
 #include "tbb/parallel_for.h"
@@ -35,13 +64,14 @@
 #include "cmph.h"
 #include "CountDBNew.hpp"
 // #include "LookUpTableUtils.hpp"
-#include "utils.hpp"
-#include "genomic_feature.hpp"
+#include "Utils.hpp"
+#include "GenomicFeature.hpp"
 #include "PerfectHashIndex.hpp"
 
 void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& counts, 
-                           size_t merLen, const std::string& indexBaseName) {
+                           size_t merLen, const boost::filesystem::path& indexBasePath) {
 
+    namespace bfs = boost::filesystem;
     size_t nkeys = keys.size();
 
     std::vector<uint64_t> orderedMers(nkeys, 0);
@@ -88,9 +118,10 @@ void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& c
     std::cerr << "took: " << static_cast<double>(ms.count()) / keys.size() << " us / key\n";
 
     PerfectHashIndex phi(orderedMers, ownedHash, merLen);
-      
-    std::cerr << "writing index to file " << indexBaseName+".sfi\n";
-    auto dthread1 = std::thread( [&phi, indexBaseName]() -> void { phi.dumpToFile(indexBaseName+".sfi"); } );
+    
+    bfs::path transcriptomeIndexPath(indexBasePath); transcriptomeIndexPath /= "transcriptome.sfi";
+    std::cerr << "writing index to file " << transcriptomeIndexPath << "\n";
+    auto dthread1 = std::thread( [&phi, transcriptomeIndexPath]() -> void { phi.dumpToFile(transcriptomeIndexPath.string()); } );
 
     auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
     auto phiPtr = std::shared_ptr<PerfectHashIndex>(&phi, del);
@@ -102,8 +133,12 @@ void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& c
         thash.inc(k, c);
       });
 
-    std::cerr << "writing transcript counts to file " << indexBaseName+".sfc\n";
-    auto dthread2 = std::thread( [&thash, indexBaseName]() -> void { thash.dumpCountsToFile(indexBaseName+".sfc"); } );
+    bfs::path transcriptomeCountPath(indexBasePath); transcriptomeCountPath /= "transcriptome.sfc";
+
+    std::cerr << "writing transcript counts to file " << transcriptomeCountPath << "\n";
+    auto dthread2 = std::thread( [&thash, transcriptomeCountPath]() -> void { 
+                                  thash.dumpCountsToFile(transcriptomeCountPath.string());
+                                });
 
     dthread1.join();
     std::cerr << "done writing index\n";
@@ -111,51 +146,76 @@ void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& c
     std::cerr << "done writing transcript counts\n";
 }
 
-int count_main(int argc, char* argv[]);
+//int count_main(int argc, char* argv[]);
+int jellyfish_count_main(int argc, char *argv[]);
 
 int runJellyfish(uint32_t merLen, 
                  uint32_t numThreads, 
                  const std::string& outputStem, 
                  std::vector<std::string>& inputFiles) {
 
-    size_t hashSize = 8000000000; // eight billion?
-
+    namespace bfs = boost::filesystem;
+    bfs::path jfTimePath(outputStem); jfTimePath /= "jf.time";
+    bfs::path jfCountPath(outputStem); jfCountPath /= "jf.counts";
     std::stringstream argStream;
-    argStream << "jellyfish ";
-    argStream << "count ";
-    argStream << "--timing=" << outputStem << ".jftime ";
+    std::stringstream inputFilesStream;
+    argStream << "--timing=" << jfTimePath.string() << " ";
     argStream << "-m " << merLen << " ";
-    argStream << "-s " << hashSize << " ";
     argStream << "-t " << numThreads << " ";
-    argStream << "-o " << outputStem << ".jfcounts ";
+    argStream << "-o " <<  jfCountPath.string() << " ";
+
+    uintmax_t sumFileSizes{0};
     for (auto& fn : inputFiles) {
-        argStream << fn << " ";
+        sumFileSizes += boost::filesystem::file_size(fn);
+        std::cerr << "file: " << fn << " has size " << sumFileSizes << " bytes\n";
+        inputFilesStream << fn << " ";
     }
+
+    // Set the hash size based on the input file sizes
+    argStream << "-s " << std::llround(1.2 * sumFileSizes) << " ";
+    argStream << inputFilesStream.str();
 
     std::string argString = argStream.str();
     boost::trim(argString);
 
-    // Run Jellyfish as an external process.
+    std::cerr << "running jellyfish with " << argString << "\n";
+    
+    // Run Jellyfish as an separate process.
+    // This will force the mmapped memory to be cleaned up.
+    auto pid = fork();
+    if (pid == 0) { //child
+        // Create the argv array for the main call to Jellyfish
+        std::vector<std::string> argStrings;
+        boost::split(argStrings, argString, boost::is_any_of(" "));
+
+        char ** jfargs = new char*[argStrings.size()];
+        for (size_t i : boost::irange({0}, argStrings.size())) {
+            jfargs[i] = const_cast<char*>(argStrings[i].c_str());
+        }
+
+        std::cerr << "In Jellyfish process. Counting transcript kmers\n";
+        int jfRet = jellyfish_count_main(argStrings.size(), jfargs);
+        delete [] jfargs;
+        std::exit(jfRet);
+
+    } else if (pid < 0) { // fork failed!
+        
+        std::cerr << "FATAL ERROR: Failed to spawn Jellyfish process. Exiting\n";
+        std::exit(-1);
+    } else { // parent
+
+        int status = -1;
+        waitpid(pid, &status, 0); // wait on the Jellyfish process
+        std::cerr << "Jellyfish terminated with return code " << status << "\n";
+        assert( status == 0 );
+    }
+
+    /*
+    // Run Jellyfish as an external process using the shell.
     // This will force the mmapped memory to be cleaned up.
     auto jfFile = popen(argString.c_str(), "r");
     int jfRet = pclose(jfFile);
     std::cerr << "Jellyfish finished with status: " << jfRet << "\n";
-
-    /*
-    std::vector<std::string> argStrings;
-    boost::split(argStrings, argString, boost::is_any_of(" "));
-
-    char** args = new char*[argStrings.size()];
-
-    int argc = argStrings.size();
-    for (auto i : boost::irange({0}, argc)) {
-        args[i] = const_cast<char*>(argStrings[i].c_str());
-        std::cerr << "jfargs[" << i << "] = " << args[i] << "\n";
-    }
-
-    auto t = std::thread( [=]() -> int { return count_main(argc, args); });
-    t.join();
-    delete [] args;
     */
 }
 
@@ -173,10 +233,6 @@ int mainIndex( int argc, char *argv[] ) {
     using std::string;
 
     std::cerr << "running indexer\n";
-    for (size_t i = 0; i < argc; ++i) {
-        std::cerr << "argv[" << i << "] = " << argv[i] << "\n";
-    }
-
     namespace po = boost::program_options;
 
     uint32_t maxThreads = std::thread::hardware_concurrency();
@@ -219,10 +275,35 @@ the Jellyfish database [thash] of the transcripts.
         std::vector<string> transcriptFiles = vm["transcripts"].as<std::vector<string>>();
         uint32_t numThreads = vm["threads"].as<uint32_t>();
         bool force = vm["force"].as<bool>();
-        string transcriptGeneMap = vm["tgmap"].as<string>();
 
-        string jfHashFile = outputStem + ".jfcounts_0";
-        bool mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
+        // Check to make sure that the specified output directory either doesn't exist, or is
+        // a valid path (e.g. not a file)
+        namespace bfs = boost::filesystem;
+        if (bfs::exists(outputStem) and !bfs::is_directory(outputStem)) {
+            std::cerr << "The provided output path [" << outputStem << "] " <<
+                         "already exists and is not a directory\n.";
+            std::cerr << "Please either provide a different path or " <<
+                         "delete the existing file.\n";
+            std::exit(1);
+        }
+
+        bool mustRecompute = false;
+        if (!bfs::exists(outputStem)) {
+            mustRecompute = true;
+            try {
+                bool success = bfs::create_directory(outputStem);
+                if (!success) { throw std::runtime_error("unspecified error creating file."); }
+            } catch ( std::exception& e ) {
+                std::cerr << "Creation of " << outputStem << " failed [" << e.what() << "]\n.";
+                std::cerr << "Exiting.\n";
+                std::exit(1);
+            }
+        }
+
+        bfs::path outputPath(outputStem);
+        bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts_0";
+
+        mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
 
         if (!mustRecompute) {
             // Check that the jellyfish has at the given location 
@@ -236,7 +317,7 @@ the Jellyfish database [thash] of the transcripts.
 
             std::cerr << "Jellyfish finished\n";
 
-            string thashFile = jfHashFile;//vm["thash"].as<string>();
+            bfs::path thashFile = jfHashFile;//vm["thash"].as<string>();
             bool recomputePerfectIndex = mustRecompute;
 
             // Read in the Jellyfish hash of the transcripts
@@ -262,33 +343,52 @@ the Jellyfish database [thash] of the transcripts.
                 ++i;
             }
 
-            string sfIndexBase = outputStem;
-            string sfIndexFile = outputStem + ".sfi";
+            bfs::path sfIndexBase(outputPath);
+            bfs::path sfIndexFile(sfIndexBase); sfIndexFile /= "transcriptome.sfi";
             buildPerfectHashIndex(keys, counts, merLen, sfIndexBase);
 
-            std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
-            auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
-            std::cerr << "done\n";
+            TranscriptGeneMap tgmap;
+            if (vm.count("tgmap") ) { // if we have a GTF file
+                string transcriptGeneMap = vm["tgmap"].as<string>();
+                std::cerr << "building transcript to gene map using gtf file [" <<
+                             transcriptGeneMap << "] . . .\n";
+                auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
+                tgmap = utils::transcriptToGeneMapFromFeatures( features );
+                std::cerr << "done\n";
+            } else {
+                std::cerr << "building transcript to gene map using transcript fasta file [" <<
+                             transcriptFiles[0] << "] . . .\n";
+                tgmap = utils::transcriptToGeneMapFromFasta(transcriptFiles[0]);
+                std::cerr << "done\n";
+            }
 
-            std::cerr << "building transcript to gene map . . .";
-            auto tgmap = utils::transcriptToGeneMapFromFeatures( features );
-            std::cerr << "done\n";
 
-            std::cerr << "Reading transcript index from [" << sfIndexFile << "] . . .";
-            auto sfIndex = PerfectHashIndex::fromFile( sfIndexFile );
+            { // save transcript <-> gene map to archive
+                bfs::path tgmOutPath(outputPath); tgmOutPath /= "transcriptome.tgm";
+                std::cerr << "Saving transcritpt to gene map to [" << tgmOutPath << "]\n";
+                std::ofstream ofs(tgmOutPath.string(), std::ios::binary);
+                boost::archive::binary_oarchive oa(ofs);
+                // write class instance to archive
+                oa << tgmap;
+            } // archive and stream closed when destructors are called
+
+            bfs::path sfIndexPath(outputPath); sfIndexPath /= "transcriptome.sfi";
+            std::cerr << "Reading transcript index from [" << sfIndexPath << "] . . .";
+            auto sfIndex = PerfectHashIndex::fromFile( sfIndexPath.string() );
             auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
             auto sfIndexPtr = std::shared_ptr<PerfectHashIndex>( &sfIndex, del );
             std::cerr << "done\n";
 
-            string sfTrascriptCountFile = outputStem + ".sfc";
-            std::cerr << "Reading transcript counts from [" << sfTrascriptCountFile << "] . . .";
-            auto sfTranscriptCountIndex = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
+            bfs::path sfCountPath(outputPath); sfCountPath /= "transcriptome.sfc";
+            std::cerr << "Reading transcript counts from [" << sfCountPath.string() << "] . . .";
+            auto sfTranscriptCountIndex = CountDBNew::fromFile(sfCountPath.string(), sfIndexPtr);
             std::cerr << "done\n";
 
-            string tlutfname = outputStem + ".tlut";
-            string klutfname = outputStem + ".klut";
+            bfs::path tlutPath(outputPath); tlutPath /= "transcriptome.tlut";
+            bfs::path klutPath(outputPath); klutPath /= "transcriptome.klut";
 
-            buildLUTs(transcriptFiles, sfIndex, sfTranscriptCountIndex, tgmap, tlutfname, klutfname, numThreads);
+            buildLUTs(transcriptFiles, sfIndex, sfTranscriptCountIndex, 
+                      tgmap, tlutPath.string(), klutPath.string(), numThreads);
 
         } else {
             std::cerr << "All index files seem up-to-date.\n";

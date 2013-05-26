@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include <cstdio>
 #include <iostream>
 #include <fstream>
@@ -237,7 +259,11 @@ same index, and the counts will be written to the file [counts].
                         cmlen = kmer = rkmer = 0;
 
                         // the maximum number of kmers we'd have to store
-                        size_t maxNumKmers = std::distance(start, end);
+                        uint32_t maxNumKmers = std::distance(start, end);
+
+                        // tell the readhash about this read's length
+                        rhash.appendLength(maxNumKmers);
+
                         // the read must be at least the kmer length
                         if ( maxNumKmers < merLen ) { continue; }
 

@@ -39,7 +39,7 @@ set (Boost_USE_MULTITHREADED ON)
 set (Boost_USE_STATIC_RUNTIME OFF)
 
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
-find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options)
+find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
 
 if (NOT Boost_FOUND AND NOT FETCH_BOOST)
 	message(FATAL_ERROR 
@@ -78,7 +78,7 @@ if (NOT Boost_FOUND)
     unset(BOOST_ROOT CACHE)
     set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     message("BOOST_ROOT = ${BOOST_ROOT}")
-    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
 endif()
 
 message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIRS}")
@@ -137,7 +137,9 @@ ExternalProject_Add(libjellyfish
     CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-1.1.10/configure --prefix=<INSTALL_DIR>
     BUILD_COMMAND ${MAKE}
     BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install && cp config.h <INSTALL_DIR>/include/jellyfish-1.1.10/
+    INSTALL_COMMAND make install && 
+                    cp config.h <INSTALL_DIR>/include/jellyfish-1.1.10/ && 
+                    cp jellyfish/{noop_dumper,count_main_cmdline}.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish
 )
 message(status "Jellyfish installed.")
 
