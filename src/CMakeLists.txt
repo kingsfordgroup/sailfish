@@ -23,6 +23,7 @@ ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/install/include
 ${GAT_SOURCE_DIR}/external/install/include/jellyfish-1.1.10
 ${ZLIB_INCLUDE_DIR}
+${TBB_INCLUDE_DIRS}
 ${Boost_INCLUDE_DIRS}
 )
 
@@ -30,21 +31,33 @@ link_directories(
 ${GAT_SOURCE_DIR}/lib
 ${GAT_SOURCE_DIR}/external/install/lib
 ${Boost_LIBRARY_DIRS}
+${TBB_LIBRARY_DIRS}
 )
 
+message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
+message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 # Build the Sailfish library
-add_library(sailfish SHARED ${SAILFISH_LIB_SRCS})
+add_library(sailfish_core SHARED ${SAILFISH_LIB_SRCS} )
 # Build the Sailfish executable
-add_executable( Sailfish ${SAILFISH_MAIN_SRCS} GenomicFeature.cpp )
+add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 # Link the executable
-target_link_libraries( Sailfish 
-	sailfish 
-	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
+target_link_libraries(sailfish 
+	sailfish_core 
+	${Boost_LIBRARIES} 
+    ${ZLIB_LIBRARY} 
 	cmph # perfect hashing library
-	jellyfish-1.1 pthread 
-    gomp m tbb
+	jellyfish-1.1 
+    pthread 
+    gomp 
+    m
+    ${TBB_LIBRARIES}
 )
 
+IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  SET(CMAKE_INSTALL_PREFIX
+    "${GAT_SOURCE_DIR}" CACHE PATH "Default install prefix" FORCE
+    )
+ENDIF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
 set(INSTALL_LIB_DIR lib )
 set(INSTALL_BIN_DIR bin )
@@ -58,11 +71,23 @@ install(DIRECTORY
 # install(FILES ${Boost_LIBRARIES}
 # 	           DESTINATION ${INSTALL_LIB_DIR})
 
-install(TARGETS Sailfish sailfish
+install(TARGETS sailfish sailfish_core
                 RUNTIME DESTINATION bin 
                 LIBRARY DESTINATION lib
                 ARCHIVE DESTINATION lib
         )
+
+set(POST_INSTALL_SCRIPT ${GAT_SOURCE_DIR}/cmake/PostInstall.cmake)
+
+install(
+    CODE 
+    "
+    execute_process(COMMAND \"${CMAKE_COMMAND}\"
+                            -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
+                            -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX} 
+                            -P \"${POST_INSTALL_SCRIPT}\")
+    "
+)
 
 # install(FILES ${GAT_SOURCE_DIR}/scripts/SFPipeline.py DESTINATION scripts/SFPipeline.py )
 # install(FILES ${GAT_SOURCE_DIR}/experimental_configs/SRX016368_25mers.cfg DESTINATION experimental_configs/SRX016368_25mers.cfg )
@@ -78,6 +103,8 @@ set(CPACK_PACKAGE_VERSION "0.1.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
 set(CPACK_PACKAGE_VERSION_MINOR "1")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
+
+add_test( NAME simple_test COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${GAT_SOURCE_DIR} -P ${GAT_SOURCE_DIR}/cmake/SimpleTest.cmake )
 
 ####
 #

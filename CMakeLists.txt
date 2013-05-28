@@ -1,12 +1,34 @@
 cmake_minimum_required (VERSION 2.8)
 
+enable_testing()
+
 project (Sailfish)
 
-# set (CMAKE_CXX_COMPILER g++)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+
+## Set the standard required compile flags
 set (CMAKE_CXX_FLAGS "-O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11")
 
+##
+# OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
+##
+if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
+    # To allow ourselves to build a dynamic library, we have to tell the compiler
+    # that, yes, the symbols will be around at runtime.
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -undefined dynamic_lookup")
+
+    # In order to "think different", we also have to use non-standard suffixes
+    # for our shared libraries
+    set(SHARED_LIB_EXTENSION "dylib")
+else()
+    # We're in sane linux world
+    set(SHARED_LIB_EXTENSION "so")
+endif()
+
+##
 # Compiler-specific C++11 activation.
 # http://stackoverflow.com/questions/10984442/how-to-detect-c11-support-of-a-compiler-with-cmake
+##
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     execute_process(
         COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION)
@@ -18,30 +40,53 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
-    set (BOOST_EXTRA_FLAGS "toolset=clang cxxflags=\"-stdlib=libc++\"  linkflags=\"-stdlib=libc++\"")
+    set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
 
-
-
+##
+# Record this top-level path
+##
 set (GAT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Have CMake tell us what it's doing
 set (CMAKE_VERBOSE_MAKEFILE true)
 
+##
+# Super-secret override
+##
 if ( DEFINED CUSTOM_BOOST_PATH )
 	set (CMAKE_INCLUDE_PATH ${CMAKE_INCLUDE_PATH} ${CUSTOM_BOOST_PATH})
 	set (CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ${CUSTOM_BOOST_PATH}/lib )
 endif ( DEFINED CUSTOM_BOOST_PATH )
 
+##
+# We want dyanmic, multithreaded boost libraries
+##
 set (Boost_USE_STATIC_LIBS OFF)
 set (Boost_USE_MULTITHREADED ON)
 set (Boost_USE_STATIC_RUNTIME OFF)
 
+# unset(Boost_FOUND CACHE)
+# unset(Boost_INCLUDE_DIR CACHE)
+# unset(Boost_INCLUDE_DIRS CACHE)
+# unset(Boost_LIBRARY_DIRS CACHE) 
+# message("BOOST_ROOT = ${BOOST_ROOT}")
+
+##
+# Set the latest version and look for what we need
+##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
 
-if (NOT Boost_FOUND AND NOT FETCH_BOOST)
+include(ExternalProject)
+
+##
+# Either inform the user of how to obtain Boost, or, if they passed in the FETCH_BOOST
+# option, go and grab it for them.
+##
+if ((NOT Boost_FOUND) AND (NOT FETCH_BOOST))
 	message(FATAL_ERROR 
 		"Sailfish cannot be compiled without Boost.\n"
         "It is recommended to visit http://www.boost.org/ and install Boost according to those instructions.\n"
@@ -49,48 +94,66 @@ if (NOT Boost_FOUND AND NOT FETCH_BOOST)
         "To fetch and build boost locally, call cmake with -DFETCH_BOOST=TRUE"
     )
 elseif(FETCH_BOOST)
-    message("Fetching Boost")
-    message(status "Building and Installing BOOST")
-    message(status "============================")
-    include(ExternalProject)
+    ## Let the rest of the build process know we're going to be fetching boost
+    set(BOOST_WILL_RECONFIGURE TRUE)
+    message("Build system will fetch and build Boost")
+    message("==================================================================")
     ExternalProject_Add(libboost
         DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
         URL http://www.cs.cmu.edu/~robp/files/boost-1.53.0.tar.gz
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0/bootstrap.sh ${BOOST_TOOLSET_STRING} --prefix=<INSTALL_DIR>
+        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR>
         BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_53_0/b2 ${BOOST_EXTRA_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
-    message(status "BOOST installed.")
+    message("BOOST installed.")
 
+    ##
+    # After we've installed boost, 
+    ##
     ExternalProject_Add_Step(libboost reconfigure
-        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DFETCH_BOOST=TRUE
+        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DBOOST_WILL_RECONFUGRE=FALSE -DBOOST_RECONFIGURE=TRUE 
         DEPENDEES install
     )
 endif()
 
-if (NOT Boost_FOUND)
+##
+# If we're fetching boost and we need to have dummy paths for these variables
+# so that CMake won't complain
+##
+if (BOOST_WILL_RECONFIGURE)
+    message("Setting Temporary Boost paths")
+    set(Boost_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)        
+endif()
+
+##
+#  If we had to fetch Boost, the reconfigure step will re-run cmake.  The second configuration
+#  pass is executed with the BOOST_RECONFIGURE flag set. This should allow our newly
+#  installed Boost to be found by CMake.
+##
+if (BOOST_RECONFIGURE)
     unset(Boost_FOUND CACHE)
     unset(Boost_INCLUDE_DIR CACHE)
-    unset(Boost_LIBRARY_DIR CACHE) 
+    unset(Boost_INCLUDE_DIRS CACHE)
+    unset(Boost_LIBRARY_DIRS CACHE) 
     unset(BOOST_ROOT CACHE)
-    set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-    message("BOOST_ROOT = ${BOOST_ROOT}")
+    unset(CMAKE_PREFIX_PATH CACHE)
+    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
     find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
 endif()
 
-message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIRS}")
+
+message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
+message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
 
 find_package (ZLIB)
-
-###
-#
-# Build external dependencies (except Boost)
-#
-###
 
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 
@@ -112,8 +175,8 @@ set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 # )
 # message(status "g2log installed.")
 
-message(status "Building and Installing CMPH")
-message(status "============================")
+message("Build system will fetch and build CMPH")
+message("==================================================================")
 include(ExternalProject)
 ExternalProject_Add(libcmph
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
@@ -125,10 +188,9 @@ ExternalProject_Add(libcmph
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install
 )
-message(status "CMPH installed.")
 
-message(status "Downloading, Building and Installing Jellyfish")
-message(status "============================")
+message("Build system will fetch and build Jellyfish")
+message("==================================================================")
 ExternalProject_Add(libjellyfish
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
 	URL http://www.cbcb.umd.edu/software/jellyfish/jellyfish-1.1.10.tar.gz
@@ -141,11 +203,39 @@ ExternalProject_Add(libjellyfish
                     cp config.h <INSTALL_DIR>/include/jellyfish-1.1.10/ && 
                     cp jellyfish/{noop_dumper,count_main_cmdline}.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish
 )
-message(status "Jellyfish installed.")
 
-message(status "Downloading, Building and Installing Intel TBB")
-message(status "============================")
+find_package(TBB)
 
+##
+#
+# Fetch and build Intel's Threading Building Blocks library.
+#
+##
+if(NOT TBB_FOUND)
+
+set(TBB_WILL_RECONFIGURE TRUE)
+# Set the appropriate compiler
+if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+
+    set(TBB_COMPILER "clang")
+    ##
+    # On OSX, tbb currently has a linker bug so we have to patch up the following file
+    ##
+   if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
+    set(TBB_LINK_SYMBOLS "${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/src/tbb/mac64-tbb-export.lst")
+    set(TBB_PATCH_STEP awk "!/__TBB_SYMBOL\( _ZTVN3tbb13tbb_exceptionE \)/" ${TBB_LINK_SYMBOLS} > ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/tmplnk && mv ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/tmplnk ${TBB_LINK_SYMBOLS})
+   else("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
+    set(TBB_PATCH_STEP "")
+   endif("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
+
+else()
+
+    set(TBB_COMPILER "gcc")
+
+endif()
+
+message("Build system will fetch and build Intell Threading Building Blocks")
+message("==================================================================")
 # These are useful for the custom install step we'll do later
 set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
@@ -154,12 +244,48 @@ ExternalProject_Add(libtbb
 	URL http://threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb41_20130314oss_src.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND make cfg=release tbb_build_prefix=LIBS
-    INSTALL_COMMAND sh -c "cp ${TBB_SOURCE_DIR}/build/LIBS_release/*.so* ${TBB_INSTALL_DIR}/lib && cp -r ${TBB_SOURCE_DIR}/include/* ${TBB_INSTALL_DIR}/include"
+    BUILD_COMMAND make compiler=${TBB_COMPILER} cfg=release tbb_build_prefix=LIBS
+    INSTALL_COMMAND sh -c "cp ${TBB_SOURCE_DIR}/build/LIBS_release/*.${SHARED_LIB_EXTENSION}* ${TBB_INSTALL_DIR}/lib && cp -r ${TBB_SOURCE_DIR}/include/* ${TBB_INSTALL_DIR}/include"
     BUILD_IN_SOURCE 1
 )
-message(status "TBB installed.")
+
+ExternalProject_Add_Step(libtbb reconfigure
+        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DTBB_WILL_RECONFIGURE=FALSE -DTBB_RECONFIGURE=TRUE
+        DEPENDEES install
+)
+endif()
+
+##
+# If we're fetching tbb, we need to have dummy paths for these variables
+# so that CMake won't complain
+##
+if(TBB_WILL_RECONFIGURE)
+    set(TBB_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(TBB_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
+    set(TBB_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbb.${SHARED_LIB_EXTENSION}
+                      ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbbmalloc.${SHARED_LIB_EXTENSION}
+    )
+endif()
+
+##
+#  Similar to the Boost trick above, the libtbb reconfigure should force this code
+#  to be run on the second configuration pass, where it should appropriately set the
+#  TBB_INSTALL_DIR variable.
+##
+if (TBB_RECONFIGURE)
+    unset(TBB_FOUND CACHE)
+    unset(TBB_INSTALL_DIR CACHE)
+    unset(CMAKE_PREFIX_PATH CACHE)
+    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    message("TBB_INSTALL_DIR = ${TBB_INSTALL_DIR}")
+    find_package(TBB)
+endif()
+
+
+message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 
 ###
 #
@@ -174,8 +300,17 @@ set (CPACK_SOURCE_IGNORE_FILES
 "/scripts/GenerateExpressionFiles.sh"
 "/scripts/ParseSoftFile.py"
 "/scripts/PlotCorrelation.py"
+"/scripts/junk"
+"/scripts/sfstrace.log"
+"/scripts/SFPipeline.py"
 "/bin/"
+"/lib/"
+"/sample_data/"
 "/external/"
+"/src/obsolete/"
+"/include/obsolete/"
+"WebsiteHeader.txt"
+"/experimental_configs/"
 ".git/")
 
 message("CPACK_SOURCE_IGNORE_FILES = ${CPACK_SOURCE_IGNORE_FILES}")

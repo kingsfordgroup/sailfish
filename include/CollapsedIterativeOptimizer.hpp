@@ -75,10 +75,6 @@
 #include "BiasIndex.hpp"
 #include "ezETAProgressBar.hpp"
 #include "LookUpTableUtils.hpp"
-//#include "poisson_solver.hpp"
-//#include "matrix_tools.hpp"
-//#include "CompatibilityGraph.hpp"
-//#include "nnls.h"
 
 template <typename ReadHash>
 class CollapsedIterativeOptimizer {
@@ -314,7 +310,7 @@ private:
              }
              return current_sum; // body returns updated value of the accumulator
              },
-             []( double s1, double s2 ) {
+             []( double s1, double s2 ) -> double {
                 return s1+s2;       // "joins" two accumulated values
       });
 
@@ -335,7 +331,7 @@ private:
                  }
                  return current_sum; // body returns updated value of the accumulator
              },
-             []( double s1, double s2 ) {
+             []( double s1, double s2 ) -> double {
                  return s1+s2;       // "joins" two accumulated values
              });
 
@@ -376,7 +372,7 @@ private:
             }
             return currentDiff; // body returns updated value of the accumulator
           },
-          []( double s1, double s2 ) {
+          []( double s1, double s2 ) -> double {
                return s1+s2;       // "joins" two accumulated values
           }
         );
@@ -395,7 +391,7 @@ private:
             }
             return currentDiff; // body returns updated value of the accumulator
           },
-          []( double s1, double s2 ) {
+          []( double s1, double s2 ) -> double {
                return s1+s2;       // "joins" two accumulated values
           }
         );
@@ -434,7 +430,7 @@ private:
 
         std::vector<double> transcriptFidelities(transcripts_.size(), 0.0);
         tbb::parallel_for( size_t(0), transcripts_.size(),
-            [this, &transcriptFidelities]( TranscriptID tid ) {
+            [this, &transcriptFidelities]( TranscriptID tid ) -> void {
                 double sumDiff = 0.0;
                 auto ts = this->transcripts_[tid];
                 for ( auto& b : ts.binMers ) {
@@ -477,7 +473,7 @@ private:
         // Compute the log-likelihood 
         tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
           // for each transcript
-          [&likelihoods, &means, this]( size_t tid ) {
+          [&likelihoods, &means, this]( size_t tid ) ->void {
             auto& ti = transcripts_[tid];
 
             double transcriptLikelihood = 0.0;
@@ -530,7 +526,7 @@ private:
 
      // Asynchronously print out the progress of our hashing procedure                              
      std::atomic<size_t> prog{0};
-     std::thread t([this, &prog]() {
+     std::thread t([this, &prog]() -> void {
         ez::ezETAProgressBar pb(this->transcriptsForKmer_.size());
         pb.start();
         size_t prevProg{0};
@@ -547,7 +543,7 @@ private:
 
      //For every kmer, compute it's kmer group.
      tbb::parallel_for( size_t(0), transcriptsForKmer_.size(),
-        [&]( size_t j ) {
+        [&]( size_t j ) -> void {
           if (isActiveKmer[j]) {
             m[ transcriptsForKmer_[j]  ].push_back(j);
         }
@@ -713,7 +709,7 @@ private:
         size_t numRes = 0;
         std::cerr << "\n\nRemoving duplicates from kmer transcript lists ... ";
         tbb::parallel_for( size_t(0), size_t(transcriptsForKmer_.size()),
-            [&numRes, this]( size_t idx ) { 
+            [&numRes, this]( size_t idx ) -> void { 
                 auto& transcripts = this->transcriptsForKmer_[idx];
                 // should already be sorted -- extra check can be removed eventually
                 std::is_sorted(transcripts.begin(), transcripts.end());
@@ -734,7 +730,7 @@ private:
          */
         
         tbb::parallel_for(size_t{0}, transcripts_.size(),
-          [&, this](size_t tid) {
+          [&, this](size_t tid) -> void {
             auto& ti = this->transcripts_[tid];
             for (auto& binmer : ti.binMers) {
               if (binmer.second > promiscuousKmerCutoff_) {
@@ -748,7 +744,7 @@ private:
          * it's unfair to consider them in the transcripts effective length. 
          */
         std::for_each( genePromiscuousKmers_.begin(), genePromiscuousKmers_.end(),
-            [this]( KmerID kmerId ) { 
+            [this]( KmerID kmerId ) -> void { 
                 for ( auto tid : transcriptsForKmer_[kmerId] ) {
                     transcripts_[tid].effectiveLength -= 1.0;
                 }
@@ -844,7 +840,7 @@ private:
         //  E-Step : reassign the kmer group counts proportionally to each transcript
         tbb::parallel_for( size_t(0), size_t(transcriptsForKmer_.size()),
           // for each kmer group
-          [&completedJobs, &meansIn, this]( size_t kid ) {
+          [&completedJobs, &meansIn, this]( size_t kid ) -> void {
             auto kmer = kid;
             if ( this->genePromiscuousKmers_.find(kmer) == this->genePromiscuousKmers_.end() ){
 
@@ -906,7 +902,6 @@ public:
 
     KmerQuantity optimize(const std::string& klutfname,
                            const std::string& tlutfname,
-                           const std::string &outputFile, 
                            size_t numIt, 
                            double minMean) {
 
@@ -1169,86 +1164,7 @@ public:
             //computeKmerFidelities_();
         }
         */
-        std::cerr << "Writing output\n";
-        ez::ezETAProgressBar pb(transcripts_.size());
-        pb.start();
 
-        std::atomic<size_t> totalNumKmers{0};
-        //  Count the total number of kmers (i.e. mapped reads)
-        tbb::parallel_for( size_t{0}, readHash_.size(),
-          [&]( size_t kid ) { totalNumKmers += this->readHash_.atIndex(kid);} );
-
-        //std::vector<double> fracNuc(means0.size(), 0.0);
-        std::vector<double> cha(means0.size(), 0.0);
-        std::vector<double> fracTran(means0.size(), 0.0);
-        std::vector<double> tranExp(means0.size(), 0.0);
-        std::vector<double> transcriptReads(means0.size(), 0.0);
-        auto estimatedGroupTotal = psum_(kmerGroupCounts_);
-
-        // Compute transcript fraction (\tau_i in RSEM)
-        tbb::parallel_for(size_t(0), transcripts_.size(), 
-          [&](size_t i) { 
-            auto& ts = transcripts_[i];
-            cha[i] = means0[i] * ts.effectiveLength * 1.1231075637550727;
-          });
-        normalize_(cha);
-
-        // Compute transcript fraction (\tau_i in RSEM)
-        tbb::parallel_for(size_t(0), transcripts_.size(), 
-          [&](size_t i) { 
-            auto& ts = transcripts_[i];
-            fracTran[i] = (ts.effectiveLength > 0.0) ? means0[i] / ts.effectiveLength : 0.0;
-            tranExp[i] = estimatedGroupTotal * cha[i];
-            //tranExp[i] = _computeSum(ts);
-            transcriptReads[i] = _computeSum(ts);
-        });
-        normalize_(fracTran);
-
-        auto estimatedTotal = psum_(tranExp);
-        double estimatedReadLength = readHash_.averageLength();
-        double kmersPerRead = ((estimatedReadLength - merLen_) + 1);
-
-        double estimatedNumReads = estimatedTotal / kmersPerRead;
-
-        std::cerr << "averageLength = " << readHash_.averageLength() << "\n";
-        std::cerr << "kmersPerRead = " << kmersPerRead << "\n";
-        std::cerr << "estimatedNumReads = " << estimatedNumReads << "\n";
-
-        auto diff = estimatedTotal - totalNumKmers;
-        auto diff2 = estimatedGroupTotal - totalNumKmers;
-        std::cerr << "estimatedTotal(" << estimatedTotal << ") - totalNumKmers(" <<
-                     totalNumKmers << ") = " << diff << "\n";
-
-        std::cerr << "estimatedGroupTotal(" << estimatedGroupTotal << ") - totalNumKmers(" <<
-                     totalNumKmers << ") = " << diff2 << "\n";
-
-        std::ofstream ofile( outputFile );
-        size_t index = 0;
-        double million = std::pow(10.0, 6);
-        double billion = std::pow(10.0, 9);
-        ofile << "Transcript" << '\t' << "Length" << '\t' << "Effective Length" << '\t' << 
-                 "TPM" << '\t' << "RPKM" << '\t' << "Weighted Mapped Reads\n";
-        for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
-          auto& ts = transcripts_[i]; 
-          // expected # of kmers coming from transcript i
-          auto ci = tranExp[i] * 2;
-          // expected # of reads coming from transcript i
-          auto ri = ci / kmersPerRead;
-          auto effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
-          auto rpkm = (effectiveLength > 0 and ri > 0.0) ? 
-                      (billion * (ci / (estimatedGroupTotal * ts.effectiveLength))) : 0.0;
-               rpkm = (rpkm < 0.01) ? 0.0 : rpkm;
-          ofile << transcriptGeneMap_.transcriptName(index) << 
-                   '\t' << ts.length << '\t' <<
-                   ts.effectiveLength << '\t' <<
-                   fracTran[i] * million << '\t' << 
-                   rpkm << '\t' <<
-                   ri << "\n";
- 
-          ++index;
-          ++pb;
-        }
-        ofile.close();
 
         auto writeCoverageInfo = false;
         if ( writeCoverageInfo ) {
@@ -1256,6 +1172,72 @@ public:
             _dumpCoverage( cfname );
         }
 
+    }
+
+
+    void writeAbundances(const boost::filesystem::path& outputFilePath,
+                         const std::string& headerLines) {
+        std::cerr << "Writing output\n";
+        ez::ezETAProgressBar pb(transcripts_.size());
+        pb.start();
+
+        std::vector<KmerQuantity> fracTran(transcripts_.size(), 0.0);
+
+        // Compute transcript fraction (\tau_i in RSEM)
+        tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
+          [this, &fracTran]( size_t tid ) -> void {
+            auto& ts = this->transcripts_[tid];
+            fracTran[tid] = this->_computeMean( ts );
+        });
+        normalize_(fracTran);
+
+        std::atomic<size_t> totalNumKmers{0};
+        //  Count the total number of kmers (i.e. mapped reads)
+        tbb::parallel_for( size_t{0}, readHash_.size(),
+          [&]( size_t kid ) -> void { totalNumKmers += this->readHash_.atIndex(kid);} );
+
+        std::vector<double> fracNuc(fracTran.size(), 0.0);
+        auto estimatedGroupTotal = psum_(kmerGroupCounts_);
+
+        // Compute nucleotide fraction (\nu_i in RSEM)
+        tbb::parallel_for(size_t(0), transcripts_.size(), 
+          [&](size_t i) -> void { 
+            auto& ts = transcripts_[i];
+            fracNuc[i] = fracTran[i] * ts.effectiveLength;
+          });
+        normalize_(fracNuc);
+
+        std::ofstream ofile( outputFilePath.string() );
+        size_t index = 0;
+        double million = std::pow(10.0, 6);
+        double billion = std::pow(10.0, 9);
+        double estimatedReadLength = readHash_.averageLength();
+        double kmersPerRead = ((estimatedReadLength - merLen_) + 1);
+        ofile << headerLines;
+
+        ofile << "# " << "Transcript" << '\t' << "Length" << '\t' << 
+                 "TPM" << '\t' << "RPKM" << '\n';
+        for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
+          auto& ts = transcripts_[i]; 
+          // expected # of kmers coming from transcript i
+          auto ci = estimatedGroupTotal * fracNuc[i];
+          // expected # of reads coming from transcript i
+          auto ri = ci / kmersPerRead;
+          auto effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
+          auto rpkm = (effectiveLength > 0 and ri > 0.0) ? 
+                      (billion * (ci / (estimatedGroupTotal * ts.effectiveLength))) : 0.0;
+               rpkm = (rpkm < 0.01) ? 0.0 : rpkm;
+          auto tpm = fracTran[i] * million;
+               tpm = (tpm < 0.05) ? 0.0 : tpm;
+          ofile << transcriptGeneMap_.transcriptName(index) << 
+                   '\t' << ts.length << '\t' <<
+                   tpm << '\t' << 
+                   rpkm << '\n';
+
+          ++index;
+          ++pb;
+        }
+        ofile.close();
     }
 
 

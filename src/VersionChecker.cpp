@@ -165,19 +165,22 @@ void VersionChecker::handle_read_content(const boost::system::error_code& err) {
   }
 }
 
-void printVersionInformation() {
+std::string getVersionMessage() {
   std::string baseSite{"www.cs.cmu.edu"};
   std::string path{"/~ckingsf/software/sailfish/version_info/"};
   path += Sailfish::version;
 
+  std::stringstream ss;
   try {
     boost::asio::io_service io_service;
     VersionChecker c(io_service, baseSite, path);
     io_service.run();
-    std::cerr << "Version Info: " << c.message() << "\n"; 
+    ss << "Version Info: " << c.message(); 
   }
   catch (std::exception& e)
   {
-    std::cout << "Exception: " << e.what() << "\n";
+    ss << "Version Info Exception: " << e.what() << "\n";
   }
+
+  return ss.str();
 }

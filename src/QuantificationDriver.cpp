@@ -121,7 +121,7 @@ int runSailfishEstimation(const std::string& sfCommand,
 
     int ret = 0;
     auto estThread = std::thread(
-        [&]() -> {
+        [&]() -> void {
             std::vector<std::string> argStrings;
             boost::split(argStrings, argString, boost::is_any_of(" "));
 
@@ -164,7 +164,7 @@ int mainQuantify( int argc, char *argv[] ) {
     ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("out,o", po::value<string>(), "Basename of file where estimates are written")
-    ("iterations,i", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
+    ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
     ;

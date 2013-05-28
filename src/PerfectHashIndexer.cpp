@@ -231,8 +231,6 @@ void buildLUTs(
 
 int mainIndex( int argc, char *argv[] ) {
     using std::string;
-
-    std::cerr << "running indexer\n";
     namespace po = boost::program_options;
 
     uint32_t maxThreads = std::thread::hardware_concurrency();

@@ -47,6 +47,6 @@ private:
   std::stringstream messageStream_;
 };
 
-void printVersionInformation();
+std::string getVersionMessage();
 
 #endif //VERSION_CHECKER_HPP

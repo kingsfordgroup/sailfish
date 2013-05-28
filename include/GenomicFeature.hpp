@@ -168,13 +168,13 @@ namespace GTFParser {
     );
 
     size_t nreader=10;
-    std::atomic<size_t> tctr{nreader};
+    std::atomic<size_t> tctr(nreader);
     tbb::concurrent_queue<GenomicFeature<StaticAttributes>*> outQueue;
     // boost::lockfree::queue<GenomicFeature<StaticAttributes>*> outQueue(5000);
     
     for( size_t i = 0; i < nreader; ++i ) {
       threads.push_back(
-      std::thread([&queue, &outQueue, &done, &tctr]() -> {
+      std::thread([&queue, &outQueue, &done, &tctr]() -> void {
 
         StringPtr l = nullptr;
         while( !done or queue.try_pop(l) ) {
@@ -194,7 +194,7 @@ namespace GTFParser {
     }
     
     threads.push_back(
-      std::thread([&outQueue, &feats, &tctr]() -> {
+      std::thread([&outQueue, &feats, &tctr]() -> void {
         GenomicFeature<StaticAttributes>* f = nullptr;
         while( outQueue.try_pop(f) or tctr > 0 ) {
           if ( f != nullptr ) {

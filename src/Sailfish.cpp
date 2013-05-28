@@ -42,6 +42,8 @@
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
+#include <boost/range/irange.hpp>
+#include <boost/filesystem.hpp>
 
 #include <jellyfish/sequence_parser.hpp>
 #include <jellyfish/parse_read.hpp>
@@ -61,6 +63,7 @@
 
 int runIterativeOptimizer(int argc, char* argv[] ) {
   using std::string;
+  namespace bfs = boost::filesystem;
   namespace po = boost::program_options;
 
   string cmdString = "estimate";
@@ -88,7 +91,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       ("output,o", po::value<string>(), "output file")
       //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("filter,f", po::value<double>()->default_value(0.0), "during iterative optimization, remove transcripts with a mean less than filter")
-      ("iterations,i", po::value<size_t>(), "number of iterations to run the optimzation")
+      ("iterations,n", po::value<size_t>(), "number of iterations to run the optimzation")
       ("lutfile,l", po::value<string>(), "Lookup table prefix")
       ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
       ;
@@ -129,7 +132,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     string sfIndexBase = vm["index"].as<string>();
     string sfIndexFile = sfIndexBase+".sfi";
     string sfTrascriptCountFile = sfIndexBase+".sfc";
-    string outputFile = vm["output"].as<string>();
+    bfs::path outputFilePath = bfs::path(vm["output"].as<string>());
     double minMean = vm["filter"].as<double>();
     string lutprefix = vm["lutfile"].as<string>();
     auto tlutfname = lutprefix + ".tlut";
@@ -196,7 +199,15 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       size_t numIter = vm["iterations"].as<size_t>();
       std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
       // for CollapsedIterativeOptimizer (EM algorithm)
-      solver.optimize(klutfname, tlutfname, outputFile, numIter, minMean );
+      solver.optimize(klutfname, tlutfname, numIter, minMean );
+
+      std::stringstream headerLines;
+      headerLines << "# [Sailfish version]\t" << Sailfish::version << "\n";
+      headerLines << "# [command]\t";
+      for (size_t i : boost::irange(size_t(0), static_cast<size_t>(argc))) { headerLines << argv[i] << " "; }
+      headerLines << "\n";
+
+      solver.writeAbundances(outputFilePath, headerLines.str());
       // for LASSO Iterative Optimizer
       //solver.optimizeNNLASSO(klutfname, tlutfname, outputFile, numIter, minMean );
       // for IterativeOptimizer
@@ -219,19 +230,17 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
 int help(int argc, char* argv[]) {
   auto helpmsg = R"(
-  Sailfish v0.1
-  =============
+  Sailfish v0.1.0
+  ===============
 
-  Please invoke sailfish with one of the following quantification
-  methods {itopt, setcover, nnls}.  For more inforation on the 
-  options for theses particular methods, use the -h flag along with
-  the method name.  For example:
+  Please invoke sailfish with one of the following commands {index, quant, sf}.  
+  For more inforation on the options for theses particular methods, use the -h 
+  flag along with the method name.  For example:
 
-  Sailfish itopt -h
+  Sailfish index -h
 
-  will give you detailed help information about the iterative optimization
-  method.
-  )";
+  will give you detailed help information about the index command.
+  )"; 
 
   std::cerr << helpmsg << "\n";
   return 1;
@@ -266,15 +275,22 @@ int main( int argc, char* argv[] ) {
 
 
   try {
+
+    po::options_description hidden("hidden");
+    hidden.add_options()
+    ("command", po::value<string>(), "command to run {index, estimate, sf}");
     
-    po::options_description sfopts("Sailfish");
+    po::options_description sfopts("Allowed Options");
     sfopts.add_options()
-    ("command", po::value<string>(), "command to run {index, estimate, sf}")
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ;
 
-    printVersionInformation();
+    po::options_description all("Allowed Options");
+    all.add(sfopts).add(hidden);
+
+    std::string versionMessage = getVersionMessage();
+    std::cerr << versionMessage;
 
     // po::options_description sfopts("Command");
     // sfopts.add_options()
@@ -283,21 +299,21 @@ int main( int argc, char* argv[] ) {
     pd.add("command", 1);
 
     po::variables_map vm;
-    po::store(po::command_line_parser(2, argv).options(sfopts).positional(pd).allow_unregistered().run(), vm);
+    po::store(po::command_line_parser(2, argv).options(all).positional(pd).allow_unregistered().run(), vm);
 
     if (vm.count("version")) {
       std::cerr << "version : " << Sailfish::version << "\n";
       std::exit(0);
     }
 
-    po::notify(vm);
-    
-
     if (!vm.count("command") and vm.count("help")) {
       std::cout << sfopts << std::endl;
+      help(argc, argv);
       std::exit(0);
     }
-  
+
+    po::notify(vm);
+      
     std::unordered_map<string, std::function<int(int, char*[])>> cmds({
       {"estimate", runIterativeOptimizer},
       {"index", mainIndex},
@@ -318,7 +334,6 @@ int main( int argc, char* argv[] ) {
     if (cmdMain == cmds.end()) {
       help( argc-1, argv2 );
     } else {
-      std::cerr << "COMMAND: " << cmdMain->first << "\n";
       cmdMain->second(argc-1, argv2);
     }
     delete[] argv2;

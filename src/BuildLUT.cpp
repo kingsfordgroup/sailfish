@@ -217,7 +217,7 @@ int buildLUTs(
           if ( not valid ) { continue; }
           ++numRes;
 
-          size_t numKmers {readLen - merLen + 1};
+          size_t numKmers {static_cast<size_t>(readLen) - merLen + 1};
 
           TranscriptInfo* tinfo = new TranscriptInfo;
           tinfo->name = header;
@@ -244,7 +244,7 @@ int buildLUTs(
             if ( binMerId != INVALID ) {
               auto tcount = transcriptHash.atIndex(binMerId);
               if ( tcount > 0 ) {
-               ContainingTranscript c{binMerId, transcriptIndex};
+               ContainingTranscript c{binMerId, static_cast<TranscriptID>(transcriptIndex)};
                q.push(c);
                // for boost lockfree queue
                // while(!q.push( c ));
