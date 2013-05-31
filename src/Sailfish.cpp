@@ -202,7 +202,9 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       solver.optimize(klutfname, tlutfname, numIter, minMean );
 
       std::stringstream headerLines;
-      headerLines << "# [Sailfish version]\t" << Sailfish::version << "\n";
+      headerLines << "# [sailfish version]\t" << Sailfish::version << "\n";
+      headerLines << "# [kmer length]\t" << sfIndex.kmerLength() << "\n";
+      headerLines << "# [using canonical kmers]\t" << (sfIndex.canonical() ? "true" : "false") << "\n";
       headerLines << "# [command]\t";
       for (size_t i : boost::irange(size_t(0), static_cast<size_t>(argc))) { headerLines << argv[i] << " "; }
       headerLines << "\n";

@@ -188,12 +188,14 @@ int buildLUTs(
   for (size_t i = 0; i < numThreads - 1; ++i) {
 
     threads.push_back( std::thread( 
-      [&numRes, &q, &tq, &tgmap, &parser, &transcriptHash, &nworking, &transcriptsForKmer, &tmut, merLen]() -> void {
+      [&numRes, &q, &tq, &tgmap, &parser, &transcriptHash, &nworking, 
+       &transcriptIndex, &transcriptsForKmer, &tmut, merLen]() -> void {
 
         // Each thread gets it's own stream
         jellyfish::parse_read::thread stream = parser.new_thread();
         jellyfish::parse_read::read_t* read;
         auto INVALID = transcriptHash.INVALID;
+        bool useCanonical{transcriptIndex.canonical()};
 
         // while there are transcripts left to process
         while ( (read = stream.next_read()) ) { 
@@ -226,7 +228,6 @@ int buildLUTs(
           tinfo->length = readLen;
           //tinfo->kmers.resize(numKmers);
 
-          bool useCanonical{false};
           // Iterate over the kmers
           ReadLength effectiveLength(0);
           for ( auto offset : boost::irange( size_t(0), numKmers) ) { 

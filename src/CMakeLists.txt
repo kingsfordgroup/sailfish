@@ -50,6 +50,7 @@ target_link_libraries(sailfish
     pthread 
     gomp 
     m
+    profiler
     ${TBB_LIBRARIES}
 )
 
@@ -93,17 +94,6 @@ install(
 # install(FILES ${GAT_SOURCE_DIR}/experimental_configs/SRX016368_25mers.cfg DESTINATION experimental_configs/SRX016368_25mers.cfg )
 
 include(InstallRequiredSystemLibraries)
-set(CPACK_GENERATOR "TGZ")
-set(CPACK_SOURCE_GENERATOR "TGZ")
-set(CPACK_PACKAGE_NAME "Sailfish")
-set(CPACK_SOURCE_PACKAGE_NAME "Sailfish-Src")
-set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Sailfish - Ultrafast alignment-free RNA-seq quantification")
-set(CPACK_PACKAGE_VERSION "0.1.0")
-set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "1")
-set(CPACK_PACKAGE_VERSION_PATCH "0")
-
 add_test( NAME simple_test COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${GAT_SOURCE_DIR} -P ${GAT_SOURCE_DIR}/cmake/SimpleTest.cmake )
 
 ####

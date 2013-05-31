@@ -72,6 +72,9 @@ int runKmerCounter(const std::string& sfCommand,
 
         char ** args = new char*[argStrings.size()];
         for (size_t i : boost::irange({0}, argStrings.size())) {
+            // args[i] = new char[argStrings[i].length()+1];
+            // std::copy(argStrings[i].begin(), argStrings[i].end(), args[i]);
+            // args[i][argStrings[i].length()] = '\0';
             args[i] = const_cast<char*>(argStrings[i].c_str());
         }
 
@@ -82,13 +85,13 @@ int runKmerCounter(const std::string& sfCommand,
 
     } else if (pid < 0) { // fork failed!
         
-        std::cerr << "FATAL ERROR: Failed to spawn Jellyfish process. Exiting\n";
+        std::cerr << "FATAL ERROR: Failed to spawn Sailfish process. Exiting\n";
         std::exit(-1);
     } else { // parent
 
         int status = -1;
         waitpid(pid, &status, 0); // wait on the Jellyfish process
-        std::cerr << "Jellyfish terminated with return code " << status << "\n";
+        std::cerr << "Sailfish terminated with return code " << status << "\n";
         assert( status == 0 );
     }
 

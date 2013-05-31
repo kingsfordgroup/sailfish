@@ -2,16 +2,32 @@ execute_process(COMMAND tar xzvf sample_data.tgz
                 WORKING_DIRECTORY ${TOPLEVEL_DIR}
                 RESULT_VARIABLE TAR_RESULT
                )
-execute_process(COMMAND ${TOPLEVEL_DIR}/bin/sailfish index -t transcripts.fasta -k 20 -o sample_index
+
+if (TAR_RESULT)
+    message(FATAL_ERROR "Error untarring sample_data.tgz")
+endif()
+
+set(INDEX_CMD ${TOPLEVEL_DIR}/bin/sailfish index -t transcripts.fasta -k 20 -o sample_index)
+execute_process(COMMAND ${INDEX_CMD}
                 WORKING_DIRECTORY ${TOPLEVEL_DIR}/sample_data
                 RESULT_VARIABLE INDEX_RESULT
                 )
-execute_process(COMMAND ${TOPLEVEL_DIR}/bin/sailfish quant -i sample_index -r reads_1.fastq reads_2.fastq -o sample_quant
+
+if (INDEX_RESULT)
+    message(FATAL_ERROR "Error running ${INDEX_COMMAND}")
+endif()
+
+set(QUANT_COMMAND ${TOPLEVEL_DIR}/bin/sailfish quant -i sample_index -r reads_1.fastq reads_2.fastq -o sample_quant)
+execute_process(COMMAND ${QUANT_COMMAND}
 	            WORKING_DIRECTORY ${TOPLEVEL_DIR}/sample_data
 	            RESULT_VARIABLE QUANT_RESULT
                 )
+if (QUANT_RESULT)
+    message(FATAL_ERROR "Error running ${QUANT_RESULT}")
+endif()
+
 if (EXISTS ${TOPLEVEL_DIR}/sample_data/sample_quant/quant.sf)
 	message("Sailfish ran successfully")
 else()
-	message("Sailfish failed to produce output")
+	message(FATAL_ERROR "Sailfish failed to produce output")
 endif()

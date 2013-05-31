@@ -67,7 +67,7 @@ Finally, after everything is built, the libraries and executable can be installe
 
 To ensure that Sailfish has access to the appropriate libraries you should ensure
 that the PATH variabile contains <install_dir>/bin, and that LD_LIBRARY_PATH 
-(or DYLD_FALLBACK_LIBRARY_PATH on OSX contains <install_dir>/lib.
+(or DYLD_FALLBACK_LIBRARY_PATH on OSX) contains <install_dir>/lib.
 
 After the paths are set, you can test the installation by running
 

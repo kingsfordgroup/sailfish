@@ -68,7 +68,7 @@
 #include "GenomicFeature.hpp"
 #include "PerfectHashIndex.hpp"
 
-void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& counts, 
+void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vector<uint32_t>& counts, 
                            size_t merLen, const boost::filesystem::path& indexBasePath) {
 
     namespace bfs = boost::filesystem;
@@ -117,7 +117,7 @@ void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& c
     auto ms = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
     std::cerr << "took: " << static_cast<double>(ms.count()) / keys.size() << " us / key\n";
 
-    PerfectHashIndex phi(orderedMers, ownedHash, merLen);
+    PerfectHashIndex phi(orderedMers, ownedHash, merLen, canonical);
     
     bfs::path transcriptomeIndexPath(indexBasePath); transcriptomeIndexPath /= "transcriptome.sfi";
     std::cerr << "writing index to file " << transcriptomeIndexPath << "\n";
@@ -149,7 +149,8 @@ void buildPerfectHashIndex(std::vector<uint64_t>& keys, std::vector<uint32_t>& c
 //int count_main(int argc, char* argv[]);
 int jellyfish_count_main(int argc, char *argv[]);
 
-int runJellyfish(uint32_t merLen, 
+int runJellyfish(bool canonical,
+                 uint32_t merLen, 
                  uint32_t numThreads, 
                  const std::string& outputStem, 
                  std::vector<std::string>& inputFiles) {
@@ -159,6 +160,7 @@ int runJellyfish(uint32_t merLen,
     bfs::path jfCountPath(outputStem); jfCountPath /= "jf.counts";
     std::stringstream argStream;
     std::stringstream inputFilesStream;
+    if (canonical) { argStream << "-C "; }
     argStream << "--timing=" << jfTimePath.string() << " ";
     argStream << "-m " << merLen << " ";
     argStream << "-t " << numThreads << " ";
@@ -243,6 +245,12 @@ int mainIndex( int argc, char *argv[] ) {
     ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("kmerSize,k", po::value<uint32_t>()->required(), "Kmer size.")
     ("out,o", po::value<string>(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
+    ("canonical,c", po::bool_switch(), "Passing this flag in forces all processing to be done on canonical kmers.\n"
+                                       "This means transcripts will be mapped to their canonical kmer multiset and\n"
+                                       "that directionality will not be considered when mapping kmers from reads.\n"
+                                       "This slightly increases ambiguity in the isoform estimation step, but\n"
+                                       "is generally faster than non-canonical processing (about twice as fast\n"
+                                       "when counting kmers in the reads).\n")
     //("thash,t", po::value<string>(), "transcript hash file [Jellyfish format]")
     //("index,i", po::value<string>(), "transcript index file [Sailfish format]")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
@@ -273,6 +281,7 @@ the Jellyfish database [thash] of the transcripts.
         std::vector<string> transcriptFiles = vm["transcripts"].as<std::vector<string>>();
         uint32_t numThreads = vm["threads"].as<uint32_t>();
         bool force = vm["force"].as<bool>();
+        bool canonical = vm["canonical"].as<bool>();
 
         // Check to make sure that the specified output directory either doesn't exist, or is
         // a valid path (e.g. not a file)
@@ -311,7 +320,7 @@ the Jellyfish database [thash] of the transcripts.
 
         if (mustRecompute) {
             std::cerr << "Running Jellyfish on transcripts\n";
-            runJellyfish(merLen, numThreads, outputStem, transcriptFiles);
+            runJellyfish(canonical, merLen, numThreads, outputStem, transcriptFiles);
 
             std::cerr << "Jellyfish finished\n";
 
@@ -343,7 +352,7 @@ the Jellyfish database [thash] of the transcripts.
 
             bfs::path sfIndexBase(outputPath);
             bfs::path sfIndexFile(sfIndexBase); sfIndexFile /= "transcriptome.sfi";
-            buildPerfectHashIndex(keys, counts, merLen, sfIndexBase);
+            buildPerfectHashIndex(canonical, keys, counts, merLen, sfIndexBase);
 
             TranscriptGeneMap tgmap;
             if (vm.count("tgmap") ) { // if we have a GTF file

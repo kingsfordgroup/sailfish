@@ -45,13 +45,17 @@ class PerfectHashIndex {
    // We'll return this invalid id if a kmer is not found in our DB
    size_t INVALID = std::numeric_limits<size_t>::max();
 
-   PerfectHashIndex( std::vector<Kmer>& kmers, std::unique_ptr<cmph_t, Deleter>& hash, uint32_t merSize ) : 
-     kmers_(std::move(kmers)), hash_(std::move(hash)), merSize_( merSize ) {}
+   PerfectHashIndex( std::vector<Kmer>& kmers, std::unique_ptr<cmph_t, Deleter>& hash, 
+                     uint32_t merSize, bool canonical ) : kmers_(std::move(kmers)), 
+                                                          hash_(std::move(hash)), 
+                                                          merSize_(merSize),
+                                                          canonical_(canonical) {}
 
    PerfectHashIndex( PerfectHashIndex&& ph ) {
    	merSize_ = ph.merSize_;
    	hash_ = std::move(ph.hash_);
    	kmers_ = std::move(ph.kmers_);
+    canonical_ = ph.canonical_;
    }
 
    void dumpToFile(const std::string& fname) {
@@ -59,6 +63,7 @@ class PerfectHashIndex {
 
    	// read the key set
     fwrite( reinterpret_cast<char*>(&merSize_), sizeof(merSize_), 1, out );
+    fwrite( reinterpret_cast<char*>(&canonical_), sizeof(canonical_), 1, out);
     size_t numCounts = kmers_.size();
     fwrite( reinterpret_cast<char*>(&numCounts), sizeof(size_t), 1, out );
     fwrite( reinterpret_cast<char*>(&kmers_[0]), sizeof(Kmer), numCounts, out );
@@ -74,6 +79,8 @@ class PerfectHashIndex {
    	// read the key set
     uint32_t merSize;
     fread( reinterpret_cast<char*>(&merSize), sizeof(merSize), 1, in );
+    bool canonical;
+    fread( reinterpret_cast<char*>(&canonical), sizeof(canonical), 1, in );
     size_t numCounts;
     fread( reinterpret_cast<char*>(&numCounts), sizeof(size_t), 1, in );
     std::vector<Kmer> kmers(numCounts, Kmer(0));
@@ -81,7 +88,7 @@ class PerfectHashIndex {
 
     // read the hash
     std::unique_ptr<cmph_t, Deleter> hash( cmph_load(in), cmph_destroy );
-    PerfectHashIndex index(kmers, hash, merSize);
+    PerfectHashIndex index(kmers, hash, merSize, canonical);
 
     fclose(in);
 
@@ -89,7 +96,7 @@ class PerfectHashIndex {
    }
 
    inline size_t index( uint64_t kmer ) {
-   	char *key = (char*)(&kmer);
+   	char *key = reinterpret_cast<char*>(&kmer);
     unsigned int id = cmph_search(hash_.get(), key, sizeof(uint64_t));
     return (kmers_[id] == kmer) ? id : INVALID;
    }
@@ -107,6 +114,7 @@ class PerfectHashIndex {
    	return true;
    }
 
+   inline bool canonical() { return canonical_; }
    inline uint32_t kmerLength() { return merSize_; }
    const std::vector<Kmer>& kmers() { return kmers_; }
 
@@ -114,6 +122,7 @@ class PerfectHashIndex {
    	std::vector<Kmer> kmers_;
    	std::unique_ptr<cmph_t, Deleter> hash_;
    	uint32_t merSize_;
+    bool canonical_;
 };
 
 #endif // __PERFECT_HASH_INDEX_HPP__
