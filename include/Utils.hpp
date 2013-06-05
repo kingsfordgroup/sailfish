@@ -35,9 +35,9 @@
 
 namespace utils {
 using std::string;
-typedef std::vector<string> NameVector;
-typedef std::vector<size_t> IndexVector;
-typedef std::vector<uint64_t> KmerVector;
+using NameVector = std::vector<string>;
+using IndexVector = std::vector<size_t>;
+using KmerVector = std::vector<uint64_t>;
 
 size_t numberOfReadsInFastaFile(const std::string& fname);
 
@@ -55,9 +55,7 @@ TranscriptGeneMap transcriptToGeneMapFromFeatures( std::vector<GenomicFeature<T>
     using std::string;
     using std::get;
 
-    typedef tuple<string, size_t> NameID;
-    typedef std::vector<string> NameVector;
-    typedef std::vector<size_t> IndexVector;
+    using NameID = tuple<string, size_t>;
 
     IndexVector t2g;
     NameVector transcriptNames;

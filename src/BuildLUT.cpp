@@ -61,11 +61,11 @@
 #include "CountDBNew.hpp"
 #include "ezETAProgressBar.hpp"
 
-typedef uint32_t TranscriptID;
-typedef uint64_t KmerID;
-typedef int64_t ReadLength;
-typedef uint32_t Length;
-typedef std::vector<TranscriptID> TranscriptList;
+using TranscriptID = uint32_t;
+using KmerID = uint64_t;
+using ReadLength = int64_t;
+using Length = uint32_t;
+using TranscriptList = std::vector<TranscriptID>;
 
 struct ContainingTranscript{
   KmerID kmerID;

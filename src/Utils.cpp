@@ -38,9 +38,9 @@
 
 namespace utils {
 using std::string;
-typedef std::vector<string> NameVector;
-typedef std::vector<size_t> IndexVector;
-typedef std::vector<uint64_t> KmerVector;
+using NameVector = std::vector<string>;
+using IndexVector = std::vector<size_t>;
+using KmerVector = std::vector<uint64_t>;
 
 size_t numberOfReadsInFastaFile(const std::string& fname) {
     constexpr size_t bufferSize = 16184;
@@ -102,7 +102,7 @@ TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile ) {
     using std::string;
     using std::get;
 
-    typedef tuple<string, size_t> NameID;
+    using NameID = tuple<string, size_t>;
 
     IndexVector t2g;
     NameVector transcriptNames;
@@ -165,8 +165,6 @@ TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile ) {
 
 
 TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFile ) {
-    typedef std::vector<string> NameVector;
-    typedef std::vector<size_t> IndexVector;
 
     NameVector transcriptNames;
     NameVector geneNames {"gene"};

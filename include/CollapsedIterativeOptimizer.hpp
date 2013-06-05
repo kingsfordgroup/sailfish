@@ -81,29 +81,29 @@ class CollapsedIterativeOptimizer {
 
 private:
     /**
-    * Typedefs
+    * Type aliases
     */
-    typedef uint32_t TranscriptID;
-    typedef uint64_t KmerID;
-    typedef double KmerQuantity;
-    typedef double Promiscutity;
-    typedef tbb::concurrent_unordered_map< uint64_t, tbb::concurrent_vector<uint32_t> > KmerMap;
+    using TranscriptID = uint32_t;
+    using KmerID =  uint64_t;
+    using KmerQuantity = double;
+    using Promiscutity = double;
+    using KmerMap = tbb::concurrent_unordered_map< uint64_t, tbb::concurrent_vector<uint32_t> >;
 
     struct TranscriptGeneVectors;
-    typedef std::vector<TranscriptID> TranscriptIDVector;
-    typedef std::vector<TranscriptIDVector> KmerIDMap;
+    using TranscriptIDVector = std::vector<TranscriptID>;
+    using KmerIDMap = std::vector<TranscriptIDVector>;
 
 
-    typedef std::tuple<TranscriptID, std::vector<KmerID>> TranscriptKmerSet;
-    typedef std::string *StringPtr;
-    typedef uint64_t TranscriptScore;
-    typedef jellyfish::invertible_hash::array<uint64_t, atomic::gcc, allocators::mmap> HashArray;
-    typedef size_t ReadLength;
+    using TranscriptKmerSet = std::tuple<TranscriptID, std::vector<KmerID>>;
+    using StringPtr = std::string*;
+    using TranscriptScore = uint64_t;
+    using HashArray = jellyfish::invertible_hash::array<uint64_t, atomic::gcc, allocators::mmap>;
+    using ReadLength = size_t;
 
     // Necessary forward declaration
     struct TranscriptData;
-    typedef std::tuple<TranscriptScore, TranscriptID> HeapPair;
-    typedef typename boost::heap::fibonacci_heap<HeapPair>::handle_type Handle;
+    using HeapPair = std::tuple<TranscriptScore, TranscriptID>;
+    using Handle = typename boost::heap::fibonacci_heap<HeapPair>::handle_type;
 
     struct TranscriptGeneVectors {
         tbb::concurrent_vector<uint32_t> transcripts;
@@ -203,7 +203,7 @@ private:
     KmerQuantity _computeMedian( const TranscriptInfo& ti ) {
 
       using namespace boost::accumulators;
-      typedef accumulator_set<double, stats<tag::median(with_p_square_quantile)>> Accumulator;
+      using Accumulator = accumulator_set<double, stats<tag::median(with_p_square_quantile)>>;
 
       Accumulator acc;
       for (auto binmer : ti.binMers) {
@@ -225,7 +225,7 @@ private:
      */
     KmerQuantity _computeSumQuantile( const TranscriptInfo& ti, double quantile ) {
         using namespace boost::accumulators;
-        typedef accumulator_set<double, stats<tag::p_square_quantile> > accumulator_t;
+        using accumulator_t = accumulator_set<double, stats<tag::p_square_quantile> >;
         KmerQuantity sum = 0.0;
         
         accumulator_t accLow(quantile_probability = quantile);
@@ -756,7 +756,6 @@ private:
     }
 
     void _dumpCoverage( const std::string &cfname ) {
-        typedef std::string* StringPtr;
 
         size_t numTrans = transcripts_.size();
         size_t numProc = 0;
@@ -967,8 +966,8 @@ public:
          * [SQUAREM](http://cran.r-project.org/web/packages/SQUAREM/index.html).
          */
         double minStep0, minStep, maxStep0, maxStep, mStep, nonMonotonicity;
-        minStep0 = minStep = 1.0;
-        maxStep = maxStep = 1.0;
+        minStep0 = 1.0; minStep = 1.0;
+        maxStep = 1.0; maxStep = 1.0;
         mStep = 4.0;
         nonMonotonicity = 1.0;
 

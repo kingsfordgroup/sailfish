@@ -56,26 +56,6 @@
 
 #include "PerfectHashIndex.hpp"
 
-// void countCanonical(
-//     jellyfish::parse_read& parser,
-//     std::atomic<uint64_t>& readNum,
-//     CountDBNew& rhash,
-//     std::chrono::time_point<std::chrono::steady_clock>& startTime,
-//     PerfectHashIndex& phi,
-//     std::atomic<uint64_t>& unmappedKmers,
-//     uint32_t merLen) {
-
-
-// void countBothDirection(jellyfish::parse_read& parser,
-//     std::atomic<uint64_t>& readNum,
-//     CountDBNew& rhash,
-//     std::chrono::time_point<std::chrono::steady_clock>& startTime,
-//     PerfectHashIndex& phi,
-//     std::atomic<uint64_t>& unmappedKmers,
-//     uint32_t merLen) {
-
-
-
 int mainCount( int argc, char *argv[] ) {
 
     using std::string;
@@ -168,79 +148,9 @@ same index, and the counts will be written to the file [counts].
           // and build our data structure.
           for (size_t k = 0; k < numActors; ++k) {
 
-            // threads.push_back( std::thread( 
-            //     [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
-            //         // Each thread gets it's own stream
-            //         jellyfish::parse_read::read_t* read;
-            //         jellyfish::parse_read::thread stream = parser.new_thread();
-
-            //         typedef uint64_t BinMer;
-            //         std::vector<BinMer> fwdMers;
-            //         std::vector<BinMer> revMers;
-
-            //         while ( (read = stream.next_read()) ) {
-            //             ++readNum;
-            //             if (readNum % 500000 == 0) {
-            //                 auto end = std::chrono::steady_clock::now();
-            //                 auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
-            //                 auto nsec = sec.count();
-            //                 auto rate = (nsec > 0) ? readNum / sec.count() : 0;
-            //                 std::cerr << "processed " << readNum << " reads (" << rate << ") reads/s\r\r";
-            //             }
-                        
-            //             std::string seq(read->seq_s, std::distance(read->seq_s, read->seq_e) - 1 );
-
-            //             auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
-            //             auto readLen = std::distance( seq.begin(), newEnd );
-            //             if ( readLen < merLen ) { continue; }
-            //             size_t numKmers = readLen - merLen + 1;
-                        
-            //             if ( numKmers > fwdMers.size() ) {
-            //                 fwdMers.resize(numKmers);
-            //                 revMers.resize(numKmers);
-            //             }
-
-            //             // The number of valid hits using the forward strand
-            //             // and the reverse-complement strand
-            //             size_t fCount = 0;
-            //             size_t rCount = 0;
-            //             auto INVALID = phi.INVALID;
-
-            //             for ( auto offset : boost::irange(size_t{0}, numKmers) ){
-            //                 auto mer = seq.substr(offset, merLen);
-            //                 auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen);
-            //                 auto rmer = jellyfish::parse_dna::reverse_complement(binMer, merLen);
-            //                 auto binMerId = phi.index(binMer);
-            //                 auto rMerId = phi.index(rmer);
-            //                 fwdMers[offset] = binMer;
-            //                 revMers[offset] = rmer;
-            //                 fCount += (binMerId != INVALID);
-            //                 rCount += (rMerId != INVALID);
-            //             }
-
-            //             auto& mers = (fCount > rCount) ? fwdMers : revMers;
-            //             for ( auto offset : boost::irange(size_t{0}, numKmers) ){
-            //                 bool inserted = rhash.inc(mers[offset]);
-            //                 if (!inserted) { ++unmappedKmers; }
-            //             }
-
-            //             // original version
-            //             // for ( auto offset : boost::irange(0,numKmers) ){
-            //             //     auto mer = seq.substr( offset, merLen );
-            //             //     auto binMer = jellyfish::parse_dna::mer_string_to_binary( mer.c_str(), merLen );
-            //             //     auto rmer = jellyfish::parse_dna::reverse_complement( binMer, merLen );
-            //             //     binMer = (binMer < rmer) ? binMer : rmer;
-            //             //     rhash.inc(binMer);
-            //             // }
-
-            //         }
-
-            //     }) 
-            // );
-            // 
-            // 
-            
             /** Guillaume inspired fast parser **/
+
+            // If we're only hashing canonical kmers
             if (canonical) {
                 threads.emplace_back(std::thread(
                     [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
@@ -248,7 +158,7 @@ same index, and the counts will be written to the file [counts].
                     jellyfish::parse_read::read_t* read;
                     jellyfish::parse_read::thread stream = parser.new_thread();
 
-                    typedef uint64_t BinMer;
+                    using BinMer =  uint64_t;
 
                     BinMer lshift(2 * (merLen - 1));
                     BinMer masq((1UL << (2 * merLen)) - 1);
@@ -321,6 +231,8 @@ same index, and the counts will be written to the file [counts].
             }));
 
             } else {
+              // If we're hashing kmers in both directions to determine
+              // the "direction" of reads.
 
                 threads.emplace_back(std::thread(
                     [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
@@ -328,7 +240,7 @@ same index, and the counts will be written to the file [counts].
                     jellyfish::parse_read::read_t* read;
                     jellyfish::parse_read::thread stream = parser.new_thread();
 
-                    typedef uint64_t BinMer;
+                    using BinMer = uint64_t;
                     std::vector<BinMer> fwdMers;
                     std::vector<BinMer> revMers;
 
@@ -430,113 +342,6 @@ same index, and the counts will be written to the file [counts].
 
 
             }
-            // threads.push_back( std::thread( 
-            //     [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
-            //         // Each thread gets it's own stream
-            //         jellyfish::parse_read::read_t* read;
-            //         jellyfish::parse_read::thread stream = parser.new_thread();
-
-            //         typedef uint64_t BinMer;
-            //         std::vector<BinMer> fwdMers;
-            //         std::vector<BinMer> revMers;
-
-            //         BinMer lshift(2 * (merLen - 1));
-            //         BinMer masq((1UL << (2 * merLen)) - 1);
-            //         BinMer cmlen, kmer, rkmer;
-
-            //         size_t numKmers = 0;
-            //         size_t offset = 0;
-            //         size_t fCount = 0; size_t rCount = 0;
-
-            //         auto INVALID = phi.INVALID;
-
-            //         uint64_t localUnmappedKmers{0};
-
-            //         while ( (read = stream.next_read()) ) {
-            //             ++readNum;
-            //             if (readNum % 500000 == 0) {
-            //                 auto end = std::chrono::steady_clock::now();
-            //                 auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
-            //                 auto nsec = sec.count();
-            //                 auto rate = (nsec > 0) ? readNum / sec.count() : 0;
-            //                 std::cerr << "processed " << readNum << " reads (" << rate << ") reads/s\r\r";
-            //             }                        
-            //             // we iterate over the entire read
-            //             const char         *start = read->seq_s;
-            //             const char * const  end   = read->seq_e;
-
-            //             // reset all of the counts
-            //             offset = fCount = rCount = numKmers = 0;
-            //             cmlen = kmer = rkmer = 0;
-
-            //             // the maximum number of kmers we'd have to store
-            //             uint32_t maxNumKmers = std::distance(start, end);
-
-            //             // tell the readhash about this read's length
-            //             rhash.appendLength(maxNumKmers);
-
-            //             // the read must be at least the kmer length
-            //             if ( maxNumKmers < merLen ) { continue; }
-
-            //             if ( maxNumKmers > fwdMers.size()) {
-            //                 fwdMers.resize(maxNumKmers);
-            //                 revMers.resize(maxNumKmers);
-            //             }
-
-            //             // iterate over the read base-by-base
-            //             while(start < end) {
-            //                 uint_t     c = jellyfish::dna_codes[static_cast<uint_t>(*start++)];
-
-            //                 // ***** Potentially consider quality values in the future **** /
-            //                 // const char q = *start++;
-            //                 // if(q < q_thresh)
-            //                 //   c = CODE_RESET;
-
-            //                 switch(c) {
-            //                     case jellyfish::CODE_IGNORE: break;
-            //                     case jellyfish::CODE_COMMENT:
-            //                       std::cerr << "ERROR\n";
-            //                       //report_bad_input(*(start-1));
-            //                     // Fall through
-            //                     case jellyfish::CODE_RESET:
-            //                       cmlen = kmer = rkmer = 0;
-            //                       break;
-
-            //                     default:
-            //                       // form the new kmer
-            //                       kmer = ((kmer << 2) & masq) | c;
-            //                       // the new kmer's reverse complement
-            //                       rkmer = (rkmer >> 2) | ((0x3 - c) << lshift);
-            //                       // count if the kmer is valid in the forward and
-            //                       // reverse directions
-            //                       if(++cmlen >= merLen) {
-            //                         cmlen = merLen;
-            //                         auto mmer = (kmer < rkmer) ? kmer : rkmer;
-            //                         if ( phi.index(mmer) != INVALID) { rhash.inc(mmer); } else { ++localUnmappedKmers; }
-            //                         // auto binMerId = phi.index(kmer);
-            //                         // auto rMerId = phi.index(rkmer);
-            //                         // fwdMers[offset] = kmer;
-            //                         // revMers[offset] = rkmer;
-            //                         // fCount += (binMerId != INVALID);
-            //                         // rCount += (rMerId != INVALID);
-            //                         // ++offset;
-            //                         // ++numKmers;
-            //                       } // end if
-            //                 } // end switch
-            //             } // end read
-            //             /*
-            //             // whichever read direction has more valid kmers is the one we choose
-            //             auto& mers = (fCount > rCount) ? fwdMers : revMers;
-            //             // insert the relevant kmers into the count index
-            //             for ( auto offset : boost::irange(size_t{0}, numKmers) ){
-            //              bool inserted = rhash.inc(mers[offset]);
-            //              if (!inserted) { ++localUnmappedKmers; }
-            //             }
-            //             */
-            //     } // end parse all reads
-            //     unmappedKmers += localUnmappedKmers;
-            // }));
-
           }   
 
           // Wait for all of the threads to finish

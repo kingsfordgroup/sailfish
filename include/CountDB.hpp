@@ -36,10 +36,10 @@
 *  without hashing.
 **/
 class CountDB {
-  typedef uint64_t Kmer;
-  typedef uint32_t Count;
-  typedef std::atomic<Kmer> AtomicKmer;
-  typedef std::atomic<Count> AtomicCount;
+using Kmer = uint64_t;
+using Count = uint32_t;
+using AtomicKmer = std::atomic<Kmer>;
+using AtomicCount = std::atomic<Count>;
 
   public:
    // We'll return this invalid id if a kmer is not found in our DB

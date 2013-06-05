@@ -34,11 +34,11 @@
 #include <vector>
 
 class TranscriptGeneMap {
-    typedef size_t Index;
-    typedef size_t Size;
-    typedef std::vector<std::string> NameVector;
-    typedef std::vector<size_t> IndexVector;
-    typedef std::vector<std::vector<size_t>> IndexVectorList;
+using Index = size_t;
+using Size = size_t;
+using NameVector = std::vector<std::string>;
+using IndexVector = std::vector<size_t>;
+using IndexVectorList = std::vector<std::vector<size_t>>;
 
 private:
     NameVector _transcriptNames;

@@ -85,8 +85,8 @@ void collapseIntoCategories(
 ) {
 
     using boost::dynamic_bitset;
-    typedef size_t Count;
-    typedef size_t Index;
+using Count = size_t;
+using Index = size_t;
 
     size_t numRows = A.size();
     size_t numCols = A[0].size();
@@ -491,8 +491,8 @@ bool addColumnToBasis( std::vector<ColT> &basis, ColT &c, typename ColT::Scalar 
 template <typename MatT>
 std::vector<size_t> markDependentColumns( MatT &M ) {
 
-    typedef typename MatT::Index IndexT;
-    typedef typename MatT::Scalar ScalarT;
+using MatT::Index = typename;
+using MatT::Scalar = typename;
 
     // Reference from MathOverflow:
     // http://mathoverflow.net/questions/109868/finding-linearly-independent-columns-of-a-large-sparse-rectangular-matrix

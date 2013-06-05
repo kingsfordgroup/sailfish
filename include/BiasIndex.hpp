@@ -60,8 +60,8 @@ class Indexer {
 
 class BiasIndex {
 
-	typedef double Bias;
-	typedef size_t Offset;
+	using Bias = double;
+	using Offset = size_t;
 
 public:
 	BiasIndex() : haveBias_(false) {}

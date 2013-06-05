@@ -138,22 +138,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     auto tlutfname = lutprefix + ".tlut";
     auto klutfname = lutprefix + ".klut";
 
-    // typedef GenomicFeature<TranscriptGeneID> CustomGenomicFeature;
-    // if (vm.count("tgmap") ) { // if we have a GTF file
-    //   string transcriptGeneMap = vm["tgmap"].as<string>();
-    //   std::cerr << "parsing gtf file [" << transcriptGeneMap  << "] . . . ";
-    //   auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
-    //   std::cerr << "done\n";
-    //   std::cerr << "building transcript to gene map . . .";
-    //   tgm = utils::transcriptToGeneMapFromFeatures( features );
-    //   std::cerr << "done\n";
-    // } else {
-    //   std::exit(-1);
-    //   std::cerr << "building transcript to gene map from transcript fasta file . . .";
-    //   //tgm = utils::transcriptToGeneMapFromFasta(transcriptFiles[0]);
-    //   std::cerr << "done\n";
-    // }
-
     TranscriptGeneMap tgm;
     { // read the serialized transcript <-> gene map from file
       string tgmFile = sfIndexBase+".tgm";

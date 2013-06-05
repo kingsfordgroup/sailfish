@@ -35,11 +35,11 @@
 
 //template <typename Deleter>
 class PerfectHashIndex {
-  typedef uint64_t Kmer;
-  typedef uint32_t Count;
-  typedef std::atomic<Kmer> AtomicKmer;
-  typedef std::atomic<Count> AtomicCount;
-  typedef std::function<void(cmph_t*)> Deleter;
+  using Kmer = uint64_t;
+  using Count = uint32_t;
+  using AtomicKmer = std::atomic<Kmer>;
+  using AtomicCount = std::atomic<Count>;
+  using Deleter = std::function<void(cmph_t*)>;
 
   public:
    // We'll return this invalid id if a kmer is not found in our DB

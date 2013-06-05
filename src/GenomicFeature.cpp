@@ -74,8 +74,7 @@ std::istream& operator>> ( std::istream& in, GenomicFeature<StaticAttributes>& g
 
   
   std::getline(in, line);
-  typedef boost::tokenizer<boost::char_separator<char> > 
-    tokenizer;
+  using tokenizer = boost::tokenizer<boost::char_separator<char> >;
   boost::char_separator<char> sep(";");  
   tokenizer tokens(line, sep);
 

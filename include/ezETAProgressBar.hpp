@@ -33,9 +33,9 @@ namespace ez {
 // 90% [========================================>     ] ETA 12d 23h 56s
 class ezETAProgressBar {
 private:
-	typedef std::chrono::system_clock system_clock;
-	typedef std::chrono::duration<size_t, system_clock::period> duration;
-	typedef std::chrono::duration<double, system_clock::period> partialDuration;
+	using system_clock = std::chrono::system_clock;
+	using duration = std::chrono::duration<size_t, system_clock::period>;
+	using partialDuration = std::chrono::duration<double, system_clock::period>;
 public:
 	ezETAProgressBar(unsigned int _n=0) : n(_n), pct(0), cur(0), width(80) {}
 	void reset( uint64_t _n ) { n = _n; pct = 0; cur = 0; }
@@ -73,7 +73,7 @@ public:
 
 	std::string durationString( duration t ) {
 		using std::chrono::duration_cast;
-		typedef std::chrono::duration<size_t, std::ratio<86400>> days;
+		using days = std::chrono::duration<size_t, std::ratio<86400>>;
 		using std::chrono::hours;
 		using std::chrono::minutes;
 		using std::chrono::seconds;
@@ -113,7 +113,7 @@ public:
 	void setPct(double Pct) {
 		using std::chrono::duration_cast;
 		using std::chrono::seconds;
-		typedef std::chrono::duration<size_t, std::ratio<604800>> weeks;
+		using weeks = std::chrono::duration<size_t, std::ratio<604800>>;
 
 		endTime = system_clock::now();
 		char pctstr[5];

@@ -112,8 +112,7 @@ namespace GTFParser {
   
     auto line = l.substr(head, tail-head);
 
-    typedef boost::tokenizer<boost::char_separator<char> > 
-    tokenizer;
+    using tokenizer = boost::tokenizer<boost::char_separator<char>>;
     boost::char_separator<char> sep(";");  
     tokenizer tokens(line, sep);
 
@@ -144,7 +143,7 @@ namespace GTFParser {
   template <typename StaticAttributes>
   std::vector<GenomicFeature<StaticAttributes>> readGTFFile( const std::string& fname ) {
 
-    typedef std::string* StringPtr;
+    using StringPtr = std::string*;
     std::vector<GenomicFeature<StaticAttributes>> feats;
 
     std::ifstream ifile(fname);

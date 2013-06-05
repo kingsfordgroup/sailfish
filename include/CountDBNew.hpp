@@ -39,12 +39,12 @@
 *  without hashing.
 **/
 class CountDBNew {
-  typedef uint64_t Kmer;
-  typedef uint32_t Count;
-  typedef std::atomic<Count> AtomicCount;
-  typedef uint64_t Length;
-  typedef std::atomic<Length> AtomicLength;
-  typedef std::atomic<Length> AtomicLengthCount;
+  using Kmer = uint64_t;
+  using Count = uint32_t;
+  using AtomicCount = std::atomic<Count>;
+  using Length = uint64_t;
+  using AtomicLength = std::atomic<Length>;
+  using AtomicLengthCount = std::atomic<Length>;
 
   public:
    // We'll return this invalid id if a kmer is not found in our DB
