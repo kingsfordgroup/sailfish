@@ -70,7 +70,7 @@
 #include "tbb/parallel_reduce.h"
 #include "tbb/blocked_range.h"
 #include "tbb/task_scheduler_init.h"
-
+#include "tbb/partitioner.h"
 
 #include "BiasIndex.hpp"
 #include "ezETAProgressBar.hpp"
@@ -104,6 +104,7 @@ private:
     struct TranscriptData;
     using HeapPair = std::tuple<TranscriptScore, TranscriptID>;
     using Handle = typename boost::heap::fibonacci_heap<HeapPair>::handle_type;
+    using BlockedIndexRange =  tbb::blocked_range<size_t>;
 
     struct TranscriptGeneVectors {
         tbb::concurrent_vector<uint32_t> transcripts;
@@ -118,8 +119,31 @@ private:
         size_t length;
     };
 
-    struct TranscriptInfo {
-        btree::btree_map<KmerID, KmerQuantity> binMers;
+    class TranscriptInfo {
+      public:
+      
+      TranscriptInfo() : binMers(std::unordered_map<KmerID, KmerQuantity>()), 
+                         logLikes(std::vector<KmerQuantity>()),
+                         weights(std::vector<KmerQuantity>()),
+                         mean(0.0), length(0), effectiveLength(0) { weightNum.store(0); updated.store(0);/*totalWeight.store(0.0);*/ }
+      TranscriptInfo(TranscriptInfo&& other) {
+        std::swap(binMers, other.binMers);
+        std::swap(weights, other.weights);
+        std::swap(logLikes, other.logLikes);
+        //totalWeight.store(other.totalWeight.load());
+        weightNum.store(other.weightNum.load());
+        updated.store(other.updated.load());
+        mean = other.mean;
+        length = other.length;
+        effectiveLength = other.effectiveLength;
+      }
+        //std::atomic<double> totalWeight;    
+        //btree::btree_map<KmerID, KmerQuantity> binMers;
+        std::vector<KmerQuantity> weights;        
+        std::vector<KmerQuantity> logLikes;        
+        std::atomic<uint32_t> weightNum;
+        std::atomic<uint32_t> updated;
+        std::unordered_map<KmerID, KmerQuantity> binMers;        
         KmerQuantity mean;
         ReadLength length;
         ReadLength effectiveLength;
@@ -266,8 +290,18 @@ private:
         }
     }
 
+    KmerQuantity _computeSumVec( const TranscriptInfo& ti ) {
+        KmerQuantity sum = 0.0;
+        for ( auto w : ti.weights ) {
+          sum += w;
+        }
+        return sum;
+    }
+
     KmerQuantity _computeMean( const TranscriptInfo& ti ) {
         return (ti.effectiveLength > 0.0) ? (_computeSum(ti) / ti.effectiveLength) : 0.0;
+        //return (ti.effectiveLength > 0.0) ? (ti.totalWeight.load() / ti.effectiveLength) : 0.0;
+        //return (ti.effectiveLength > 0.0) ? (_computeSumVec(ti) / ti.effectiveLength) : 0.0;
     }
 
     KmerQuantity _computeWeightedMean( const TranscriptInfo& ti ) {
@@ -302,9 +336,9 @@ private:
     T dotProd_(std::vector<T>& u, std::vector<T>& v) {
 
       auto dot = tbb::parallel_reduce(
-        tbb::blocked_range<size_t>(size_t(0), v.size()),
+        BlockedIndexRange(size_t(0), v.size()),
             T(0.0),  // identity element for summation
-            [&]( const tbb::blocked_range<size_t>& r, T current_sum ) -> T {
+            [&]( const BlockedIndexRange& r, T current_sum ) -> T {
              for (size_t i=r.begin(); i!=r.end(); ++i) {
                current_sum += (u[i]*v[i]);
              }
@@ -322,9 +356,9 @@ private:
         //for ( auto ti : transcripts_ ) { sumMean += ti.mean; }
 
         auto sumMean = tbb::parallel_reduce(
-            tbb::blocked_range<size_t>(size_t(0), transcripts_.size()),
+            BlockedIndexRange(size_t(0), transcripts_.size()),
             double(0.0),  // identity element for summation
-            [&, this]( const tbb::blocked_range<size_t>& r, double current_sum ) -> double {
+            [&, this]( const BlockedIndexRange& r, double current_sum ) -> double {
                  for (size_t i=r.begin(); i!=r.end(); ++i) {
                      double x = this->transcripts_[i].mean;
                      current_sum += x;
@@ -335,11 +369,13 @@ private:
                  return s1+s2;       // "joins" two accumulated values
              });
 
-
-
         // compute the new mean for each transcript
-        tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
-            [this, sumMean]( size_t tid ) -> void { this->transcripts_[tid].mean /= sumMean; });
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+            [this, sumMean](const BlockedIndexRange& range) -> void { 
+              for(size_t tid = range.begin(); tid != range.end(); ++tid) {
+                this->transcripts_[tid].mean /= sumMean; 
+              }
+            });
 
     }
 
@@ -364,9 +400,9 @@ private:
     template <typename T>
     T pdiff_(std::vector<T>& v0, std::vector<T>& v1) {
         auto diff = tbb::parallel_reduce(
-        tbb::blocked_range<size_t>(size_t(0), v0.size()),
+        BlockedIndexRange(size_t(0), v0.size()),
           double(0.0),  // identity element for difference
-          [&]( const tbb::blocked_range<size_t>& r, double currentDiff ) -> double {
+          [&](const BlockedIndexRange& r, double currentDiff ) -> double {
             for (size_t i=r.begin(); i!=r.end(); ++i) {
               currentDiff += v0[i] - v1[i];
             }
@@ -383,9 +419,9 @@ private:
     template <typename T>
     T pabsdiff_(std::vector<T>& v0, std::vector<T>& v1) {
         auto diff = tbb::parallel_reduce(
-        tbb::blocked_range<size_t>(size_t(0), v0.size()),
+        BlockedIndexRange(size_t(0), v0.size()),
           double(0.0),  // identity element for difference
-          [&]( const tbb::blocked_range<size_t>& r, double currentDiff ) -> double {
+          [&]( const BlockedIndexRange& r, double currentDiff ) -> double {
             for (size_t i=r.begin(); i!=r.end(); ++i) {
               currentDiff = std::abs(v0[i] - v1[i]);
             }
@@ -406,12 +442,16 @@ private:
         auto invSumMean = 1.0 / sumMean;
 
         // compute the new mean for each transcript
-        tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
-            [&means, invSumMean]( size_t tid ) -> void { means[tid] *= invSumMean; });
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+            [&means, invSumMean](const BlockedIndexRange& range ) -> void { 
+              for (auto tid : boost::irange(range.begin(), range.end())) {
+                means[tid] *= invSumMean; 
+              }
+            });
 
     }
 
-    double averageCount( const TranscriptInfo& ts){
+    double averageCount(const TranscriptInfo& ts){
         if ( ts.binMers.size() == 0 ) { return 0.0; }
         double sum = 0.0;
         for ( auto binmer : ts.binMers ) {
@@ -429,8 +469,9 @@ private:
     void computeKmerFidelities_() {
 
         std::vector<double> transcriptFidelities(transcripts_.size(), 0.0);
-        tbb::parallel_for( size_t(0), transcripts_.size(),
-            [this, &transcriptFidelities]( TranscriptID tid ) -> void {
+        tbb::parallel_for( BlockedIndexRange(size_t(0), transcripts_.size()),
+            [this, &transcriptFidelities]( const BlockedIndexRange& range ) -> void {
+               for (auto tid = range.begin(); tid += range.end(); ++tid) {
                 double sumDiff = 0.0;
                 auto ts = this->transcripts_[tid];
                 for ( auto& b : ts.binMers ) {
@@ -438,6 +479,7 @@ private:
                     sumDiff += diff*diff;
                 }
                 transcriptFidelities[tid] = std::sqrt(sumDiff / ts.binMers.size());
+               }
             });
         
         auto totalFidelity = std::accumulate(transcriptFidelities.begin(), transcriptFidelities.end(), 0.0);
@@ -446,21 +488,23 @@ private:
 
         std::cerr << "max fidelity = " << maxFidelity << "\n";
 
-        tbb::parallel_for( size_t(0), transcriptsForKmer_.size(),
-            [this, &transcriptFidelities, averageFidelity, maxFidelity]( KmerID kid ) -> void {
-                double sumT = 0.0; double sumK = 0.0;
-                double confidence = 0.0;
-                for( auto tid : this->transcriptsForKmer_[kid] ) {
+        tbb::parallel_for(BlockedIndexRange(size_t(0), transcriptsForKmer_.size()),
+            [this, &transcriptFidelities, averageFidelity, maxFidelity](const BlockedIndexRange& range) -> void {
+                for (auto kid = range.begin(); kid != range.end(); ++kid) {
+                  double sumT = 0.0; double sumK = 0.0;
+                  double confidence = 0.0;
+                  for( auto tid : this->transcriptsForKmer_[kid] ) {
                     sumT += this->transcripts_[tid].mean;
                     sumK += this->transcripts_[tid].binMers[kid];   
                     confidence += transcriptFidelities[tid];// / averageFidelity;
-                }
+                  }
 
-                confidence /= this->transcriptsForKmer_[kid].size();
-                double alpha = 0.5; //std::min( 1.0, 10.0*averageFidelity / confidence);
-                double bias = sumK > 0.0 ? (sumT / sumK) : 0.0;
-                double prevBias = this->kmerGroupBiases_[kid];
-                this->kmerGroupBiases_[kid] = alpha * bias + (1.0 - alpha) * prevBias;
+                  confidence /= this->transcriptsForKmer_[kid].size();
+                  double alpha = 0.5; //std::min( 1.0, 10.0*averageFidelity / confidence);
+                  double bias = sumK > 0.0 ? (sumT / sumK) : 0.0;
+                  double prevBias = this->kmerGroupBiases_[kid];
+                  this->kmerGroupBiases_[kid] = alpha * bias + (1.0 - alpha) * prevBias;
+              }
             }
         );
 
@@ -468,26 +512,63 @@ private:
 
     double logLikelihood_(std::vector<double>& means) {
 
-      std::vector<double> likelihoods(means.size(), 0.0);
+      const auto numTranscripts = transcripts_.size();
+      std::vector<double> likelihoods(numTranscripts, 0.0);
 
         // Compute the log-likelihood 
-        tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
+        tbb::parallel_for(BlockedIndexRange(size_t(0), numTranscripts),
           // for each transcript
-          [&likelihoods, &means, this]( size_t tid ) ->void {
-            auto& ti = transcripts_[tid];
+          [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
+            auto epsilon = 1e-30;
+            for (auto tid = range.begin(); tid != range.end(); ++tid) {
+              auto& ti = transcripts_[tid];
+              double relativeAbundance = means[tid];
 
-            double transcriptLikelihood = 0.0;
-            double relativeAbundance = means[tid];
-            // For each kmer in this transcript
-            for ( auto& binmer : ti.binMers ) {
-              likelihoods[tid] += relativeAbundance * std::log(binmer.second / this->kmerGroupCounts_[binmer.first]);
+
+              double transcriptLikelihood = 0.0;
+
+              if (ti.binMers.size() > 0 ) { likelihoods[tid] = 1.0; }
+              // For each kmer in this transcript
+              for ( auto& binmer : ti.binMers ) {
+                likelihoods[tid] *=  binmer.second / this->kmerGroupCounts_[binmer.first];
+              }
+              likelihoods[tid] = (relativeAbundance > epsilon and likelihoods[tid] > epsilon) ? 
+                                 std::log(relativeAbundance * likelihoods[tid]) : 0.0;
             }
-
           });
 
       return psum_(likelihoods);
 
     }
+
+    double expectedLogLikelihood_(std::vector<double>& means) {
+      return (means.size() > 0) ? logLikelihood_(means) / means.size() : 0.0;
+    }
+    
+    double logLikelihood2_(std::vector<double>& means) {
+
+      std::vector<double> likelihoods(means.size(), 0.0);
+
+        // Compute the log-likelihood 
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+          // for each transcript
+          [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
+            for (auto tid = range.begin(); tid != range.end(); ++tid) {
+              auto& ti = transcripts_[tid];
+
+              double transcriptLikelihood = 0.0;
+              double relativeAbundance = means[tid];
+              // For each kmer in this transcript
+              for ( auto& ll : ti.logLikes ) {
+                likelihoods[tid] += relativeAbundance * ll;
+              }
+            }
+          });
+
+      return psum_(likelihoods);
+
+    }
+  
 
     // Since there's no built in hash code for vectors
   template <typename T>
@@ -542,12 +623,14 @@ private:
      });
 
      //For every kmer, compute it's kmer group.
-     tbb::parallel_for( size_t(0), transcriptsForKmer_.size(),
-        [&]( size_t j ) -> void {
-          if (isActiveKmer[j]) {
-            m[ transcriptsForKmer_[j]  ].push_back(j);
-        }
-        ++prog;
+     tbb::parallel_for(BlockedIndexRange(size_t(0), transcriptsForKmer_.size()),
+        [&](const BlockedIndexRange& range ) -> void {
+          for (auto j = range.begin(); j != range.end(); ++j) {
+            if (isActiveKmer[j]) {
+              m[ transcriptsForKmer_[j]  ].push_back(j);
+            }
+            ++prog;
+          }
      });
 
      // wait for the parallel hashing to finish
@@ -643,17 +726,21 @@ private:
         std::vector<std::thread> threads;
 
         transcripts_.resize(transcriptGeneMap_.numTranscripts());
-
-        tbb::parallel_for( size_t{0}, transcriptGeneMap_.numTranscripts(),
-            [this](size_t tid) -> void {
-             this->transcripts_[tid] = TranscriptInfo {
-                btree::btree_map<KmerID, KmerQuantity>(),
-                0.0,
-                0,
-                0
-                };
+        /*
+        tbb::parallel_for(BlockedIndexRange(size_t{0}, transcriptGeneMap_.numTranscripts()),
+            [this](const BlockedIndexRange& range) -> void {
+              for (auto tid : boost::irange(range.begin(), range.end())) {
+                this->transcripts_[tid] = TranscriptInfo {
+                  std::unordered_map<KmerID, KmerQuantity>(),
+                  0.0, // total weight 
+                  //btree::btree_map<KmerID, KmerQuantity>(),
+                  0.0,
+                  0,
+                  0};
+              }
             }
         );
+        */
 
         // Get the kmer look-up-table from file
         LUTTools::readKmerLUT(klutfname, transcriptsForKmer_);
@@ -708,15 +795,17 @@ private:
 
         size_t numRes = 0;
         std::cerr << "\n\nRemoving duplicates from kmer transcript lists ... ";
-        tbb::parallel_for( size_t(0), size_t(transcriptsForKmer_.size()),
-            [&numRes, this]( size_t idx ) -> void { 
-                auto& transcripts = this->transcriptsForKmer_[idx];
-                // should already be sorted -- extra check can be removed eventually
-                std::is_sorted(transcripts.begin(), transcripts.end());
-                // Uniqify the transcripts
-                auto it = std::unique(transcripts.begin(), transcripts.end()); 
-                transcripts.resize(std::distance(transcripts.begin(), it));
-                ++numRes;
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
+            [&numRes, this](const BlockedIndexRange& range) -> void { 
+                for (auto idx = range.begin(); idx != range.end(); ++idx) {
+                  auto& transcripts = this->transcriptsForKmer_[idx];
+                  // should already be sorted -- extra check can be removed eventually
+                  std::is_sorted(transcripts.begin(), transcripts.end());
+                  // Uniqify the transcripts
+                  auto it = std::unique(transcripts.begin(), transcripts.end()); 
+                  transcripts.resize(std::distance(transcripts.begin(), it));
+                  ++numRes;
+                }
          });
          
          std::cerr << "done\n";
@@ -729,12 +818,14 @@ private:
          );
          */
         
-        tbb::parallel_for(size_t{0}, transcripts_.size(),
-          [&, this](size_t tid) -> void {
-            auto& ti = this->transcripts_[tid];
-            for (auto& binmer : ti.binMers) {
-              if (binmer.second > promiscuousKmerCutoff_) {
-                ti.effectiveLength -= 1.0;
+        tbb::parallel_for(BlockedIndexRange(size_t{0}, transcripts_.size()),
+          [&, this](const BlockedIndexRange& range) -> void {
+            for (auto tid = range.begin(); tid != range.end(); ++tid) {
+              auto& ti = this->transcripts_[tid];
+              for (auto& binmer : ti.binMers) {
+                if (binmer.second > promiscuousKmerCutoff_) {
+                  ti.effectiveLength -= 1.0;
+                }
               }
             }
         });
@@ -774,21 +865,22 @@ private:
         tbb::concurrent_queue<StringPtr> covQueue;
         // boost::lockfree::queue<StringPtr> covQueue(transcripts_.size());
                 
-        tbb::parallel_for( size_t{0}, transcripts_.size(),
-            [this, &covQueue] (size_t index) -> void {
-
-                const auto& td = this->transcripts_[index];
+        tbb::parallel_for(BlockedIndexRange(size_t{0}, transcripts_.size()),
+            [this, &covQueue] (const BlockedIndexRange& range) -> void {
+                for (auto index = range.begin(); index != range.end(); ++index) {
+                  const auto& td = this->transcripts_[index];
                 
-                std::stringstream ostream;
-                ostream << this->transcriptGeneMap_.transcriptName(index) << " " << td.binMers.size();
-                for ( auto bm : td.binMers ) {
+                  std::stringstream ostream;
+                  ostream << this->transcriptGeneMap_.transcriptName(index) << " " << td.binMers.size();
+                  for ( auto bm : td.binMers ) {
                     ostream << " " << bm.second;
-                }
-                ostream << "\n";
-                std::string* ostr = new std::string(ostream.str());
-                covQueue.push(ostr);
-                // for boost lockfree
-                // while(!covQueue.push(ostr));
+                  }
+                  ostream << "\n";
+                  std::string* ostr = new std::string(ostream.str());
+                  covQueue.push(ostr);
+                  // for boost lockfree
+                  // while(!covQueue.push(ostr));
+              }
             }
         );
 
@@ -837,52 +929,120 @@ private:
         });
 
         //  E-Step : reassign the kmer group counts proportionally to each transcript
-        tbb::parallel_for( size_t(0), size_t(transcriptsForKmer_.size()),
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
           // for each kmer group
-          [&completedJobs, &meansIn, this]( size_t kid ) -> void {
-            auto kmer = kid;
-            if ( this->genePromiscuousKmers_.find(kmer) == this->genePromiscuousKmers_.end() ){
+          [&completedJobs, &meansIn, &meansOut, this](const BlockedIndexRange& range) -> void {
+            for (auto kid = range.begin(); kid != range.end(); ++kid) {
+              auto kmer = kid;
+                // for each transcript containing this kmer group
+                auto& transcripts = this->transcriptsForKmer_[kmer];
+                if (transcripts.size() == 0) { std::cerr << "Shouldn't have 0 transcripts!\n"; }
 
-            // for each transcript containing this kmer group
-              auto &transcripts = this->transcriptsForKmer_[kmer];
-              if ( transcripts.size() > 0 ) {
+                  double totalMass = 0.0;
+                  for ( auto tid : transcripts ) {
+                    totalMass += meansIn[tid];
+                  }
 
-                double totalMass = 0.0;
-                for ( auto tid : transcripts ) {
-                  totalMass += meansIn[tid];
-                }
+                  if ( totalMass == 0.0 ) { 
 
-                if ( totalMass > 0.0 ) {
+                    for ( auto tid : transcripts ) {
+                      auto& trans = this->transcripts_[tid];
+                      auto lastIndex = trans.binMers.size() - 1;
+                      auto idx = trans.weightNum++;
+                      ++trans.updated;
+                      if (idx == lastIndex) {
+                        while (trans.updated.load() < trans.weightNum.load()) {}
+                        meansOut[tid] = this->_computeMean(trans); 
+                        trans.weightNum.store(0); 
+                        trans.updated.store(0);
+                      }
+                      /*
+                      auto idx = trans.weightNum++;
+                      ++trans.updated;
+                      if (idx == trans.weights.size()-1) { 
+                          while (trans.updated.load() < trans.weightNum.load() ) {}
+                          meansOut[tid] = this->_computeMean(trans); 
+                          trans.weightNum.store(0); 
+                          trans.updated.store(0);
+                      }
+                      */
+                    }
+                    ++completedJobs; continue; 
+                  }
+
                   double norm = 1.0 / totalMass;
                   for ( auto tid : transcripts ) {
-                    if ( meansIn[tid] > 0.0 ) {
-                      this->transcripts_[tid].binMers[kmer] =
-                      meansIn[tid] * norm * kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
+                    auto& trans = this->transcripts_[tid];
+                    auto lastIndex = trans.binMers.size()  - 1;
+                        // binMer based
+                    auto idx = trans.weightNum++;
+                    auto kmerIt = trans.binMers.find(kmer);
+                    kmerIt->second = meansIn[tid] * norm * 
+                                     kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
+                    ++trans.updated;
+                    if (idx == lastIndex) {
+                        while (trans.updated.load() < trans.weightNum.load()) {}
+                        meansOut[tid] = this->_computeMean(trans); 
+                        trans.weightNum.store(0); 
+                        trans.updated.store(0);
                     }
-                  }
-                }
+                        //this->transcripts_[tid].binMers[kmer] =
+                        //meansIn[tid] * norm * kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
 
-              }
-            }
-            ++completedJobs;
+
+                        
+
+                        /*
+                        auto idx = trans.weightNum++;
+                        auto weight = meansIn[tid] * norm * kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
+                        trans.logLikes[idx] = (weight > 0.0) ? std::log(weight / this->kmerGroupCounts_[kmer] ) : 0.0;
+                        trans.weights[idx] = weight;
+                        ++trans.updated;
+                        if (idx == trans.weights.size()-1) { 
+                          while (trans.updated.load() < trans.weightNum.load() ) {}
+                          meansOut[tid] = this->_computeMean(trans); 
+                          trans.weightNum.store(0); 
+                          trans.updated.store(0);
+                        }*/
+                        
+                        /*
+                        auto& weight = trans.totalWeight;
+                        auto current = weight.load();
+                        auto updated = current + delta;
+                        while( !weight.compare_exchange_strong(current, updated) ) { 
+                          current = weight.load(); updated = current + delta;
+                        }
+                        */
+                  }
+
+
+              ++completedJobs;
+            } // for kid in range
+
           });
 
           // wait for all kmer groups to be processed
           pbthread.join();
 
+          /*
           double delta = 0.0;
           double norm = 1.0 / transcripts_.size();
           size_t discard = 0;
+          
 
           // M-Step
           // compute the new mean for each transcript
-          tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
-            [this, &meansOut]( size_t tid ) -> void {
-              auto& ts = this->transcripts_[tid];
+          tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+            [this, &meansOut](const BlockedIndexRange& range) -> void {
+              for (auto tid : boost::irange(range.begin(), range.end())) {
+                auto& ts = this->transcripts_[tid];
                 auto tsNorm = 1.0;//(ts.effectiveLength > 0.0) ? 1.0 / std::sqrt(ts.effectiveLength) : 1.0;
                 meansOut[tid] = tsNorm * this->_computeMean( ts );
+                ts.weightNum.store(0);
+              }
           });
-
+          */
+         
           normalize_(meansOut);
 
     }
@@ -928,24 +1088,33 @@ public:
         std::vector<double> v(transcripts_.size(), 0.0);
 
         // Compute the initial mean for each transcript
-        tbb::parallel_for( size_t(0), size_t(transcriptGeneMap_.numTranscripts()),
-        [this, &means0]( size_t tid ) -> void {
-            auto& transcriptData = this->transcripts_[tid];
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptGeneMap_.numTranscripts())),
+        [this, &means0](const BlockedIndexRange& range) -> void {
+            for (auto tid = range.begin(); tid != range.end(); ++tid) {
+              auto& transcriptData = this->transcripts_[tid];
+              KmerQuantity total = 0.0;
+              transcriptData.weights.resize(transcriptData.binMers.size());
+              transcriptData.logLikes.resize(transcriptData.binMers.size());
 
-            for ( auto & kv : transcriptData.binMers ) {
+              for ( auto & kv : transcriptData.binMers ) {
                 auto kmer = kv.first;
                 if ( this->genePromiscuousKmers_.find(kmer) == this->genePromiscuousKmers_.end() ){
                     // count is the number of times kmer appears in transcript (tid)
                     auto count = kv.second;
                     kv.second = count * this->kmerGroupCounts_[kmer] * this->_weight(kmer);
+                    transcriptData.weights[transcriptData.weightNum++] = kv.second;
+                    //total += kv.second;
                 }
+              }
+              //transcriptData.totalWeight.store(total);
+              transcriptData.weightNum.store(0);
+              transcriptData.mean = means0[tid] = this->_computeMean(transcriptData);
+              //transcriptData.mean = means0[tid] = this->_computeWeightedMean(transcriptData);
+              //transcriptData.mean = means0[tid] = 1.0 / this->transcripts_.size();//this->_computeMean(transcriptData);
+              //transcriptData.mean = this->_computeWeightedMean(transcriptData);
+              //transcriptData.mean = distribution(generator);
+              //this->_computeWeightedMean( transcriptData );
             }
-            transcriptData.mean = means0[tid] = this->_computeMean(transcriptData);
-            //transcriptData.mean = means0[tid] = this->_computeWeightedMean(transcriptData);
-            //transcriptData.mean = means0[tid] = 1.0 / this->transcripts_.size();//this->_computeMean(transcriptData);
-            //transcriptData.mean = this->_computeWeightedMean(transcriptData);
-            //transcriptData.mean = distribution(generator);
-            //this->_computeWeightedMean( transcriptData );
         }
         );
         normalizeTranscriptMeans_();
@@ -984,7 +1153,7 @@ public:
           EMUpdate_(means0, means1);
 
           if (!std::isfinite(negLogLikelihoodOld)) {
-            negLogLikelihoodOld = -logLikelihood_(means0);
+            negLogLikelihoodOld = -expectedLogLikelihood_(means0);
           }
 
           // Theta_2 = EMUpdate(Theta_1)
@@ -992,13 +1161,14 @@ public:
           EMUpdate_(means1, means2);
 
           // r = Theta_1 - Theta_0
-          tbb::parallel_for(size_t(0), transcripts_.size(),
-            [&means0, &means1, &r](size_t tid) -> void { r[tid] = means1[tid] - means0[tid];}
-          );
-
           // v = (Theta_2 - Theta_1) - r
-          tbb::parallel_for(size_t(0), transcripts_.size(),
-            [&means2, &means1, &r, &v](size_t tid) -> void { v[tid] = (means2[tid] - means1[tid]) - r[tid];}
+          tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
+            [&means0, &means1, &means2, &r, &v](const BlockedIndexRange& range) -> void { 
+              for (auto tid = range.begin(); tid != range.end(); ++tid) {
+                r[tid] = means1[tid] - means0[tid];
+                v[tid] = (means2[tid] - means1[tid]) - r[tid];
+              } 
+            }
           );
 
           double rNorm = std::sqrt(dotProd_(r,r));
@@ -1007,9 +1177,11 @@ public:
 
           alphaS = std::max(minStep, std::min(maxStep, alphaS));
           
-          tbb::parallel_for(size_t(0), transcripts_.size(),
-            [&r, &v, alphaS, &means0, &meansPrime](size_t tid) -> void { 
-              meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+          tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
+            [&r, &v, alphaS, &means0, &meansPrime](const BlockedIndexRange& range) -> void { 
+              for (auto tid = range.begin(); tid != range.end(); ++tid) {
+                meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+              }
             }
           );
           
@@ -1024,7 +1196,7 @@ public:
 
           /** If there is **/
           if (std::isfinite(nonMonotonicity)) {
-            negLogLikelihoodNew = -logLikelihood_(meansPrime);
+            negLogLikelihoodNew = -expectedLogLikelihood_(meansPrime);
             std::cerr << "logLikelihood = " << -negLogLikelihoodNew << ", ";
           } else {
             negLogLikelihoodNew = negLogLikelihoodOld;
@@ -1032,7 +1204,7 @@ public:
 
           if (negLogLikelihoodNew > negLogLikelihoodOld + nonMonotonicity) {
             std::swap(meansPrime, means2);
-            negLogLikelihoodNew = -logLikelihood_(meansPrime);
+            negLogLikelihoodNew = -expectedLogLikelihood_(meansPrime);
             if (alphaS == maxStep) { maxStep = std::max(maxStep0, maxStep/mStep); }
             alphaS = 1.0;
           }
@@ -1180,29 +1352,30 @@ public:
         ez::ezETAProgressBar pb(transcripts_.size());
         pb.start();
 
+        auto estimatedGroupTotal = psum_(kmerGroupCounts_);
+        auto totalNumKmers = readHash_.totalLength() * (std::ceil(readHash_.averageLength()) - readHash_.kmerLength() + 1);
         std::vector<KmerQuantity> fracTran(transcripts_.size(), 0.0);
 
         // Compute transcript fraction (\tau_i in RSEM)
-        tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
-          [this, &fracTran]( size_t tid ) -> void {
-            auto& ts = this->transcripts_[tid];
-            fracTran[tid] = this->_computeMean( ts );
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+          [this, &fracTran](const BlockedIndexRange& range) -> void {
+            for (auto tid = range.begin(); tid != range.end(); ++tid) {
+              auto& ts = this->transcripts_[tid];
+              fracTran[tid] = this->_computeMean( ts );
+            }
         });
+        // noise transcript
+        // fracTran[transcripts_.size()] = totalNumKmers - estimatedGroupTotal;
         normalize_(fracTran);
 
-        std::atomic<size_t> totalNumKmers{0};
-        //  Count the total number of kmers (i.e. mapped reads)
-        tbb::parallel_for( size_t{0}, readHash_.size(),
-          [&]( size_t kid ) -> void { totalNumKmers += this->readHash_.atIndex(kid);} );
-
         std::vector<double> fracNuc(fracTran.size(), 0.0);
-        auto estimatedGroupTotal = psum_(kmerGroupCounts_);
-
         // Compute nucleotide fraction (\nu_i in RSEM)
-        tbb::parallel_for(size_t(0), transcripts_.size(), 
-          [&](size_t i) -> void { 
-            auto& ts = transcripts_[i];
-            fracNuc[i] = fracTran[i] * ts.effectiveLength;
+        tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()), 
+          [&](const BlockedIndexRange& range) -> void { 
+            for (auto i = range.begin(); i != range.end(); ++i) {
+              auto& ts = transcripts_[i];
+              fracNuc[i] = fracTran[i] * ts.effectiveLength;
+            }
           });
         normalize_(fracNuc);
 

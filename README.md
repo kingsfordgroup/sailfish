@@ -130,7 +130,7 @@ corresponds to the \<out_dir\> argument provided in the previous step), you can 
 expression for a given set of reads.  To perform the quantification, you run a command like the following:
 
 ~~~~
-> sailfish quant -i <index_dir> -reads <reads_1> <reads_2> . . . <reads_n> -o <quant_dir>
+> sailfish quant -i <index_dir> --reads <reads_1> <reads_2> . . . <reads_n> -o <quant_dir>
 ~~~~
 
 Where \<index_dir\> is, as described above, the location of the sailfish index, \<reads_{1 . . . n}\>

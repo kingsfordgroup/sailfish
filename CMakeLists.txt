@@ -51,6 +51,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (BOOST_CONFIGURE_TOOLSET "")
     set (BOOST_EXTRA_FLAGS "")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    message(FATAL_ERROR "Currently, the only supported compiler is GCC(>=4.7).  We hope to support Clang soon.")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
     set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
@@ -319,6 +320,7 @@ set (CPACK_SOURCE_IGNORE_FILES
 "/bin/"
 "/lib/"
 "/sample_data/"
+"PublishREADMEToWebsite.sh"
 "/external/"
 "/src/obsolete/"
 "/include/obsolete/"

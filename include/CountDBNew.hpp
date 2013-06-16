@@ -92,6 +92,8 @@ class CountDBNew {
     return (numLengths_ > 0) ? (static_cast<double>(length_) / numLengths_) : 0.0;
    }
 
+   inline Length totalLength() { return length_.load(); }
+
    inline size_t id(Kmer k) { return index_->index(k); }
 
    uint32_t operator[](uint64_t kmer) {

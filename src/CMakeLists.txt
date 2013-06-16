@@ -50,8 +50,8 @@ target_link_libraries(sailfish
     pthread 
     gomp 
     m
-    profiler
     ${TBB_LIBRARIES}
+    #profiler
 )
 
 IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
