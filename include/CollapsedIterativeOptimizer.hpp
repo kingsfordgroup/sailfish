@@ -123,25 +123,25 @@ private:
       public:
       
       TranscriptInfo() : binMers(std::unordered_map<KmerID, KmerQuantity>()), 
-                         logLikes(std::vector<KmerQuantity>()),
-                         weights(std::vector<KmerQuantity>()),
-                         mean(0.0), length(0), effectiveLength(0) { weightNum.store(0); updated.store(0);/*totalWeight.store(0.0);*/ }
+                         //logLikes(std::vector<KmerQuantity>()),
+                         //weights(std::vector<KmerQuantity>()),
+                         mean(0.0), length(0), effectiveLength(0) { updated.store(0); /* weightNum.store(0); totalWeight.store(0.0);*/ }
       TranscriptInfo(TranscriptInfo&& other) {
         std::swap(binMers, other.binMers);
-        std::swap(weights, other.weights);
-        std::swap(logLikes, other.logLikes);
+        //std::swap(weights, other.weights);
+        //std::swap(logLikes, other.logLikes);
         //totalWeight.store(other.totalWeight.load());
-        weightNum.store(other.weightNum.load());
+        //weightNum.store(other.weightNum.load());
         updated.store(other.updated.load());
         mean = other.mean;
         length = other.length;
         effectiveLength = other.effectiveLength;
-      }
+      } 
         //std::atomic<double> totalWeight;    
         //btree::btree_map<KmerID, KmerQuantity> binMers;
-        std::vector<KmerQuantity> weights;        
-        std::vector<KmerQuantity> logLikes;        
-        std::atomic<uint32_t> weightNum;
+        //std::vector<KmerQuantity> weights;        
+        //std::vector<KmerQuantity> logLikes;        
+        //std::atomic<uint32_t> weightNum;
         std::atomic<uint32_t> updated;
         std::unordered_map<KmerID, KmerQuantity> binMers;        
         KmerQuantity mean;
@@ -524,9 +524,6 @@ private:
               auto& ti = transcripts_[tid];
               double relativeAbundance = means[tid];
 
-
-              double transcriptLikelihood = 0.0;
-
               if (ti.binMers.size() > 0 ) { likelihoods[tid] = 1.0; }
               // For each kmer in this transcript
               for ( auto& binmer : ti.binMers ) {
@@ -617,7 +614,7 @@ private:
                 pb += diff;
                 prevProg += diff;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            boost::this_thread::sleep_for(boost::chrono::seconds(1));
         }
         if (!pb.isDone()) { pb.done(); }
      });
@@ -932,60 +929,32 @@ private:
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
           // for each kmer group
           [&completedJobs, &meansIn, &meansOut, this](const BlockedIndexRange& range) -> void {
-            for (auto kid = range.begin(); kid != range.end(); ++kid) {
-              auto kmer = kid;
+            for (auto kid : boost::irange(range.begin(), range.end())) {
+                auto kmer = kid;
                 // for each transcript containing this kmer group
                 auto& transcripts = this->transcriptsForKmer_[kmer];
-                if (transcripts.size() == 0) { std::cerr << "Shouldn't have 0 transcripts!\n"; }
 
-                  double totalMass = 0.0;
-                  for ( auto tid : transcripts ) {
-                    totalMass += meansIn[tid];
+                double totalMass = 0.0;
+                for ( auto tid : transcripts ) {
+                  totalMass += meansIn[tid];
+                }
+
+                double norm = (totalMass > 0.0) ? 1.0 / totalMass : 0.0;
+                for ( auto tid : transcripts ) {
+                  auto& trans = this->transcripts_[tid];
+                  auto lastIndex = trans.binMers.size()  - 1;
+                  // binMer based
+                  //auto idx = trans.weightNum++;
+                  //auto kmerIt = trans.binMers.find(kmer);
+                  trans.binMers[kmer] = meansIn[tid] * norm * 
+                                        kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
+                  //++trans.updated;
+                  if (trans.updated++ == lastIndex) {
+                    //while (trans.updated.load() < trans.weightNum.load()) {}
+                    meansOut[tid] = this->_computeMean(trans); 
+                    //trans.weightNum.store(0); 
+                    trans.updated.store(0);
                   }
-
-                  if ( totalMass == 0.0 ) { 
-
-                    for ( auto tid : transcripts ) {
-                      auto& trans = this->transcripts_[tid];
-                      auto lastIndex = trans.binMers.size() - 1;
-                      auto idx = trans.weightNum++;
-                      ++trans.updated;
-                      if (idx == lastIndex) {
-                        while (trans.updated.load() < trans.weightNum.load()) {}
-                        meansOut[tid] = this->_computeMean(trans); 
-                        trans.weightNum.store(0); 
-                        trans.updated.store(0);
-                      }
-                      /*
-                      auto idx = trans.weightNum++;
-                      ++trans.updated;
-                      if (idx == trans.weights.size()-1) { 
-                          while (trans.updated.load() < trans.weightNum.load() ) {}
-                          meansOut[tid] = this->_computeMean(trans); 
-                          trans.weightNum.store(0); 
-                          trans.updated.store(0);
-                      }
-                      */
-                    }
-                    ++completedJobs; continue; 
-                  }
-
-                  double norm = 1.0 / totalMass;
-                  for ( auto tid : transcripts ) {
-                    auto& trans = this->transcripts_[tid];
-                    auto lastIndex = trans.binMers.size()  - 1;
-                        // binMer based
-                    auto idx = trans.weightNum++;
-                    auto kmerIt = trans.binMers.find(kmer);
-                    kmerIt->second = meansIn[tid] * norm * 
-                                     kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
-                    ++trans.updated;
-                    if (idx == lastIndex) {
-                        while (trans.updated.load() < trans.weightNum.load()) {}
-                        meansOut[tid] = this->_computeMean(trans); 
-                        trans.weightNum.store(0); 
-                        trans.updated.store(0);
-                    }
                         //this->transcripts_[tid].binMers[kmer] =
                         //meansIn[tid] * norm * kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
 
@@ -1093,8 +1062,8 @@ public:
             for (auto tid = range.begin(); tid != range.end(); ++tid) {
               auto& transcriptData = this->transcripts_[tid];
               KmerQuantity total = 0.0;
-              transcriptData.weights.resize(transcriptData.binMers.size());
-              transcriptData.logLikes.resize(transcriptData.binMers.size());
+              //transcriptData.weights.resize(transcriptData.binMers.size());
+              //transcriptData.logLikes.resize(transcriptData.binMers.size());
 
               for ( auto & kv : transcriptData.binMers ) {
                 auto kmer = kv.first;
@@ -1102,12 +1071,12 @@ public:
                     // count is the number of times kmer appears in transcript (tid)
                     auto count = kv.second;
                     kv.second = count * this->kmerGroupCounts_[kmer] * this->_weight(kmer);
-                    transcriptData.weights[transcriptData.weightNum++] = kv.second;
+                    //transcriptData.weights[transcriptData.weightNum++] = kv.second;
                     //total += kv.second;
                 }
               }
               //transcriptData.totalWeight.store(total);
-              transcriptData.weightNum.store(0);
+              //transcriptData.weightNum.store(0);
               transcriptData.mean = means0[tid] = this->_computeMean(transcriptData);
               //transcriptData.mean = means0[tid] = this->_computeWeightedMean(transcriptData);
               //transcriptData.mean = means0[tid] = 1.0 / this->transcripts_.size();//this->_computeMean(transcriptData);
@@ -1136,7 +1105,7 @@ public:
          */
         double minStep0, minStep, maxStep0, maxStep, mStep, nonMonotonicity;
         minStep0 = 1.0; minStep = 1.0;
-        maxStep = 1.0; maxStep = 1.0;
+        maxStep0 = 1.0; maxStep = 1.0;
         mStep = 4.0;
         nonMonotonicity = 1.0;
 

@@ -216,7 +216,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
 int help(int argc, char* argv[]) {
   auto helpmsg = R"(
-  Sailfish v0.1.0
   ===============
 
   Please invoke sailfish with one of the following commands {index, quant, sf}.  
@@ -228,7 +227,7 @@ int help(int argc, char* argv[]) {
   will give you detailed help information about the index command.
   )"; 
 
-  std::cerr << helpmsg << "\n";
+  std::cerr << "  Sailfish v" << Sailfish::version << helpmsg << "\n";
   return 1;
 }
 

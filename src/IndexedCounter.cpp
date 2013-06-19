@@ -234,6 +234,8 @@ same index, and the counts will be written to the file [counts].
               // If we're hashing kmers in both directions to determine
               // the "direction" of reads.
 
+                enum class MerDirection : std::int8_t { FORWARD = 1, REVERSE = 2, BOTH = 3 };
+
                 threads.emplace_back(std::thread(
                     [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
                     // Each thread gets it's own stream
@@ -250,7 +252,9 @@ same index, and the counts will be written to the file [counts].
 
                     size_t numKmers = 0;
                     size_t offset = 0;
+                    size_t numRemaining = 0;
                     size_t fCount = 0; size_t rCount = 0;
+                    auto dir = MerDirection::BOTH;
 
                     auto INVALID = phi.INVALID;
 
@@ -272,21 +276,27 @@ same index, and the counts will be written to the file [counts].
                         // reset all of the counts
                         offset = fCount = rCount = numKmers = 0;
                         cmlen = kmer = rkmer = 0;
+                        dir = MerDirection::BOTH;
+
+                        uint32_t readLen = std::distance(start, end);
 
                         // the maximum number of kmers we'd have to store
-                        uint32_t maxNumKmers = std::distance(start, end);
+                        uint32_t maxNumKmers = (readLen >= merLen) ? readLen - merLen + 1 : 0;
+                        numRemaining = maxNumKmers;
 
                         // tell the readhash about this read's length
-                        rhash.appendLength(maxNumKmers);
+                        rhash.appendLength(readLen);
 
                         // the read must be at least the kmer length
-                        if ( maxNumKmers < merLen ) { continue; }
+                        if ( maxNumKmers == 0 ) { continue; }
 
                         if ( maxNumKmers > fwdMers.size()) {
                             fwdMers.resize(maxNumKmers);
                             revMers.resize(maxNumKmers);
                         }
 
+                        size_t binMerId;
+                        size_t rMerId;
                         // iterate over the read base-by-base
                         while(start < end) {
                             uint_t     c = jellyfish::dna_codes[static_cast<uint_t>(*start++)];
@@ -307,33 +317,57 @@ same index, and the counts will be written to the file [counts].
                                   break;
 
                                 default:
-                                  // form the new kmer
+
                                   kmer = ((kmer << 2) & masq) | c;
-                                  // the new kmer's reverse complement
                                   rkmer = (rkmer >> 2) | ((0x3 - c) << lshift);
                                   // count if the kmer is valid in the forward and
                                   // reverse directions
                                   if(++cmlen >= merLen) {
                                     cmlen = merLen;
-                                    auto binMerId = phi.index(kmer);
-                                    auto rMerId = phi.index(rkmer);
-                                    fwdMers[offset] = kmer;
-                                    revMers[offset] = rkmer;
-                                    fCount += (binMerId != INVALID);
-                                    rCount += (rMerId != INVALID);
-                                    ++offset;
-                                    ++numKmers;
+
+                                    // dispatch on the direction
+                                    switch (dir) {
+                                       case MerDirection::FORWARD:
+                                        // forward
+                                        // form the new kmer
+                                        fwdMers[fCount] = kmer;
+                                        ++fCount; ++offset; ++numKmers; --numRemaining;
+                                        break;
+
+                                       case MerDirection::REVERSE:
+                                          // reverse
+                                          revMers[rCount] = rkmer;
+                                          ++rCount; ++offset; ++numKmers; --numRemaining;
+                                          break;
+
+                                       case MerDirection::BOTH:
+                                          // form the new kmer and it's reverse complement
+                                          binMerId = phi.index(kmer);
+                                          fwdMers[fCount] = kmer;
+                                          fCount += (binMerId != INVALID);
+                                          rMerId = phi.index(rkmer);
+                                          revMers[rCount] = rkmer;
+                                          rCount += (rMerId != INVALID);
+                                          ++offset; ++numKmers; --numRemaining;
+                                          dir = (fCount > (rCount + numRemaining)) ? MerDirection::FORWARD :
+                                                (rCount > (fCount + numRemaining)) ? MerDirection::REVERSE : MerDirection::BOTH;
+
+                                    } // end dirction switch
                                   } // end if
                             } // end switch
                         } // end read
-                        
+
+
                         // whichever read direction has more valid kmers is the one we choose
-                        auto& mers = (fCount > rCount) ? fwdMers : revMers;
+                        auto& mers = (dir == MerDirection::FORWARD) ? fwdMers : revMers;
+                        auto count = (dir == MerDirection::FORWARD) ? fCount : rCount;
+
                         // insert the relevant kmers into the count index
-                        for ( auto offset : boost::irange(size_t{0}, numKmers) ){
+                        for ( auto offset : boost::irange(size_t{0}, count) ){
                          bool inserted = rhash.inc(mers[offset]);
                          if (!inserted) { ++localUnmappedKmers; }
                         }
+                        localUnmappedKmers += (numKmers - count);
                         
                 } // end parse all reads
                 unmappedKmers += localUnmappedKmers;
