@@ -30,6 +30,8 @@
 #include <memory>
 #include <functional>
 
+#include <sys/mman.h>
+
 #include "boost/timer/timer.hpp"
 #include "cmph.h"
 
@@ -48,12 +50,14 @@ class PerfectHashIndex {
    PerfectHashIndex( std::vector<Kmer>& kmers, std::unique_ptr<cmph_t, Deleter>& hash, 
                      uint32_t merSize, bool canonical ) : kmers_(std::move(kmers)), 
                                                           hash_(std::move(hash)), 
+                                                          hashRaw_(hash_.get()),
                                                           merSize_(merSize),
                                                           canonical_(canonical) {}
 
    PerfectHashIndex( PerfectHashIndex&& ph ) {
    	merSize_ = ph.merSize_;
    	hash_ = std::move(ph.hash_);
+    hashRaw_ = hash_.get();
    	kmers_ = std::move(ph.kmers_);
     canonical_ = ph.canonical_;
    }
@@ -95,9 +99,13 @@ class PerfectHashIndex {
     return index;
    }
 
+   inline size_t getKmerIndex( uint64_t kmer ) {
+    return kmer % kmers_.size();
+   }
+
    inline size_t index( uint64_t kmer ) {
    	char *key = reinterpret_cast<char*>(&kmer);
-    unsigned int id = cmph_search(hash_.get(), key, sizeof(uint64_t));
+    unsigned int id{cmph_search(hashRaw_, key, sizeof(uint64_t))};
     return (kmers_[id] == kmer) ? id : INVALID;
    }
 
@@ -114,6 +122,43 @@ class PerfectHashIndex {
    	return true;
    }
 
+   void will_need(uint32_t threadIdx, uint32_t numThreads) {
+     auto pageSize = sysconf(_SC_PAGESIZE);
+     size_t numPages{0};
+     
+     auto entriesPerPage = pageSize / sizeof(char);
+     auto size = cmph_size(hashRaw_);
+     numPages = (sizeof(char) * size) / entriesPerPage;
+     // number of pages that each thread should touch
+     auto numPagesPerThread = numPages / numThreads;
+     auto entriesPerThread = entriesPerPage * numPagesPerThread;
+     // the page this thread starts touching
+     auto start = entriesPerPage * threadIdx;
+     // the last page this thread touches
+     auto end = start + entriesPerThread;
+
+     for (size_t i = start; i < size; i += numThreads*entriesPerPage) {      
+      *(reinterpret_cast<char*>(hashRaw_)+i) = *(reinterpret_cast<char*>(hashRaw_)+i);
+     }
+
+     // entries per page
+     entriesPerPage = pageSize / sizeof(Kmer);
+     // total number of pages
+     size = kmers_.size();
+     numPages = (sizeof(Kmer) * kmers_.size()) / entriesPerPage;
+     // number of pages that each thread should touch
+     numPagesPerThread = numPages / numThreads;
+     entriesPerThread = entriesPerPage * numPagesPerThread;
+     // the page this thread starts touching
+     start = entriesPerPage * threadIdx;
+     // the last page this thread touches
+     end = start + entriesPerThread;
+     for (size_t i = start; i < size; i += numThreads*entriesPerPage) {
+      std::cerr << "thread " << threadIdx << " is touching page " << i / entriesPerPage << "\n";
+      kmers_[i] = kmers_[i];
+     }
+   }
+
    inline bool canonical() { return canonical_; }
    inline uint32_t kmerLength() { return merSize_; }
    const std::vector<Kmer>& kmers() { return kmers_; }
@@ -121,6 +166,7 @@ class PerfectHashIndex {
    private:
    	std::vector<Kmer> kmers_;
    	std::unique_ptr<cmph_t, Deleter> hash_;
+    cmph_t* hashRaw_;
    	uint32_t merSize_;
     bool canonical_;
 };

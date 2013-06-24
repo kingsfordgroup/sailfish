@@ -30,6 +30,8 @@
 #include <algorithm>
 #include <memory>
 
+#include <sys/mman.h>
+
 #include "tbb/concurrent_hash_map.h"
 #include "PerfectHashIndex.hpp"
 
@@ -109,11 +111,34 @@ class CountDBNew {
 
    // increment the count for kmer 'k' by 'amt'
    // returns true if k existed in the database and false otherwise
-   bool inc(Kmer k, uint32_t amt=1) {
+   inline bool inc(Kmer k, uint32_t amt=1) {
     auto idx = index_->index(k);
     bool valid = (idx != INVALID);
     if (valid) { counts_[idx] += amt; }
     return valid;
+   }
+
+   inline void incAtIndex(std::vector<AtomicCount>::size_type idx, uint32_t amt=1) {
+     counts_[idx] += amt;
+   }
+
+   void will_need(uint32_t threadIdx, uint32_t numThreads) {
+     auto pageSize = sysconf(_SC_PAGESIZE);
+     size_t numPages{0};
+     
+     auto entriesPerPage = pageSize / sizeof(AtomicCount);
+     auto size = counts_.size();
+     numPages = (sizeof(AtomicCount) * counts_.size()) / entriesPerPage;
+     // number of pages that each thread should touch
+     auto numPagesPerThread = numPages / numThreads;
+     auto entriesPerThread = entriesPerPage * numPagesPerThread;
+     // the page this thread starts touching
+     auto start = entriesPerPage * threadIdx;
+     for (size_t i = start; i < size; i += numThreads*entriesPerPage) {
+      auto ci = counts_[i].load();
+      counts_[i] = 0;
+      counts_[i] = ci;
+     }
    }
 
    bool dumpCountsToFile( const std::string& fname ) {

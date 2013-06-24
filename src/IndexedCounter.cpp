@@ -29,11 +29,17 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <random>
 #include <functional>
 #include <memory>
 
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
+#include <boost/thread/thread.hpp>
+
+#define _GNU_SOURCE
+#include <pthread.h>
+#include <sched.h>
 
 #include "boost/timer/timer.hpp"
 #include "boost/range/irange.hpp"
@@ -97,6 +103,14 @@ same index, and the counts will be written to the file [counts].
         string sfIndexBase = vm["index"].as<string>();
         string sfTrascriptIndexFile = sfIndexBase+".sfi";
 
+        // auto cpuset = new cpu_set_t;
+        // CPU_ZERO(cpuset);
+        // CPU_SET(0, cpuset);
+        // if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), cpuset)) {
+        //   std::cerr << "COULD NOT SET PROCESSOR AFFINITY!!!\n";
+        //   std::exit(1);
+        // }
+
         std::cerr << "reading index . . . ";
         auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
         std::cerr << "done\n";
@@ -134,20 +148,26 @@ same index, and the counts will be written to the file [counts].
 
         CountDBNew rhash( phiPtr );
 
+        phi.will_need(0, numActors+1);
+        rhash.will_need(0, numActors+1);
+
         // Open up the transcript file for reading
         // Create a jellyfish parser
-        jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
+        jellyfish::parse_read parser( fnames, fnames+numFnames, 5000);
 
         {
           std::atomic<size_t> unmappedKmers{0};
           boost::timer::auto_cpu_timer t(std::cerr);
           auto start = std::chrono::steady_clock::now();
           bool canonical = phi.canonical();
+          //tbb::concurrent_unordered_set<int> assignedCPUs;
+
+          std::atomic<uint32_t> numPaged{0};
 
           // Start the desired number of threads to parse the reads
           // and build our data structure.
           for (size_t k = 0; k < numActors; ++k) {
-
+            size_t threadIdx = k;
             /** Guillaume inspired fast parser **/
 
             // If we're only hashing canonical kmers
@@ -236,22 +256,43 @@ same index, and the counts will be written to the file [counts].
 
                 enum class MerDirection : std::int8_t { FORWARD = 1, REVERSE = 2, BOTH = 3 };
 
+          //   cpu_set_t* cpuset;
+          //   pthread_getaffinity_np(threads.back().native_handle(), sizeof(cpu_set_t), cpuset);
+          //   for (size_t cpuID = 0; cpuID < maxThreads; ++cpuID) {
+          //     if (CPU_ISSET(cpuID, cpuset)) {
+          //       if (CPUMap.find(cpuID) == knownCPUs.end()) {
+          //         CPUMap[cpuID] = k;
+          //       }
+          //     }
+          //   }
+          // for (auto& CPUThreadPair : CPUMap ) {
+          //   phi.will_need(k, CPUMap.size());
+          //   rhash.will_need(k, CPUMap.size());
+          // }
+
                 threads.emplace_back(std::thread(
-                    [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, merLen]() -> void {
+                    [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, &k, &numPaged, threadIdx, merLen, numActors]() -> void {
+                      phi.will_need(threadIdx+1, numActors+1);
+                      rhash.will_need(threadIdx+1, numActors+1);
+                      ++numPaged;
+                      while ( numPaged < numActors ) { }
+                      if (threadIdx == numActors - 1) { start = std::chrono::steady_clock::now(); }
+
                     // Each thread gets it's own stream
                     jellyfish::parse_read::read_t* read;
-                    jellyfish::parse_read::thread stream = parser.new_thread();
+                    jellyfish::parse_read::thread stream{parser.new_thread()};
+                    
+                    
 
                     using BinMer = uint64_t;
                     std::vector<BinMer> fwdMers;
                     std::vector<BinMer> revMers;
 
-                    BinMer lshift(2 * (merLen - 1));
-                    BinMer masq((1UL << (2 * merLen)) - 1);
+                    BinMer lshift{2 * (merLen - 1)};
+                    BinMer masq{(1UL << (2 * merLen)) - 1};
                     BinMer cmlen, kmer, rkmer;
 
                     size_t numKmers = 0;
-                    size_t offset = 0;
                     size_t numRemaining = 0;
                     size_t fCount = 0; size_t rCount = 0;
                     auto dir = MerDirection::BOTH;
@@ -259,22 +300,23 @@ same index, and the counts will be written to the file [counts].
                     auto INVALID = phi.INVALID;
 
                     uint64_t localUnmappedKmers{0};
-
+                    uint64_t locallyProcessedReads{0};
                     while ( (read = stream.next_read()) ) {
-                        ++readNum;
-                        if (readNum % 500000 == 0) {
+                        ++readNum; ++locallyProcessedReads;
+                        if (readNum % 250000 == 0) {
                             auto end = std::chrono::steady_clock::now();
                             auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
                             auto nsec = sec.count();
                             auto rate = (nsec > 0) ? readNum / sec.count() : 0;
                             std::cerr << "processed " << readNum << " reads (" << rate << ") reads/s\r\r";
                         }                        
+
                         // we iterate over the entire read
                         const char         *start = read->seq_s;
                         const char * const  end   = read->seq_e;
 
                         // reset all of the counts
-                        offset = fCount = rCount = numKmers = 0;
+                        fCount = rCount = numKmers = 0;
                         cmlen = kmer = rkmer = 0;
                         dir = MerDirection::BOTH;
 
@@ -295,8 +337,8 @@ same index, and the counts will be written to the file [counts].
                             revMers.resize(maxNumKmers);
                         }
 
-                        size_t binMerId;
-                        size_t rMerId;
+                        size_t binMerId{0};
+                        size_t rMerId{0};
                         // iterate over the read base-by-base
                         while(start < end) {
                             uint_t     c = jellyfish::dna_codes[static_cast<uint_t>(*start++)];
@@ -310,7 +352,7 @@ same index, and the counts will be written to the file [counts].
                                 case jellyfish::CODE_IGNORE: break;
                                 case jellyfish::CODE_COMMENT:
                                   std::cerr << "ERROR\n";
-                                  //report_bad_input(*(start-1));
+
                                 // Fall through
                                 case jellyfish::CODE_RESET:
                                   cmlen = kmer = rkmer = 0;
@@ -327,59 +369,117 @@ same index, and the counts will be written to the file [counts].
 
                                     // dispatch on the direction
                                     switch (dir) {
+                                       // We're certain that more kmers map in the forward direction
+                                       // so we only consider the rest of the read in this direction.
                                        case MerDirection::FORWARD:
-                                        // forward
-                                        // form the new kmer
-                                        fwdMers[fCount] = kmer;
-                                        ++fCount; ++offset; ++numKmers; --numRemaining;
+                                        // get the index of the forward kmer
+                                        binMerId = phi.index(kmer); 
+                                        if (binMerId != INVALID) {
+                                          rhash.incAtIndex(binMerId);
+                                          ++fCount;
+                                        }                                         
+                                        ++numKmers; --numRemaining;
                                         break;
-
+                                       // end case FORWARD
+                                       
+                                       // We're certain that more kmers map in the reverse direction
+                                       // so we only consider the rest of the read in this direction.
                                        case MerDirection::REVERSE:
-                                          // reverse
-                                          revMers[rCount] = rkmer;
-                                          ++rCount; ++offset; ++numKmers; --numRemaining;
+                                          // get the index of the forward kmer
+                                          rMerId = phi.index(rkmer);
+                                          if (rMerId != INVALID) {
+                                            rhash.incAtIndex(rMerId);
+                                            ++rCount;
+                                          }
+                                          ++numKmers; --numRemaining;
                                           break;
-
+                                       // end case REVERSE
+                                       
                                        case MerDirection::BOTH:
                                           // form the new kmer and it's reverse complement
+
+                                          // Find the index of the forward kmer and determine
+                                          // whether or not to count it.
                                           binMerId = phi.index(kmer);
-                                          fwdMers[fCount] = kmer;
+                                          fwdMers[fCount] = binMerId;
                                           fCount += (binMerId != INVALID);
+
+                                          // Find the index of the reverse kmer and determine
+                                          // whether or not to count it.
                                           rMerId = phi.index(rkmer);
-                                          revMers[rCount] = rkmer;
+                                          revMers[rCount] = rMerId;
                                           rCount += (rMerId != INVALID);
-                                          ++offset; ++numKmers; --numRemaining;
+
+                                          ++numKmers; --numRemaining;
+
+                                          // Determine if we need to continue looking at both directions
                                           dir = (fCount > (rCount + numRemaining)) ? MerDirection::FORWARD :
                                                 (rCount > (fCount + numRemaining)) ? MerDirection::REVERSE : MerDirection::BOTH;
 
+                                          switch (dir) {
+                                            case MerDirection::FORWARD:
+                                              for (auto i : boost::irange(size_t(0), fCount)) { rhash.incAtIndex(fwdMers[i]); 
+                                              }
+                                              break;
+                                            case MerDirection::REVERSE:
+                                              for (auto i : boost::irange(size_t(0), rCount)) { rhash.incAtIndex(revMers[i]); 
+                                              }
+                                              break;
+                                            default:
+                                              break;
+                                          }                                        
+                                      // end case BOTH
+                                      
                                     } // end dirction switch
                                   } // end if
                             } // end switch
                         } // end read
 
+                        uint64_t count{0};
+                        switch (dir) {
 
-                        // whichever read direction has more valid kmers is the one we choose
-                        auto& mers = (dir == MerDirection::FORWARD) ? fwdMers : revMers;
-                        auto count = (dir == MerDirection::FORWARD) ? fCount : rCount;
+                          // The same number of things mapped in both directions.  In
+                          // this case, we _arbitrarily_ choose the forward kmers. We haven't 
+                          // actually incremented counts yet, so we do that here.
+                          case MerDirection::BOTH:
+                            if (dir == MerDirection::BOTH) {
+                              for (auto i : boost::irange(size_t(0), fCount)) { rhash.incAtIndex(fwdMers[i]); 
+                              }
+                            }
+                            count = fCount;
+                            break;
 
-                        // insert the relevant kmers into the count index
-                        for ( auto offset : boost::irange(size_t{0}, count) ){
-                         bool inserted = rhash.inc(mers[offset]);
-                         if (!inserted) { ++localUnmappedKmers; }
+                          // More things mapped in the forward direction
+                          case MerDirection::FORWARD:
+                            count = fCount; break;
+
+                          // More things mapped in the reverse direction                            
+                          case MerDirection::REVERSE:
+                            count = rCount; break;
                         }
+
+                        // the number of unmapped kmers is just the total kmers in this read
+                        // minus the number that mapped.
                         localUnmappedKmers += (numKmers - count);
                         
                 } // end parse all reads
                 unmappedKmers += localUnmappedKmers;
+                //std::cerr << "Thread " << k << " processed " << locallyProcessedReads << " reads\n"; 
             }));
 
-
-
             }
+
           }   
+
 
           // Wait for all of the threads to finish
           for ( auto& thread : threads ){ thread.join(); }
+
+          auto end = std::chrono::steady_clock::now();
+          auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
+          auto nsec = sec.count();
+          auto rate = (nsec > 0) ? readNum / sec.count() : 0;
+          std::cerr << "\nOverall rate: " << rate << " reads / s\n";
           std::cerr << "\n" << std::endl;
           rhash.dumpCountsToFile(countsFile);
 
