@@ -151,7 +151,6 @@ length varies between samples, for example, this alone can affect differential a
 the RPKM.)  The RPKM is a classic measure of relative transcript abundance, and is an estimate of the
 number of reads per kilobase of transcript (per million mapped reads) originating from each transcript.
 
-
 License
 =======
 
