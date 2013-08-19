@@ -37,7 +37,7 @@
 */
 
 /*  This file was reproduced directly from Jellyfish's mer_counter.cc file.  It is
-    meant to act as a pseudo-independent driver that builds Jellyfish has for a
+    meant to act as a pseudo-independent driver that builds Jellyfish hash for a
     transcriptome, but which is callable directly (as a function) from Sailfish.
  */
 

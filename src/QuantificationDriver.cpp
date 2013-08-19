@@ -106,11 +106,15 @@ int runSailfishEstimation(const std::string& sfCommand,
                           //const std::string& tgmap, 
                           size_t iterations, 
                           const boost::filesystem::path& lookupTableBase, 
-                          const boost::filesystem::path& outFilePath) {
+                          const boost::filesystem::path& outFilePath,
+                          bool noBiasCorrect) {
 
     std::stringstream argStream;
     argStream << sfCommand << " ";
     // argStream << "estimate ";
+    if (noBiasCorrect) {
+        argStream << "--no_bias_correct ";
+    }
     argStream << "--index " << indexBasePath.string() << " ";
     argStream << "--counts " << countFile.string() << " ";
     argStream << "--threads " << numThreads << " ";
@@ -158,6 +162,7 @@ int mainQuantify( int argc, char *argv[] ) {
 
     string sfCommand = argv[0];
     uint32_t maxThreads = std::thread::hardware_concurrency();
+    bool noBiasCorrect = false;
 
     po::options_description generic("Sailfish quant options");
     generic.add_options()
@@ -165,6 +170,7 @@ int mainQuantify( int argc, char *argv[] ) {
     ("help,h", "produce help message")
     ("index,i", po::value<string>(), "Sailfish index [output of the \"Sailfish index\" command")        
     ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")    
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("out,o", po::value<string>(), "Basename of file where estimates are written")
     ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
@@ -249,7 +255,7 @@ int mainQuantify( int argc, char *argv[] ) {
         bfs::path estFilePath(outputBasePath); estFilePath /= "quant.sf";
         size_t iterations = vm["iterations"].as<size_t>();
         runSailfishEstimation(sfCommand, numThreads, countFilePath, indexPath,
-                              iterations, lutBasePath, estFilePath);
+                              iterations, lutBasePath, estFilePath, noBiasCorrect);
 
     } catch (po::error &e) {
         std::cerr << "exception : [" << e.what() << "]. Exiting.\n";

@@ -39,6 +39,9 @@
 #include <chrono>
 #include <iomanip>
 
+#include "tbb/parallel_for.h"
+#include "tbb/parallel_for_each.h"
+
 #include <boost/range/irange.hpp>
 #include "ezETAProgressBar.hpp"
 

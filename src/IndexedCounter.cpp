@@ -36,6 +36,7 @@
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/filesystem.hpp>
 
 #define _GNU_SOURCE
 #include <pthread.h>
@@ -66,6 +67,7 @@ int mainCount( int argc, char *argv[] ) {
 
     using std::string;
     namespace po = boost::program_options;
+    namespace bfs = boost::filesystem;
 
     uint32_t maxThreads = std::thread::hardware_concurrency();
 
@@ -111,6 +113,8 @@ same index, and the counts will be written to the file [counts].
         //   std::exit(1);
         // }
 
+
+
         std::cerr << "reading index . . . ";
         auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
         std::cerr << "done\n";
@@ -148,8 +152,8 @@ same index, and the counts will be written to the file [counts].
 
         CountDBNew rhash( phiPtr );
 
-        phi.will_need(0, numActors+1);
-        rhash.will_need(0, numActors+1);
+        //phi.will_need(0, numActors+1);
+        //rhash.will_need(0, numActors+1);
 
         // Open up the transcript file for reading
         // Create a jellyfish parser
@@ -272,11 +276,11 @@ same index, and the counts will be written to the file [counts].
 
                 threads.emplace_back(std::thread(
                     [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, &k, &numPaged, threadIdx, merLen, numActors]() -> void {
-                      phi.will_need(threadIdx+1, numActors+1);
-                      rhash.will_need(threadIdx+1, numActors+1);
+                      //phi.will_need(threadIdx+1, numActors+1);
+                      //rhash.will_need(threadIdx+1, numActors+1);
                       ++numPaged;
-                      while ( numPaged < numActors ) { }
-                      if (threadIdx == numActors - 1) { start = std::chrono::steady_clock::now(); }
+                      //while ( numPaged < numActors ) { }
+                      //if (threadIdx == numActors - 1) { start = std::chrono::steady_clock::now(); }
 
                     // Each thread gets it's own stream
                     jellyfish::parse_read::read_t* read;
@@ -488,9 +492,26 @@ same index, and the counts will be written to the file [counts].
           for (auto i : boost::irange(size_t(0), rhash.kmers().size())) {
               totalCount += rhash.atIndex(i);
           }
+
+          bfs::path countInfoFilename(countsFile);
+          countInfoFilename.replace_extension(".count_info");
+
+          std::ofstream countInfoFile(countInfoFilename.string());
+          countInfoFile << "total_reads\t" << totalCount << "\n";
+          countInfoFile << "mapped\t" << totalCount - unmappedKmers << "\n";
+          countInfoFile << "unmapped\t" << unmappedKmers << "\n";
+          countInfoFile << "mapped_ratio\t" << 
+                           (totalCount / static_cast<double>(totalCount + unmappedKmers)) << "\n";
+          countInfoFile.close();
+
           std::cerr << "There were " << totalCount << ", kmers; " << unmappedKmers << " could not be mapped\n";
           std::cerr << "Mapped " << 
                        (totalCount / static_cast<double>(totalCount + unmappedKmers)) * 100.0 << "% of the kmers\n";
+          end = std::chrono::steady_clock::now();
+          sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
+          nsec = sec.count();
+
+          std::cerr << "Total counting time [including file i/o]: " << nsec << " seconds.\n";
 
         }
 

@@ -95,6 +95,7 @@ class CountDBNew {
    }
 
    inline Length totalLength() { return length_.load(); }
+   inline Length numLengths() { return numLengths_.load(); } 
 
    inline size_t id(Kmer k) { return index_->index(k); }
 

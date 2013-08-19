@@ -154,7 +154,7 @@ class PerfectHashIndex {
      // the last page this thread touches
      end = start + entriesPerThread;
      for (size_t i = start; i < size; i += numThreads*entriesPerPage) {
-      std::cerr << "thread " << threadIdx << " is touching page " << i / entriesPerPage << "\n";
+      //std::cerr << "thread " << threadIdx << " is touching page " << i / entriesPerPage << "\n";
       kmers_[i] = kmers_[i];
      }
    }

@@ -64,7 +64,7 @@
 #include "cmph.h"
 #include "CountDBNew.hpp"
 // #include "LookUpTableUtils.hpp"
-#include "Utils.hpp"
+#include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 #include "PerfectHashIndex.hpp"
 
@@ -231,6 +231,11 @@ void buildLUTs(
   uint32_t numThreads                              //!< Number of threads to use in parallel
   );
 
+int computeBiasFeatures(
+    std::vector<std::string>& transcriptFiles,
+    boost::filesystem::path outFilePath,
+    size_t numThreads);
+
 int mainIndex( int argc, char *argv[] ) {
     using std::string;
     namespace po = boost::program_options;
@@ -308,6 +313,12 @@ the Jellyfish database [thash] of the transcripts.
         }
 
         bfs::path outputPath(outputStem);
+
+        // First, compute the transcript features in case the user
+        // ever wants to bias-correct his / her results
+        bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
+        computeBiasFeatures(transcriptFiles, transcriptBiasFile, numThreads);
+
         bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts_0";
 
         mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
@@ -360,12 +371,12 @@ the Jellyfish database [thash] of the transcripts.
                 std::cerr << "building transcript to gene map using gtf file [" <<
                              transcriptGeneMap << "] . . .\n";
                 auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
-                tgmap = utils::transcriptToGeneMapFromFeatures( features );
+                tgmap = sailfish::utils::transcriptToGeneMapFromFeatures( features );
                 std::cerr << "done\n";
             } else {
                 std::cerr << "building transcript to gene map using transcript fasta file [" <<
                              transcriptFiles[0] << "] . . .\n";
-                tgmap = utils::transcriptToGeneMapFromFasta(transcriptFiles[0]);
+                tgmap = sailfish::utils::transcriptToGeneMapFromFasta(transcriptFiles[0]);
                 std::cerr << "done\n";
             }
 

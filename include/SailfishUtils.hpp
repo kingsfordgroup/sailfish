@@ -33,6 +33,7 @@
 #include "TranscriptGeneMap.hpp"
 #include "GenomicFeature.hpp"
 
+namespace sailfish{
 namespace utils {
 using std::string;
 using NameVector = std::vector<string>;
@@ -115,5 +116,5 @@ TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile );
 TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFile );
 
 }
-
+}
 #endif // UTILS_HPP

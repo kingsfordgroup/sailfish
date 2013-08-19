@@ -24,7 +24,7 @@
 # define COMMON_TYPES_HPP
 
 namespace Sailfish {
-
+    /*
 	struct Kmer {
 		uint64_t kmer;
 	};
@@ -32,6 +32,13 @@ namespace Sailfish {
 	struct Index {
 		uint64_t index;
 	};
+    */
+    struct TranscriptFeatures{
+        std::string name;
+        size_t length;
+        double gcContent;
+        std::array<uint64_t, 16> diNucleotides;
+    };
 }
 
 

@@ -56,7 +56,7 @@
 #include <jellyfish/parse_dna.hpp>
 
 #include "LookUpTableUtils.hpp"
-#include "Utils.hpp"
+#include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
 #include "ezETAProgressBar.hpp"
@@ -348,14 +348,14 @@ int mainBuildLUT(int argc, char* argv[] ) {
       std::cerr << "building transcript to gene map using gtf file [" <<
                    transcriptGeneMap << "] . . .\n";
       auto features = GTFParser::readGTFFile<TranscriptGeneID>(transcriptGeneMap);
-      tgmap = utils::transcriptToGeneMapFromFeatures( features );
+      tgmap = sailfish::utils::transcriptToGeneMapFromFeatures( features );
       std::cerr << "done\n";
     } else {
     // Otherwise, build the transcript <-> gene map directly from the
     // provided fasta file of transcripts
       std::cerr << "building transcript to gene map using transcript fasta file [" <<
                    genesFile[0] << "] . . .\n";
-      tgmap = utils::transcriptToGeneMapFromFasta(genesFile[0]);
+      tgmap = sailfish::utils::transcriptToGeneMapFromFasta(genesFile[0]);
       std::cerr << "done\n";
     }
 

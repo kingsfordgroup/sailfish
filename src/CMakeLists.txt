@@ -14,10 +14,14 @@ IndexedCounter.cpp
 GenomicFeature.cpp
 JellyfishMerCounter.cpp
 VersionChecker.cpp
-Utils.cpp
+SailfishUtils.cpp
+ComputeBiasFeatures.cpp
+PerformBiasCorrection.cpp
+cokus.cpp
 )
 
 include_directories( 
+/home/robp/dist/include/eigen3
 ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/install/include
@@ -32,14 +36,20 @@ ${GAT_SOURCE_DIR}/lib
 ${GAT_SOURCE_DIR}/external/install/lib
 ${Boost_LIBRARY_DIRS}
 ${TBB_LIBRARY_DIRS}
+${LAPACK_LIBRARY_DIR}
+${BLAS_LIBRARY_DIR}
 )
+
+#dd_library(pca SHARED ${PCA_LIB_SRCS})
 
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
+
 # Build the Sailfish library
 add_library(sailfish_core SHARED ${SAILFISH_LIB_SRCS} )
 # Build the Sailfish executable
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
+
 # Link the executable
 target_link_libraries(sailfish 
 	sailfish_core 
@@ -51,8 +61,45 @@ target_link_libraries(sailfish
     gomp 
     m
     ${TBB_LIBRARIES}
+    ${LIBSAILFISH_LINKER_FLAGS} shark
     #profiler
 )
+
+add_executable(analyze_kmer_tradeoff AnalyzeKmerTradeoff.cpp)
+target_link_libraries(analyze_kmer_tradeoff 
+    sailfish_core 
+    ${Boost_LIBRARIES} 
+    ${ZLIB_LIBRARY} 
+    cmph # perfect hashing library
+    jellyfish-1.1 
+    pthread 
+    gomp 
+    m
+    ${TBB_LIBRARIES}
+    shark
+)
+
+# add_executable(compute_transcript_features ComputeBiasFeatures.cpp)
+# target_link_libraries(compute_transcript_features
+# ${Boost_LIBRARIES}
+# ${ZLIB_LIBRARY}
+# jellyfish-1.1
+# pthread
+# gomp
+# m
+# ${TBB_LIBRARIES}
+# )
+
+# add_executable(perform_bias_correction PerformBiasCorrection.cpp cokus.cpp PCA.cpp)
+# target_link_libraries(perform_bias_correction
+# ${Boost_LIBRARIES}
+# ${ZLIB_LIBRARY}
+# pthread
+# gomp
+# m
+# shark # The machine learning library
+# )
+
 
 IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   SET(CMAKE_INSTALL_PREFIX

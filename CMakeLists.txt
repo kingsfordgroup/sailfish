@@ -4,14 +4,14 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.1.1")
+set(CPACK_PACKAGE_VERSION "0.5.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "1")
-set(CPACK_PACKAGE_VERSION_PATCH "1")
+set(CPACK_PACKAGE_VERSION_MINOR "5")
+set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Sailfish - Alignment-free RNA-seq quantification")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Sailfish - Alignment-free RNA-seq isoform quantification")
 set(CPACK_PACKAGE_NAME 
   "${CMAKE_PROJECT_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
@@ -29,13 +29,14 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
     # To allow ourselves to build a dynamic library, we have to tell the compiler
     # that, yes, the symbols will be around at runtime.
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -undefined dynamic_lookup")
-
+    set (LIBSAILFISH_LINKER_FLAGS "-all_load")
     # In order to "think different", we also have to use non-standard suffixes
     # for our shared libraries
     set(SHARED_LIB_EXTENSION "dylib")
 else()
     # We're in sane linux world
-    set(SHARED_LIB_EXTENSION "so")
+    set (SHARED_LIB_EXTENSION "so")
+    set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
 
 ##
@@ -71,8 +72,8 @@ set (CMAKE_VERBOSE_MAKEFILE true)
 # Super-secret override
 ##
 if ( DEFINED CUSTOM_BOOST_PATH )
-	set (CMAKE_INCLUDE_PATH ${CMAKE_INCLUDE_PATH} ${CUSTOM_BOOST_PATH})
-	set (CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH} ${CUSTOM_BOOST_PATH}/lib )
+	set (CMAKE_INCLUDE_PATH ${CUSTOM_BOOST_PATH} ${CMAKE_INCLUDE_PATH})
+    set (CMAKE_LIBRARY_PATH ${CUSTOM_BOOST_PATH}/lib ${CMAKE_LIBRARY_PATH})
 endif ( DEFINED CUSTOM_BOOST_PATH )
 
 ##
@@ -122,7 +123,6 @@ elseif(FETCH_BOOST)
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
-    message("BOOST installed.")
 
     ##
     # After we've installed boost, 
@@ -142,6 +142,7 @@ if (BOOST_WILL_RECONFIGURE)
     set(Boost_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)        
+    set(Boost_FOUND TRUE)
 endif()
 
 ##
@@ -154,6 +155,7 @@ if (BOOST_RECONFIGURE)
     unset(Boost_INCLUDE_DIR CACHE)
     unset(Boost_INCLUDE_DIRS CACHE)
     unset(Boost_LIBRARY_DIRS CACHE) 
+    unset(Boost_LIBRARIES CACHE)
     unset(BOOST_ROOT CACHE)
     unset(CMAKE_PREFIX_PATH CACHE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
@@ -166,7 +168,7 @@ endif()
 message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
-
+message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
 find_package (ZLIB)
 
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
@@ -248,7 +250,7 @@ else()
 
 endif()
 
-message("Build system will fetch and build Intell Threading Building Blocks")
+message("Build system will fetch and build Intel Threading Building Blocks")
 message("==================================================================")
 # These are useful for the custom install step we'll do later
 set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss)
@@ -302,12 +304,74 @@ endif()
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 
 ###
+# Shark library
+####
+if (NOT Boost_FOUND)
+    # Shark depends on Boost.  If it wasn't already found, then 
+    # add a dependency between the Boost we fetch and this target.
+    add_dependencies(libshark libboost)
+endif()
+
+message("Build system will fetch and build Shark machine learning library")
+message("==================================================================")
+# These are useful for the custom install step we'll do later
+set(SHARK_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark)
+set(SHARK_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+ExternalProject_Add(libshark
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    SVN_REPOSITORY https://svn.code.sf.net/p/shark-project/code/trunk/Shark@2783
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CMAKE_ARGS -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
+               -DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DOPT_MAKE_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${SHARK_INSTALL_DIR}
+    BUILD_COMMAND sh -c "make"
+    INSTALL_COMMAND sh -c "make install"
+    BUILD_IN_SOURCE 1
+    UPDATE_COMMAND ""
+)
+
+# ###
+# # Armadillo library
+# ####
+# if (NOT Boost_FOUND)
+#     # Armadillo depends on Boost.  If it wasn't already found, then 
+#     # add a dependency between the Boost we fetch and this target.
+#     add_dependencies(libarmadillo libboost)
+# endif()
+
+# find_package( LAPACK REQUIRED )
+# find_package( BLAS REQUIRED )
+
+# message("Build system will fetch and build the Armadillo library")
+# message("==================================================================")
+# # These are useful for the custom install step we'll do later
+# set(ARMADILLO_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Armadillo)
+# set(ARMADILLO_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+# ExternalProject_Add(libarmadillo
+#     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+#     URL http://sourceforge.net/projects/arma/files/armadillo-3.900.6.tar.gz
+#     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Armadillo
+#     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+#     CMAKE_ARGS -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
+#                -DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DARMA_USE_BLAS=TRUE -DARMA_USE_LAPACK=TRUE
+#                -DCMAKE_INSTALL_PREFIX=${ARMADILLO_INSTALL_DIR}
+#                -DCMAKE_LIBRARY_PATH=/home/robp/dist/lib
+
+#     BUILD_COMMAND sh -c "make"
+#     INSTALL_COMMAND sh -c "make install"
+#     BUILD_IN_SOURCE 1
+#     UPDATE_COMMAND ""
+# )
+
+###
 #
 # Done building external dependencies.
 #
 ###
 
 set (CPACK_SOURCE_IGNORE_FILES 
+"/src/PCA.cpp"
+"/src/PCAUtils.cpp"
 "/build/"
 "/scripts/AggregateToGeneLevel.py"
 "/scripts/ExpressionTools.py"

@@ -52,7 +52,7 @@
 #include <jellyfish/compacted_hash.hpp>
 
 #include "BiasIndex.hpp"
-#include "Utils.hpp"
+#include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
 #include "CollapsedIterativeOptimizer.hpp"
@@ -60,6 +60,11 @@
 #include "VersionChecker.hpp"
 //#include "iterative_optimizer.hpp"
 //#include "tclap/CmdLine.h"
+
+int performBiasCorrection(boost::filesystem::path featPath, 
+                          boost::filesystem::path expPath, 
+                          boost::filesystem::path outPath,
+                          size_t numThreads);
 
 int runIterativeOptimizer(int argc, char* argv[] ) {
   using std::string;
@@ -71,6 +76,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
   try{
 
    bool poisson = false;
+   bool noBiasCorrect = false;
 
    uint32_t maxThreads = std::thread::hardware_concurrency();
 
@@ -89,6 +95,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       ("bias,b", po::value<string>(), "bias index prefix (without .bin/.dict)")
       //("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
+      ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
       //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("filter,f", po::value<double>()->default_value(0.0), "during iterative optimization, remove transcripts with a mean less than filter")
       ("iterations,n", po::value<size_t>(), "number of iterations to run the optimzation")
@@ -123,16 +130,22 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     }
     po::notify(vm);
 
+    bool computeBiasCorrection = !noBiasCorrect;
     uint32_t numThreads = vm["threads"].as<uint32_t>();
     tbb::task_scheduler_init init(numThreads);
 
     string hashFile = vm["counts"].as<string>();
     //std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
     //string transcriptHashFile = vm["thash"].as<string>();
+    
     string sfIndexBase = vm["index"].as<string>();
+    
+    bfs::path sfIndexBasePath(vm["index"].as<string>());
+
     string sfIndexFile = sfIndexBase+".sfi";
     string sfTrascriptCountFile = sfIndexBase+".sfc";
     bfs::path outputFilePath = bfs::path(vm["output"].as<string>());
+
     double minMean = vm["filter"].as<double>();
     string lutprefix = vm["lutfile"].as<string>();
     auto tlutfname = lutprefix + ".tlut";
@@ -183,6 +196,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       size_t numIter = vm["iterations"].as<size_t>();
       std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
       // for CollapsedIterativeOptimizer (EM algorithm)
+
       solver.optimize(klutfname, tlutfname, numIter, minMean );
 
       std::stringstream headerLines;
@@ -194,6 +208,20 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       headerLines << "\n";
 
       solver.writeAbundances(outputFilePath, headerLines.str());
+      
+     
+      if (computeBiasCorrection) {
+        sfIndexBasePath.remove_filename();
+        outputFilePath.remove_filename();        
+        auto biasFeatPath = sfIndexBasePath / "bias_feats.txt";
+        auto expressionFilePath = outputFilePath / "quant.sf";
+        auto biasCorrectedFile = outputFilePath / "quant_bias_corrected.sf";
+        std::cerr << "biasFeatPath = " << biasFeatPath << "\n";
+        std::cerr << "expressionFilePath = " << expressionFilePath << "\n";
+        std::cerr << "biasCorrectedFile = " << biasCorrectedFile << "\n";                
+        performBiasCorrection(biasFeatPath, expressionFilePath, biasCorrectedFile, numThreads);
+      }
+
       // for LASSO Iterative Optimizer
       //solver.optimizeNNLASSO(klutfname, tlutfname, outputFile, numIter, minMean );
       // for IterativeOptimizer

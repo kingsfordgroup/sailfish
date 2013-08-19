@@ -85,6 +85,7 @@ private:
     */
     using TranscriptID = uint32_t;
     using KmerID =  uint64_t;
+    using Count = uint32_t;
     using KmerQuantity = double;
     using Promiscutity = double;
     using KmerMap = tbb::concurrent_unordered_map< uint64_t, tbb::concurrent_vector<uint32_t> >;
@@ -187,7 +188,7 @@ private:
     std::vector<Promiscutity> kmerGroupPromiscuities_;
     std::vector<Promiscutity> kmerGroupBiases_;
     std::vector<KmerQuantity> kmerGroupCounts_;
-
+    std::vector<Count> kmerGroupSizes_;
     /**
      * Compute the "Inverse Document Frequency" (IDF) of a kmer within a set of transcripts.
      * The inverse document frequency is the log of the number of documents (i.e. transcripts)
@@ -468,45 +469,59 @@ private:
      */
     void computeKmerFidelities_() {
 
+      // For each transcript, compute it's overall fidelity.  This is related
+      // to the variance of coverage across the transcript.  The more uniform
+      // the coverage, the more we believe the transcript.
         std::vector<double> transcriptFidelities(transcripts_.size(), 0.0);
         tbb::parallel_for( BlockedIndexRange(size_t(0), transcripts_.size()),
             [this, &transcriptFidelities]( const BlockedIndexRange& range ) -> void {
-               for (auto tid = range.begin(); tid += range.end(); ++tid) {
+               for (auto tid = range.begin(); tid != range.end(); ++tid) {
                 double sumDiff = 0.0;
-                auto ts = this->transcripts_[tid];
+                //if (tid >= this->transcripts_.size()) { std::cerr << "attempting to access transcripts_ out of range\n";}
+                auto& ts = this->transcripts_[tid];
+
+                //std::cerr << "transcript " << tid << "\n";
                 for ( auto& b : ts.binMers ) {
-                    auto diff = (this->kmerGroupBiases_[b.first] * b.second) - ts.mean;
-                    sumDiff += diff*diff;
+                    //if (b.first >= this->kmerGroupBiases_.size()) { std::cerr << "attempting to access kmerGroupBiases_ out of range\n";}
+                    auto scaledMean = this->kmerGroupSizes_[b.first] * ts.mean;
+                    auto diff = std::abs(b.second - scaledMean);
+                    sumDiff += diff;//*diff;
                 }
-                transcriptFidelities[tid] = std::sqrt(sumDiff / ts.binMers.size());
+                // The rest of the positions have 0 coverage have an error
+                // of |0 - \mu_t| = \mu_t.  There are l(t) - ts.binMers.size() of these.
+                sumDiff += ts.mean * (ts.length - ts.binMers.size());
+                auto fidelity = (ts.length > 0.0) ? sumDiff / ts.length : 0.0;
+                fidelity = 1.0 / (fidelity + 1.0);
+                //if (tid >= transcriptFidelities.size()) { std::cerr << "attempting to access transcriptFidelities out of range\n";}
+                transcriptFidelities[tid] = fidelity;
+                //std::cerr << "fidelity (" << tid << ") = " << fidelity << "\n";
                }
             });
         
-        auto totalFidelity = std::accumulate(transcriptFidelities.begin(), transcriptFidelities.end(), 0.0);
-        auto maxFidelity = *std::max_element(transcriptFidelities.begin(), transcriptFidelities.end());
-        auto averageFidelity = totalFidelity / transcriptFidelities.size();
-
-        std::cerr << "max fidelity = " << maxFidelity << "\n";
-
         tbb::parallel_for(BlockedIndexRange(size_t(0), transcriptsForKmer_.size()),
-            [this, &transcriptFidelities, averageFidelity, maxFidelity](const BlockedIndexRange& range) -> void {
+            [this, &transcriptFidelities](const BlockedIndexRange& range) -> void {
+              // Each transcript this kmer group appears in votes on the bias of this kmer.
+              // Underrepresented kmers get bias values > 1.0 while overrepresented kmers get 
+              // bias values < 1.0.  The vote of each transcript is weigted by it's fidelity
                 for (auto kid = range.begin(); kid != range.end(); ++kid) {
-                  double sumT = 0.0; double sumK = 0.0;
-                  double confidence = 0.0;
+                  double totalBias = 0.0;
+                  double totalFidelity = 0.0;
                   for( auto tid : this->transcriptsForKmer_[kid] ) {
-                    sumT += this->transcripts_[tid].mean;
-                    sumK += this->transcripts_[tid].binMers[kid];   
-                    confidence += transcriptFidelities[tid];// / averageFidelity;
+                    auto& transcript = this->transcripts_[tid];
+                    auto fidelity = transcriptFidelities[tid];
+                    auto totalMean = transcript.mean * this->kmerGroupSizes_[kid];
+                    auto curAlloc = transcript.binMers[kid];
+                    totalBias += (curAlloc > 0.0) ? fidelity * (totalMean / curAlloc) : 0.0;
+                    totalFidelity += fidelity;
                   }
-
-                  confidence /= this->transcriptsForKmer_[kid].size();
-                  double alpha = 0.5; //std::min( 1.0, 10.0*averageFidelity / confidence);
-                  double bias = sumK > 0.0 ? (sumT / sumK) : 0.0;
+                  double bias = totalBias / totalFidelity;
+                  double alpha = 0.25; //std::min( 1.0, 10.0*averageFidelity / confidence);
                   double prevBias = this->kmerGroupBiases_[kid];
                   this->kmerGroupBiases_[kid] = alpha * bias + (1.0 - alpha) * prevBias;
               }
             }
         );
+
 
     }
 
@@ -519,7 +534,7 @@ private:
         tbb::parallel_for(BlockedIndexRange(size_t(0), numTranscripts),
           // for each transcript
           [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
-            auto epsilon = 1e-30;
+            auto epsilon = 1e-40;
             for (auto tid = range.begin(); tid != range.end(); ++tid) {
               auto& ti = transcripts_[tid];
               double relativeAbundance = means[tid];
@@ -527,7 +542,8 @@ private:
               if (ti.binMers.size() > 0 ) { likelihoods[tid] = 1.0; }
               // For each kmer in this transcript
               for ( auto& binmer : ti.binMers ) {
-                likelihoods[tid] *=  binmer.second / this->kmerGroupCounts_[binmer.first];
+                likelihoods[tid] *=  binmer.second / 
+                           (this->kmerGroupBiases_[binmer.first] * this->kmerGroupCounts_[binmer.first]);
               }
               likelihoods[tid] = (relativeAbundance > epsilon and likelihoods[tid] > epsilon) ? 
                                  std::log(relativeAbundance * likelihoods[tid]) : 0.0;
@@ -539,25 +555,40 @@ private:
     }
 
     double expectedLogLikelihood_(std::vector<double>& means) {
-      return (means.size() > 0) ? logLikelihood_(means) / means.size() : 0.0;
+      // alpha in arXiv:1104.3889v2
+      std::vector<double> sampProbs(means.size(), 0.0);
+
+      tbb::parallel_for(BlockedIndexRange(size_t(0), means.size()),
+          // for each transcript
+          [&sampProbs, &means, this](const BlockedIndexRange& range) ->void {
+            for (auto tid = range.begin(); tid != range.end(); ++tid) {
+              auto& ti = transcripts_[tid];
+              double relativeAbundance = means[tid];
+              sampProbs[tid] = ti.length * relativeAbundance;
+            }});
+
+      normalize_(sampProbs);
+
+      return (means.size() > 0) ? logLikelihood2_(sampProbs) / means.size() : 0.0;
     }
     
     double logLikelihood2_(std::vector<double>& means) {
 
-      std::vector<double> likelihoods(means.size(), 0.0);
+      std::vector<double> likelihoods(transcriptsForKmer_.size(), 0.0);
 
         // Compute the log-likelihood 
-        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
           // for each transcript
           [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
-            for (auto tid = range.begin(); tid != range.end(); ++tid) {
-              auto& ti = transcripts_[tid];
-
-              double transcriptLikelihood = 0.0;
-              double relativeAbundance = means[tid];
-              // For each kmer in this transcript
-              for ( auto& ll : ti.logLikes ) {
-                likelihoods[tid] += relativeAbundance * ll;
+            double kmerLikelihood = 0.0;
+            for (auto kid = range.begin(); kid != range.end(); ++kid) {
+              for (auto& tid : this->transcriptsForKmer_[kid]) {
+                kmerLikelihood += this->transcripts_[tid].binMers[kid] * (means[tid] / this->transcripts_[tid].length);
+              }
+              if (kmerLikelihood < 1e-20) { 
+                // std::cerr << "kmer group: " << kid << " has probability too low\n";
+              } else {
+                likelihoods[kid] = std::log(kmerLikelihood);
               }
             }
           });
@@ -641,6 +672,7 @@ private:
      std::vector<KmerQuantity> kmerGroupCounts(m.size());
      std::vector<Promiscutity> kmerGroupPromiscuities(m.size());
      std::vector<TranscriptIDVector> transcriptsForKmer(m.size());
+     kmerGroupSizes_.resize(m.size(), 0);
 
      using namespace boost::accumulators;
      std::cerr << "building collapsed transcript map\n";
@@ -668,6 +700,7 @@ private:
         for (auto kid : kv.second) {
             kmerGroupCounts[index] += readHash_.atIndex(kid);
         }
+        kmerGroupSizes_[index] = kv.second.size();
 
         // Update the total number of kmers we're accounting for
         // and the index of the current kmer group.
@@ -951,7 +984,7 @@ private:
                   //++trans.updated;
                   if (trans.updated++ == lastIndex) {
                     //while (trans.updated.load() < trans.weightNum.load()) {}
-                    meansOut[tid] = this->_computeMean(trans); 
+                    trans.mean = meansOut[tid] = this->_computeMean(trans); 
                     //trans.weightNum.store(0); 
                     trans.updated.store(0);
                   }
@@ -1047,7 +1080,6 @@ public:
 
         std::cerr << "Computing initial coverage estimates ... ";
 
-
         std::vector<double> means0(transcripts_.size(), 0.0);
         std::vector<double> means1(transcripts_.size(), 0.0);
         std::vector<double> means2(transcripts_.size(), 0.0);
@@ -1129,6 +1161,9 @@ public:
           std::cerr << "2/3\n";
           EMUpdate_(means1, means2);
 
+          double delta = pabsdiff_(means1, means2);
+          std::cerr << "delta = " << delta << "\n";
+
           // r = Theta_1 - Theta_0
           // v = (Theta_2 - Theta_1) - r
           tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
@@ -1166,7 +1201,7 @@ public:
           /** If there is **/
           if (std::isfinite(nonMonotonicity)) {
             negLogLikelihoodNew = -expectedLogLikelihood_(meansPrime);
-            std::cerr << "logLikelihood = " << -negLogLikelihoodNew << ", ";
+            //std::cerr << "logLikelihood = " << -negLogLikelihoodNew << ", ";
           } else {
             negLogLikelihoodNew = negLogLikelihoodOld;
           }
@@ -1183,12 +1218,22 @@ public:
           if (minStep < 0 and alphaS == minStep) { minStep = mStep * minStep; }
           std::swap(meansPrime, means0);//EMUpdate_(meansPrime, means0);
 
-          double delta = pabsdiff_(means0, means1);
-          std::cerr << "delta = " << delta << "\n";
-
           if (!std::isnan(negLogLikelihoodNew)) {
             negLogLikelihoodOld = negLogLikelihoodNew;
           }
+
+          // if (iter > 0 and iter % 5 == 0 and iter < numIt - 1) {
+          //   std::cerr << "updating kmer biases: . . . ";
+          //   tbb::parallel_for( BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
+          //     [&means0, this](const BlockedIndexRange& range) -> void {
+          //       for (auto tid : boost::irange(range.begin(), range.end())) {
+          //         this->transcripts_[tid].mean = means0[tid];
+          //       }
+          //     });
+
+          //   computeKmerFidelities_();
+          //   std::cerr << "done\n";
+          // }
 
         }
         
