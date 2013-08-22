@@ -217,7 +217,8 @@ ExternalProject_Add(libjellyfish
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install && 
                     cp config.h <INSTALL_DIR>/include/jellyfish-1.1.10/ && 
-                    cp jellyfish/{noop_dumper,count_main_cmdline}.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish
+                    cp jellyfish/noop_dumper.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish &&
+                    cp jellyfish/count_main_cmdline.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish
 )
 
 find_package(TBB)
