@@ -1402,7 +1402,7 @@ public:
         ofile << headerLines;
 
         ofile << "# " << "Transcript" << '\t' << "Length" << '\t' << 
-                 "TPM" << '\t' << "RPKM" << '\n';
+	  "TPM" << '\t' << "RPKM" << '\t' << "EstimatedNumReads" << '\n';
         for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
           auto& ts = transcripts_[i]; 
           // expected # of kmers coming from transcript i
@@ -1418,7 +1418,8 @@ public:
           ofile << transcriptGeneMap_.transcriptName(index) << 
                    '\t' << ts.length << '\t' <<
                    tpm << '\t' << 
-                   rpkm << '\n';
+	           rpkm << '\t' <<
+	           ri << '\n';
 
           ++index;
           ++pb;
