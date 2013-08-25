@@ -320,7 +320,7 @@ set(SHARK_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark)
 set(SHARK_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
 ExternalProject_Add(libshark
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    SVN_REPOSITORY https://svn.code.sf.net/p/shark-project/code/trunk/Shark@2783
+    URL http://www.cs.cmu.edu/~robp/files/Shark.tar.gz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CMAKE_ARGS -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
