@@ -30,6 +30,7 @@
 #include <cstring>
 #include <cstdio>
 #include <sstream>
+#include <string>
 #include <memory>
 #include <functional>
 #include <unordered_map>
@@ -291,19 +292,17 @@ int main( int argc, char* argv[] ) {
 
     po::options_description hidden("hidden");
     hidden.add_options()
-    ("command", po::value<string>(), "command to run {index, estimate, sf}");
+    ("command", po::value<string>(), "command to run {index, quant, sf}");
     
     po::options_description sfopts("Allowed Options");
     sfopts.add_options()
     ("version,v", "print version string")
+    ("no-version-check", "don't check with the server to see if this is the latest version")
     ("help,h", "produce help message")
     ;
 
     po::options_description all("Allowed Options");
     all.add(sfopts).add(hidden);
-
-    std::string versionMessage = getVersionMessage();
-    std::cerr << versionMessage;
 
     // po::options_description sfopts("Command");
     // sfopts.add_options()
@@ -311,22 +310,42 @@ int main( int argc, char* argv[] ) {
     po::positional_options_description pd;
     pd.add("command", 1);
 
+    size_t topLevelArgc = argc;
+    for (size_t i : boost::irange(size_t{1}, static_cast<size_t>(argc))) {
+      if (argv[i][0] != '-') {
+        topLevelArgc = i+1;
+        break;
+      }
+    }
+
     po::variables_map vm;
-    po::store(po::command_line_parser(2, argv).options(all).positional(pd).allow_unregistered().run(), vm);
+    po::parsed_options parsed = po::command_line_parser(topLevelArgc, argv).options(all).positional(pd).allow_unregistered().run();
+    po::store(parsed, vm);
+
+/*    std::vector<string> subcommand_options = po::collect_unrecognized(parsed.options, po::include_positional);
+    for (auto& s : subcommand_options) {
+	std::cerr << "option: " << s << "\n";
+    }
+*/
 
     if (vm.count("version")) {
       std::cerr << "version : " << Sailfish::version << "\n";
       std::exit(0);
     }
 
-    if (!vm.count("command") and vm.count("help")) {
-      std::cout << sfopts << std::endl;
-      help(argc, argv);
-      std::exit(0);
-    }
+    if (vm.count("help") and !vm.count("command")) {
+        std::cout << sfopts << std::endl;
+        help(argc, argv);
+        std::exit(0);
+    } 
 
+    if (!vm.count("no-version-check")){
+      std::string versionMessage = getVersionMessage();
+      std::cerr << versionMessage;
+    }
+ 
     po::notify(vm);
-      
+    
     std::unordered_map<string, std::function<int(int, char*[])>> cmds({
       {"estimate", runIterativeOptimizer},
       {"index", mainIndex},
@@ -338,16 +357,27 @@ int main( int argc, char* argv[] ) {
 
     //string cmd = argv[1];
     string cmd = vm["command"].as<string>();
-
-    char** argv2 = new char*[argc-1];
+/*
+    size_t subcommand_argc = subcommand_options.size();
+    char** argv2 = new char*[subcommand_argc+1];
+    argv2[0] = strdup(argv[0]);
+    for (size_t i : boost::irange(size_t{0}, subcommand_argc)) {
+      std::string& s = subcommand_options[i];
+      argv[i+1] = new char[s.size()+1];
+      std::copy(s.begin(), s.end(), argv[i+1]);
+      argv[i+1][s.size()] = '\0';
+    }
+*/
+    int subCommandArgc = argc - topLevelArgc + 1; 
+    char** argv2 = new char*[subCommandArgc];
     argv2[0] = argv[0];
-    std::copy_n( &argv[2], argc-2, &argv2[1] );
+    std::copy_n( &argv[topLevelArgc], argc-topLevelArgc, &argv2[1] );
 
     auto cmdMain = cmds.find(cmd);
     if (cmdMain == cmds.end()) {
-      help( argc-1, argv2 );
+      help(subCommandArgc, argv2);
     } else {
-      cmdMain->second(argc-1, argv2);
+      cmdMain->second(subCommandArgc, argv2);
     }
     delete[] argv2;
 
