@@ -251,24 +251,27 @@ private:
     KmerQuantity _computeSumQuantile( const TranscriptInfo& ti, double quantile ) {
         using namespace boost::accumulators;
         using accumulator_t = accumulator_set<double, stats<tag::p_square_quantile> >;
+        //using tail_t = accumulator_set<double, stats<tag::tail
         KmerQuantity sum = 0.0;
         
+
         accumulator_t accLow(quantile_probability = quantile);
         accumulator_t accHigh(quantile_probability = 1.0-quantile);
         for ( auto binmer : ti.binMers ) {
-            if ( this->genePromiscuousKmers_.find(binmer.first) == this->genePromiscuousKmers_.end() ){
-                accLow(binmer.second);
-                accHigh(binmer.second);
-            }        
+            accLow(binmer.second);
+            accHigh(binmer.second);
         }
 
         auto cutLow = p_square_quantile(accLow);
         auto cutHigh = p_square_quantile(accHigh);
 
         for ( auto binmer : ti.binMers ) {
-            if ( this->genePromiscuousKmers_.find(binmer.first) == this->genePromiscuousKmers_.end() ){
-                sum += std::min( cutHigh, std::max( cutLow, binmer.second ) );
+            KmerQuantity res = std::min( cutHigh, std::max(cutLow, binmer.second ) );
+            if (res != binmer.second) {
+              std::cerr << "cutLow = " << cutLow << ", cutHigh = " << cutHigh << " :: ";
+              std::cerr << "res = " << res << ", binmer.second = " << binmer.second << "\n";
             }
+            sum += std::min( cutHigh, std::max(cutLow, binmer.second ) );
         }
         return sum;
     }
@@ -280,6 +283,44 @@ private:
         }
         return sum;
     }
+    
+    KmerQuantity _computeSumClamped( const TranscriptInfo& ti ) {
+        if (ti.binMers.size() < 5) {return _computeSum(ti);}
+        KmerQuantity sum = 0.0;
+
+        auto maxQuant = std::numeric_limits<KmerQuantity>::max();
+        auto minQuant = 0.0;
+
+        auto startValue = ti.binMers.begin()->second;
+        KmerQuantity lowestCount = startValue;
+        KmerQuantity secondLowestCount = startValue;
+
+        KmerQuantity highestCount = startValue;
+        KmerQuantity secondHighestCount = startValue;
+
+        for ( auto binmer : ti.binMers ) {
+          auto prevLowest = lowestCount;
+          lowestCount = std::min(binmer.second, lowestCount);
+          if (lowestCount < prevLowest) { secondLowestCount = prevLowest; }
+          auto prevHighest = highestCount;
+          highestCount = std::max(binmer.second, highestCount);          
+          if (highestCount > prevHighest) { secondHighestCount = prevHighest; }
+        }
+        //std::cerr << lowestCount << ", " << secondLowestCount << ", " << highestCount << ", " << secondHighestCount << "\n";
+
+        for ( auto binmer : ti.binMers ) {
+          if (binmer.second > lowestCount and binmer.second < highestCount) {
+            sum += kmerGroupBiases_[binmer.first] * binmer.second;
+          } else if (binmer.second >= highestCount ) {
+            sum += secondHighestCount;
+          } else if (binmer.second <= lowestCount ) {
+            sum += secondLowestCount;
+          }
+        }
+
+        return sum;
+    }
+    
 
     bool _discard( const TranscriptInfo& ti) {
         if ( ti.mean == 0.0 ) { 
@@ -297,6 +338,10 @@ private:
           sum += w;
         }
         return sum;
+    }
+
+    KmerQuantity _computeClampedMean( const TranscriptInfo& ti ) {
+        return (ti.effectiveLength > 0.0) ? (_computeSumClamped(ti) / ti.effectiveLength) : 0.0;
     }
 
     KmerQuantity _computeMean( const TranscriptInfo& ti ) {
@@ -777,11 +822,24 @@ private:
 
         boost::dynamic_bitset<> isActiveKmer(numKmers);
 
+        //std::set<TranscriptID> uniquelyAnchoredTranscripts;
+
         for (auto kid : boost::irange(size_t{0}, numKmers)) {
           if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
             isActiveKmer[kid] = 1;
           }
+/*        size_t numContainingTranscripts = transcriptsForKmer_[kid].size();
+          assert(numContainingTranscripts > 0);
+          if (numContainingTranscripts == 1 or 
+              std::all_of(transcriptsForKmer_[kid].begin(), transcriptsForKmer_[kid].end(), [this, kid](TranscriptID tid) -> bool { 
+                return tid == this->transcriptsForKmer_[kid][0]; } )) {
+              uniquelyAnchoredTranscripts.insert(transcriptsForKmer_[kid][0]);
+          }
+          */
         }
+
+        //std::cerr << "\nIn the original set, there were " << uniquelyAnchoredTranscripts.size() << " transcripts with unique nonzero anchors\n";
+
         // DYNAMIC_BITSET is *NOT* concurrent?!?!
         // determine which kmers are active
         // tbb::parallel_for(size_t(0), numKmers, 
@@ -984,7 +1042,10 @@ private:
                   //++trans.updated;
                   if (trans.updated++ == lastIndex) {
                     //while (trans.updated.load() < trans.weightNum.load()) {}
+                    
                     trans.mean = meansOut[tid] = this->_computeMean(trans); 
+                    //trans.mean = meansOut[tid] = this->_computeClampedMean(trans);                     
+                    
                     //trans.weightNum.store(0); 
                     trans.updated.store(0);
                   }
@@ -1087,15 +1148,20 @@ public:
 
         std::vector<double> r(transcripts_.size(), 0.0);
         std::vector<double> v(transcripts_.size(), 0.0);
+        std::atomic<size_t> uniquelyAnchoredTranscripts{0};
+        std::atomic<size_t> nonZeroTranscripts{0};        
 
         // Compute the initial mean for each transcript
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptGeneMap_.numTranscripts())),
-        [this, &means0](const BlockedIndexRange& range) -> void {
+        [this, &uniquelyAnchoredTranscripts, &nonZeroTranscripts, &means0](const BlockedIndexRange& range) -> void {
             for (auto tid = range.begin(); tid != range.end(); ++tid) {
               auto& transcriptData = this->transcripts_[tid];
               KmerQuantity total = 0.0;
               //transcriptData.weights.resize(transcriptData.binMers.size());
               //transcriptData.logLikes.resize(transcriptData.binMers.size());
+
+              bool notTotallyPromiscuous{false};
+              bool nonZero{false};
 
               for ( auto & kv : transcriptData.binMers ) {
                 auto kmer = kv.first;
@@ -1103,13 +1169,21 @@ public:
                     // count is the number of times kmer appears in transcript (tid)
                     auto count = kv.second;
                     kv.second = count * this->kmerGroupCounts_[kmer] * this->_weight(kmer);
+                    if (kv.second > 0.0 and kmerGroupPromiscuities_[kmer] == 1) { notTotallyPromiscuous = true; }
+                    if (kv.second > 0.0) { nonZero = true; }
                     //transcriptData.weights[transcriptData.weightNum++] = kv.second;
                     //total += kv.second;
                 }
               }
               //transcriptData.totalWeight.store(total);
               //transcriptData.weightNum.store(0);
+              
               transcriptData.mean = means0[tid] = this->_computeMean(transcriptData);
+              //transcriptData.mean = means0[tid] = this->_computeClampedMean(transcriptData);
+
+              //transcriptData.mean = notTotallyPromiscuous ? means0[tid] = this->_computeMean(transcriptData) : 0.0;
+              if (notTotallyPromiscuous) { ++uniquelyAnchoredTranscripts; }
+              if (nonZero) { ++nonZeroTranscripts; }
               //transcriptData.mean = means0[tid] = this->_computeWeightedMean(transcriptData);
               //transcriptData.mean = means0[tid] = 1.0 / this->transcripts_.size();//this->_computeMean(transcriptData);
               //transcriptData.mean = this->_computeWeightedMean(transcriptData);
@@ -1120,7 +1194,8 @@ public:
         );
         normalizeTranscriptMeans_();
         normalize_(means0);
-
+        std::cerr << "\nThere were " << uniquelyAnchoredTranscripts.load() << " uniquely anchored transcripts\n";
+        std::cerr << "There were " << nonZeroTranscripts.load() << " transcripts with at least one overlapping k-mer\n";
         std::cerr << "done\n";
         size_t outerIterations = 1;
         /*
@@ -1376,6 +1451,7 @@ public:
             for (auto tid = range.begin(); tid != range.end(); ++tid) {
               auto& ts = this->transcripts_[tid];
               fracTran[tid] = this->_computeMean( ts );
+              //fracTran[tid] = this->_computeClampedMean( ts );
             }
         });
         // noise transcript
@@ -1410,8 +1486,8 @@ public:
           // expected # of reads coming from transcript i
           auto ri = ci / kmersPerRead;
           auto effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
-          auto rpkm = (effectiveLength > 0 and ri > 0.0) ? 
-                      (billion * (ci / (estimatedGroupTotal * ts.effectiveLength))) : 0.0;
+          auto rpkm = (effectiveLength > 0) ? 
+                      (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
                rpkm = (rpkm < 0.01) ? 0.0 : rpkm;
           auto tpm = fracTran[i] * million;
                tpm = (tpm < 0.05) ? 0.0 : tpm;

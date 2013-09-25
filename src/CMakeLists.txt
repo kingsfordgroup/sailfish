@@ -17,6 +17,7 @@ VersionChecker.cpp
 SailfishUtils.cpp
 ComputeBiasFeatures.cpp
 PerformBiasCorrection.cpp
+PartitionRefiner.cpp
 cokus.cpp
 )
 
@@ -61,8 +62,23 @@ target_link_libraries(sailfish
     gomp 
     m
     ${TBB_LIBRARIES}
-    ${LIBSAILFISH_LINKER_FLAGS} shark
+    shark
+    #${LIBSAILFISH_LINKER_FLAGS} shark
     #profiler
+)
+
+add_executable(performBiasCorrection BiasCorrectionDriver.cpp)
+target_link_libraries(performBiasCorrection
+sailfish_core
+${Boost_LIBRARIES}
+${ZLIB_LIBRARY}
+cmph
+jellyfish-1.1
+pthread
+gomp
+m
+${TBB_LIBRARIES}
+shark
 )
 
 add_executable(analyze_kmer_tradeoff AnalyzeKmerTradeoff.cpp)

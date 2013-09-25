@@ -60,6 +60,7 @@
 #include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
 #include "ezETAProgressBar.hpp"
+#include "PartitionRefiner.hpp"
 
 using TranscriptID = uint32_t;
 using KmerID = uint64_t;
@@ -137,7 +138,7 @@ int buildLUTs(
   tbb::concurrent_queue<ContainingTranscript> q;
 
   /**
-   * spawn off a thread to build the kmer look up table
+    spawn off a thread to build the kmer look up table
    */
   threads.push_back(std::thread(
     [&q, &transcriptsForKmer, &nworking]() {
@@ -149,8 +150,6 @@ int buildLUTs(
       }
     })
   );
-
-  transcriptsForKmer.resize( transcriptHash.size() );
 
   using LUTTools::TranscriptInfo;
   tbb::concurrent_queue<TranscriptInfo*> tq;
@@ -182,14 +181,16 @@ int buildLUTs(
     })
   );
 
+  PartitionRefiner refiner(transcriptHash.size());
+  std::mutex refinerMutex;
 
   // Start the desired number of threads to parse the transcripts
   // and build our data structure.
   for (size_t i = 0; i < numThreads - 1; ++i) {
-
+	
     threads.push_back( std::thread( 
       [&numRes, &q, &tq, &tgmap, &parser, &transcriptHash, &nworking, 
-       &transcriptIndex, &transcriptsForKmer, &tmut, merLen]() -> void {
+       &transcriptIndex, &transcriptsForKmer, &tmut, &refiner, &refinerMutex, merLen]() -> void {
 
         // Each thread gets it's own stream
         jellyfish::parse_read::thread stream = parser.new_thread();
@@ -205,7 +206,7 @@ int buildLUTs(
           
           // The transcript sequence
           // strip the newlines from the sequence and put it into a string (newSeq)
-          std::string seq(read->seq_s, std::distance(read->seq_s, read->seq_e) - 1 );
+          std::string seq(read->seq_s, std::distance(read->seq_s, read->seq_e) - 1);
           auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
           auto readLen = std::distance( seq.begin(), newEnd );
           std::string newSeq(seq.begin(), seq.begin() + readLen);
@@ -228,6 +229,8 @@ int buildLUTs(
           tinfo->length = readLen;
           //tinfo->kmers.resize(numKmers);
 
+	  std::vector<KmerID> kmers(numKmers, 0);
+		  
           // Iterate over the kmers
           ReadLength effectiveLength(0);
           for ( auto offset : boost::irange( size_t(0), numKmers) ) { 
@@ -241,6 +244,8 @@ int buildLUTs(
             }
 
             auto binMerId = transcriptHash.id(binMer);
+	    kmers[offset] = binMerId;
+
             // Only count and track kmers which should be considered
             if ( binMerId != INVALID ) {
               auto tcount = transcriptHash.atIndex(binMerId);
@@ -250,8 +255,14 @@ int buildLUTs(
                // for boost lockfree queue
                // while(!q.push( c ));
              }
+           } else {
+             std::cerr << "When building the lookup table, I thought " << mer << " was an invalid k-mer\n";
            }
          }
+	
+	 refinerMutex.lock();
+	 refiner.splitWith(kmers);
+	 refinerMutex.unlock();
 
          tq.push(tinfo);
          // for boost lockfree queue
@@ -266,6 +277,7 @@ int buildLUTs(
 
   // Wait for all of the threads to finish
   for ( auto& thread : threads ){ thread.join(); }
+  refiner.relabel();
 
   std::cerr << "writing kmer lookup table . . . ";
   std::cerr << "table size = " << transcriptsForKmer.size() << " . . . ";

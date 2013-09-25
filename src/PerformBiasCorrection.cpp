@@ -70,6 +70,7 @@ struct TranscriptResult{
 	size_t length;
 	double tpm;
 	double rpkm;
+        double approxCount;
 };
 
 struct ExpressionResults {
@@ -93,6 +94,7 @@ ExpressionResults parseSailfishFile(const bfs::path& expFile) {
 			ifile >> tr.length;
 			ifile >> tr.tpm;
 			ifile >> tr.rpkm;
+			ifile >> tr.approxCount;
 			res.expressions[tname] = tr;
 			// eat the newline
 			char nline; ifile.get(nline);
@@ -132,7 +134,7 @@ int performBiasCorrection(
 		auto rpkm = sfres.expressions[tname].rpkm;
 		shark::RealVector v(1);
 	
-		if ( rpkm >= 0.001 ) {
+		if ( rpkm >= 0.01 ) {
 			retainedRows.emplace_back(i);
 			retainedNames.push_back(tname);
 			v(0) = std::log(rpkm);
@@ -233,11 +235,11 @@ int performBiasCorrection(
 	auto reg = std::unique_ptr<RandomForestRegressor>(new RandomForestRegressor(
 		500,
 		train.n_features,
-		7, // max tree depth
+		4, // max tree depth
 		1, // min_samples_leaf
 		1.0, // features ratio
 		true, // bootstrap
-		false, //out-of-bag
+		true, //out-of-bag
 		true, // compute importance
 		0, // random seed
 		numThreads, // num jobs
@@ -274,6 +276,17 @@ int performBiasCorrection(
   REAL trn_r2=R2(&pred[0], train.y, train.n_samples);
   std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
 
+  	double grandMean = 0.0;
+        for (auto i : boost::irange(size_t{0}, size_t{train.n_samples})) { 
+		grandMean += retainedRPKMs[i];
+	}
+	grandMean /= train.n_samples;
+
+        for (auto i : boost::irange(size_t{0}, size_t{train.n_samples})) { 
+		pred[i] = grandMean + (retainedRPKMs[i] - pred[i]);
+	}
+
+	/**
 	for (auto i : boost::irange(size_t{0}, size_t{train.n_samples})) { 
 		pred[i] = retainedRPKMs[i] - pred[i];
 	}
@@ -303,7 +316,7 @@ int performBiasCorrection(
 		minPred = std::min(minPred, pred[i]);
 		maxPred = std::max(maxPred, pred[i]);
 	}
-	
+	**/
    trn_rmse=rmse(&pred[0], train.y, train.n_samples);
    trn_r2=R2(&pred[0], train.y, train.n_samples);
   std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";

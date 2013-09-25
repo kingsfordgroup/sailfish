@@ -79,6 +79,7 @@ int mainCount( int argc, char *argv[] ) {
     ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
     ("counts,c", po::value<string>(), "File where Sailfish read count is written")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
+    ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded")
     ;
 
     po::variables_map vm;
@@ -104,6 +105,7 @@ same index, and the counts will be written to the file [counts].
 
         string sfIndexBase = vm["index"].as<string>();
         string sfTrascriptIndexFile = sfIndexBase+".sfi";
+        bool discardPolyA = vm["polya"].as<bool>();
 
         // auto cpuset = new cpu_set_t;
         // CPU_ZERO(cpuset);
@@ -112,8 +114,6 @@ same index, and the counts will be written to the file [counts].
         //   std::cerr << "COULD NOT SET PROCESSOR AFFINITY!!!\n";
         //   std::exit(1);
         // }
-
-
 
         std::cerr << "reading index . . . ";
         auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
@@ -275,7 +275,7 @@ same index, and the counts will be written to the file [counts].
           // }
 
                 threads.emplace_back(std::thread(
-                    [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, &k, &numPaged, threadIdx, merLen, numActors]() -> void {
+                    [&parser, &readNum, &rhash, &start, &phi, &unmappedKmers, &k, &numPaged, discardPolyA, threadIdx, merLen, numActors]() -> void {
                       //phi.will_need(threadIdx+1, numActors+1);
                       //rhash.will_need(threadIdx+1, numActors+1);
                       ++numPaged;
@@ -302,6 +302,10 @@ same index, and the counts will be written to the file [counts].
                     auto dir = MerDirection::BOTH;
 
                     auto INVALID = phi.INVALID;
+                    char* as = new char[merLen];
+                    for (auto i : boost::irange(size_t{0}, merLen)) { as[i] = 'A'; }
+
+                    auto polyA = jellyfish::parse_dna::mer_string_to_binary(as, merLen );
 
                     uint64_t localUnmappedKmers{0};
                     uint64_t locallyProcessedReads{0};
@@ -316,15 +320,15 @@ same index, and the counts will be written to the file [counts].
                         }                        
 
                         // we iterate over the entire read
-                        const char         *start = read->seq_s;
-                        const char * const  end   = read->seq_e;
+                        const char*         start = read->seq_s;
+                        const char*  const  end   = read->seq_e;
+                        uint32_t readLen = std::distance(start, end);
 
                         // reset all of the counts
                         fCount = rCount = numKmers = 0;
                         cmlen = kmer = rkmer = 0;
                         dir = MerDirection::BOTH;
 
-                        uint32_t readLen = std::distance(start, end);
 
                         // the maximum number of kmers we'd have to store
                         uint32_t maxNumKmers = (readLen >= merLen) ? readLen - merLen + 1 : 0;
@@ -366,10 +370,16 @@ same index, and the counts will be written to the file [counts].
 
                                   kmer = ((kmer << 2) & masq) | c;
                                   rkmer = (rkmer >> 2) | ((0x3 - c) << lshift);
+
                                   // count if the kmer is valid in the forward and
                                   // reverse directions
                                   if(++cmlen >= merLen) {
                                     cmlen = merLen;
+  
+                                    if (discardPolyA and (kmer == polyA or rkmer == polyA)) {
+                                      ++numKmers; --numRemaining;
+                                      break;
+                                    }
 
                                     // dispatch on the direction
                                     switch (dir) {
@@ -468,6 +478,7 @@ same index, and the counts will be written to the file [counts].
                         
                 } // end parse all reads
                 unmappedKmers += localUnmappedKmers;
+                delete [] as;
                 //std::cerr << "Thread " << k << " processed " << locallyProcessedReads << " reads\n"; 
             }));
 
@@ -488,25 +499,26 @@ same index, and the counts will be written to the file [counts].
           rhash.dumpCountsToFile(countsFile);
 
           // Total kmers
-          size_t totalCount = 0;
+          size_t mappedKmers= 0;
           for (auto i : boost::irange(size_t(0), rhash.kmers().size())) {
-              totalCount += rhash.atIndex(i);
+            mappedKmers += rhash.atIndex(i);
           }
 
           bfs::path countInfoFilename(countsFile);
           countInfoFilename.replace_extension(".count_info");
 
+	  size_t totalCount = mappedKmers + unmappedKmers;
           std::ofstream countInfoFile(countInfoFilename.string());
           countInfoFile << "total_reads\t" << totalCount << "\n";
-          countInfoFile << "mapped\t" << totalCount - unmappedKmers << "\n";
+          countInfoFile << "mapped\t" << mappedKmers << "\n";
           countInfoFile << "unmapped\t" << unmappedKmers << "\n";
           countInfoFile << "mapped_ratio\t" << 
-                           (totalCount / static_cast<double>(totalCount + unmappedKmers)) << "\n";
+                           (mappedKmers / static_cast<double>(totalCount)) << "\n";
           countInfoFile.close();
 
           std::cerr << "There were " << totalCount << ", kmers; " << unmappedKmers << " could not be mapped\n";
           std::cerr << "Mapped " << 
-                       (totalCount / static_cast<double>(totalCount + unmappedKmers)) * 100.0 << "% of the kmers\n";
+                       (mappedKmers / static_cast<double>(totalCount)) * 100.0 << "% of the kmers\n";
           end = std::chrono::steady_clock::now();
           sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
           nsec = sec.count();

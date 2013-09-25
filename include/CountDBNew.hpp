@@ -37,7 +37,7 @@
 
 /**
 *  This class provides low-overhead access to the counts of various
-*  kmers in a hash-like format (though internally it is represented)
+*  kmers in a hash-like format (though internally it may be represented)
 *  without hashing.
 **/
 class CountDBNew {

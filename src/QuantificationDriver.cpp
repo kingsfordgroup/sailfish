@@ -46,10 +46,15 @@ int runKmerCounter(const std::string& sfCommand,
                    uint32_t numThreads,
                    const std::string& indexBase, 
                    const std::vector<string>& readFiles, 
-                   const std::string& countFileOut) {
+                   const std::string& countFileOut,
+                   bool discardPolyA) {
 
     std::stringstream argStream;
+
     argStream << sfCommand << " ";
+
+    // if we're ignoring polyA/polyT in reads
+    if (discardPolyA) { argStream << "--polya" << " "; }
     argStream << "--index " << indexBase << " ";
     argStream << "--counts " << countFileOut << " ";
     argStream << "--threads " << numThreads << " ";
@@ -176,6 +181,7 @@ int mainQuantify( int argc, char *argv[] ) {
     ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
+    ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded")
     ;
  
     po::variables_map vm;
@@ -199,6 +205,7 @@ int mainQuantify( int argc, char *argv[] ) {
         uint32_t numThreads = vm["threads"].as<uint32_t>();
         std::vector<string> readFiles = vm["reads"].as<std::vector<string>>();
         bool force = vm["force"].as<bool>();
+        bool discardPolyA = vm["polya"].as<bool>();
 
         /*
         ("index,i", po::value<string>(), "transcript index file [Sailfish format]")
@@ -234,7 +241,7 @@ int mainQuantify( int argc, char *argv[] ) {
 
         mustRecount = (force or !boost::filesystem::exists(countFilePath));
         if (mustRecount) {
-            runKmerCounter(sfCommand, numThreads, indexPath.string(), readFiles, countFilePath.string());
+            runKmerCounter(sfCommand, numThreads, indexPath.string(), readFiles, countFilePath.string(), discardPolyA);
         }
 
         /*
