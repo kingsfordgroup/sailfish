@@ -68,19 +68,20 @@ target_link_libraries(sailfish
     #profiler
 )
 
-add_executable(performBiasCorrection BiasCorrectionDriver.cpp)
-target_link_libraries(performBiasCorrection
-sailfish_core
-${Boost_LIBRARIES}
-${ZLIB_LIBRARY}
-cmph
-jellyfish-1.1
-pthread
-gomp
-m
-${TBB_LIBRARIES}
-shark
-)
+#
+#add_executable(performBiasCorrection BiasCorrectionDriver.cpp)
+#target_link_libraries(performBiasCorrection
+#sailfish_core
+#${Boost_LIBRARIES}
+#${ZLIB_LIBRARY}
+#cmph
+#jellyfish-1.1
+#pthread
+#gomp
+#m
+#${TBB_LIBRARIES}
+#shark
+#)
 
 add_executable(analyze_kmer_tradeoff AnalyzeKmerTradeoff.cpp)
 target_link_libraries(analyze_kmer_tradeoff 

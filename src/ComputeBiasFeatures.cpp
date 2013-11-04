@@ -45,7 +45,7 @@
 #include "CommonTypes.hpp"
 
 // holding 2-mers as a uint64_t is a waste of space,
-// but using Jellyfish makes life so much easier, so 
+// but using Jellyfish makes life so much easier, so
 // we'll live with it for now.
 using Kmer = uint64_t;
 using Sailfish::TranscriptFeatures;
@@ -59,7 +59,7 @@ int computeBiasFeatures(
 
     using std::string;
 
-	std::vector<std::string> alphabet{{"AA", "AC", "AG", "AT", 
+	std::vector<std::string> alphabet{{"AA", "AC", "AG", "AT",
                         "CA", "CC", "CG", "CT",
                         "GA", "GC", "GG", "GT",
 	                    "TA", "TC", "TG", "TT"}};
@@ -69,7 +69,7 @@ int computeBiasFeatures(
 		diNucleotides[i] = jellyfish::parse_dna::mer_string_to_binary(alphabet[i].c_str(), 2);
 	}
 
-	
+
         std::vector<std::string> readFiles = transcriptFiles;
         for( auto rf : readFiles ) {
             std::cerr << "readFile: " << rf << ", ";
@@ -142,8 +142,8 @@ int computeBiasFeatures(
                         auto nsec = sec.count();
                         auto rate = (nsec > 0) ? readNum / sec.count() : 0;
                         std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
-                    }              
-					
+                    }
+
 
                     // we iterate over the entire read
                     const char         *start = read->seq_s;
@@ -156,7 +156,9 @@ int computeBiasFeatures(
                     cmlen = kmer = 0;
 
                     uint32_t readLen = std::distance(start, end);
-                    tfeat.name = std::string(read->header, read->header + read->hlen);
+                    // The transcript name
+                    std::string fullHeader(read->header, read->hlen);
+                    tfeat.name = fullHeader.substr(0, fullHeader.find(' '));
                     tfeat.length = readLen;
                     auto nfact = 1.0 / readLen;
 
