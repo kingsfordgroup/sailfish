@@ -18,7 +18,7 @@ After downloading the Sailfish source distribution and unpacking it, change into
 top-level directory:
 
 ~~~~
-> cd Sailfish-0.1.0-Source
+> cd Sailfish-0.6.0-Source
 ~~~~
 
 Then, create an out-of-source build directory and change into it:
