@@ -142,14 +142,18 @@ When the quantification step is finished, the directory \<quant_dir\> will conat
 "quant.sf".  This file contains the result of the Sailfish quantification step.  This file contains a
 number of columns (which are listed in the last of the header lines beginning with '#').  Specifically,
 the columns are (1) Transcript ID, (2) Transcript Length, (3) Transcripts per Million (TPM), 
-and (4) Reads Per Kilobase per Million mapped reads (RPKM).  The first two columns are self-explanatory,
-while the last two are measures of transcript abundance.  The Transcripts per Million quantification
-number is computed as described in [1], and is meant as an estimate of the number of transcripts, per
+and (4) Reads Per Kilobase per Million mapped reads (RPKM), (5) K-mers Per Kilobase per Million mapped kmers (KPKM),
+and (5) Estimated Number of Reads (an estimate of the number of reads drawn from this transcript given the transcript's
+relative abundance and length).  The first two columns are self-explanatory,
+the next three are measures of transcript abundance and the final is a commonly used input for differential expression
+tools.  The Transcripts per Million quantification number is computed as described in [1], and is meant as an estimate of the number of transcripts, per
 million observed transcripts, originating from each isoform.  Its benefit over the RPKM measure is
 that it is independent of the mean expressed transcript length (i.e. if the mean expressed transcript
 length varies between samples, for example, this alone can affect differential analysis based on 
 the RPKM.)  The RPKM is a classic measure of relative transcript abundance, and is an estimate of the
 number of reads per kilobase of transcript (per million mapped reads) originating from each transcript.
+The KPKM should closely track the RPKM, but is defined for very short features which are larger than
+the chosen k-mer length but may be shorter than the read length.
 
 License
 =======
