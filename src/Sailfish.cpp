@@ -62,8 +62,12 @@
 //#include "iterative_optimizer.hpp"
 //#include "tclap/CmdLine.h"
 
-int performBiasCorrection(boost::filesystem::path featPath, 
-                          boost::filesystem::path expPath, 
+int performBiasCorrection(boost::filesystem::path featPath,
+                          boost::filesystem::path expPath,
+                          double estimatedReadLength,
+                          double kmersPerRead,
+                          uint64_t mappedKmers,
+                          uint32_t merLen,
                           boost::filesystem::path outPath,
                           size_t numThreads);
 
@@ -109,9 +113,9 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv).options(programOptions).run(), vm);
- 
+
     //bool poisson = ( vm.count("poisson") ) ? true : false;
-    
+
     if ( vm.count("version") ) {
       std::cout << "version : " << Sailfish::version <<"\n";
       std::exit(0);
@@ -138,9 +142,9 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     string hashFile = vm["counts"].as<string>();
     //std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
     //string transcriptHashFile = vm["thash"].as<string>();
-    
+
     string sfIndexBase = vm["index"].as<string>();
-    
+
     bfs::path sfIndexBasePath(vm["index"].as<string>());
 
     string sfIndexFile = sfIndexBase+".sfi";
@@ -151,6 +155,9 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     string lutprefix = vm["lutfile"].as<string>();
     auto tlutfname = lutprefix + ".tlut";
     auto klutfname = lutprefix + ".klut";
+    auto kmerEquivClassFname = bfs::path(tlutfname);
+    kmerEquivClassFname = kmerEquivClassFname.parent_path();
+    kmerEquivClassFname /= "kmerEquivClasses.bin";
 
     TranscriptGeneMap tgm;
     { // read the serialized transcript <-> gene map from file
@@ -174,14 +181,14 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
     std::cerr << "done\n";
     */
-   
+
     // the READ hash
     std::cerr << "Reading read counts from [" << hashFile << "] . . .";
     auto hash = CountDBNew::fromFile( hashFile, sfIndexPtr );
     std::cerr << "done\n";
     //const std::vector<string>& geneFiles{genesFile};
     auto merLen = sfIndex.kmerLength();
-    
+
     BiasIndex bidx = vm.count("bias") ? BiasIndex( vm["bias"].as<string>() ) : BiasIndex();
 
     std::cerr << "Creating optimizer . . .";
@@ -198,7 +205,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
       // for CollapsedIterativeOptimizer (EM algorithm)
 
-      solver.optimize(klutfname, tlutfname, numIter, minMean );
+      solver.optimize(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean );
 
       std::stringstream headerLines;
       headerLines << "# [sailfish version]\t" << Sailfish::version << "\n";
@@ -209,18 +216,31 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       headerLines << "\n";
 
       solver.writeAbundances(outputFilePath, headerLines.str());
-      
-     
+
+
       if (computeBiasCorrection) {
+
+        // Estimated read length
+        double estimatedReadLength = hash.averageLength();
+        // Number of k-mers per read
+        double kmersPerRead = ((estimatedReadLength - hash.kmerLength()) + 1);
+        // Total number of mapped kmers
+        uint64_t mappedKmers= 0;
+        for (auto i : boost::irange(size_t(0), hash.kmers().size())) {
+          mappedKmers += hash.atIndex(i);
+        }
+
+
         sfIndexBasePath.remove_filename();
-        outputFilePath.remove_filename();        
+        outputFilePath.remove_filename();
         auto biasFeatPath = sfIndexBasePath / "bias_feats.txt";
         auto expressionFilePath = outputFilePath / "quant.sf";
         auto biasCorrectedFile = outputFilePath / "quant_bias_corrected.sf";
         std::cerr << "biasFeatPath = " << biasFeatPath << "\n";
         std::cerr << "expressionFilePath = " << expressionFilePath << "\n";
-        std::cerr << "biasCorrectedFile = " << biasCorrectedFile << "\n";                
-        performBiasCorrection(biasFeatPath, expressionFilePath, biasCorrectedFile, numThreads);
+        std::cerr << "biasCorrectedFile = " << biasCorrectedFile << "\n";
+        performBiasCorrection(biasFeatPath, expressionFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
+                              hash.kmerLength(), biasCorrectedFile, numThreads);
       }
 
       // for LASSO Iterative Optimizer
@@ -229,7 +249,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       // solver.optimize( geneFiles, outputFile, numIter, minMean );
     }
 
-    
+
 
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
@@ -247,30 +267,30 @@ int help(int argc, char* argv[]) {
   auto helpmsg = R"(
   ===============
 
-  Please invoke sailfish with one of the following commands {index, quant, sf}.  
-  For more inforation on the options for theses particular methods, use the -h 
+  Please invoke sailfish with one of the following commands {index, quant, sf}.
+  For more inforation on the options for theses particular methods, use the -h
   flag along with the method name.  For example:
 
   Sailfish index -h
 
   will give you detailed help information about the index command.
-  )"; 
+  )";
 
   std::cerr << "  Sailfish v" << Sailfish::version << helpmsg << "\n";
   return 1;
 }
 
 /**
- * Bonus! 
+ * Bonus!
  */
 int mainSailfish(int argc, char* argv[]) {
 
   std::cerr << R"(
-   _____       _ _______      __  
-  / ___/____ _(_) / __(_)____/ /_ 
+   _____       _ _______      __
+  / ___/____ _(_) / __(_)____/ /_
   \__ \/ __ `/ / / /_/ / ___/ __ \
  ___/ / /_/ / / / __/ (__  ) / / /
-/____/\__,_/_/_/_/ /_/____/_/ /_/ 
+/____/\__,_/_/_/_/ /_/____/_/ /_/
 )";
 
   return 0;
@@ -283,7 +303,7 @@ int mainCount(int argc, char* argv[]);
 int mainQuantify(int argc, char* argv[]);
 int mainBuildLUT(int argc, char* argv[] );
 
-int main( int argc, char* argv[] ) {  
+int main( int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
 
@@ -293,7 +313,7 @@ int main( int argc, char* argv[] ) {
     po::options_description hidden("hidden");
     hidden.add_options()
     ("command", po::value<string>(), "command to run {index, quant, sf}");
-    
+
     po::options_description sfopts("Allowed Options");
     sfopts.add_options()
     ("version,v", "print version string")
@@ -324,7 +344,7 @@ int main( int argc, char* argv[] ) {
 
 /*    std::vector<string> subcommand_options = po::collect_unrecognized(parsed.options, po::include_positional);
     for (auto& s : subcommand_options) {
-	std::cerr << "option: " << s << "\n";
+        std::cerr << "option: " << s << "\n";
     }
 */
 
@@ -337,15 +357,15 @@ int main( int argc, char* argv[] ) {
         std::cout << sfopts << std::endl;
         help(argc, argv);
         std::exit(0);
-    } 
+    }
 
     if (!vm.count("no-version-check")){
       std::string versionMessage = getVersionMessage();
       std::cerr << versionMessage;
     }
- 
+
     po::notify(vm);
-    
+
     std::unordered_map<string, std::function<int(int, char*[])>> cmds({
       {"estimate", runIterativeOptimizer},
       {"index", mainIndex},
@@ -368,7 +388,7 @@ int main( int argc, char* argv[] ) {
       argv[i+1][s.size()] = '\0';
     }
 */
-    int subCommandArgc = argc - topLevelArgc + 1; 
+    int subCommandArgc = argc - topLevelArgc + 1;
     char** argv2 = new char*[subCommandArgc];
     argv2[0] = argv[0];
     std::copy_n( &argv[topLevelArgc], argc-topLevelArgc, &argv2[1] );

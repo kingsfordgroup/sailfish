@@ -62,26 +62,59 @@ struct TranscriptInfo{
   std::vector<KmerID> kmers; // TranscriptID => KmerID
 };
 
+/**
+ *  \brief Dump the k-mer memberships vector to the file fname
+ **/
+void dumpKmerEquivClasses(
+                          const std::vector<KmerID>& memberships,
+                          const std::string& fname) {
+
+  std::ofstream ofile(fname, std::ios::binary);
+
+  // Write the length of the vector to the file
+  size_t vecLen{memberships.size()};
+  ofile.write(reinterpret_cast<const char*>(&vecLen), sizeof(vecLen));
+
+  // Write the actual vector to the file
+  ofile.write(reinterpret_cast<const char*>(&memberships.front()), sizeof(memberships.front()) * vecLen);
+
+  // Close the file
+  ofile.close();
+}
+
+
+std::vector<KmerID> readKmerEquivClasses(const std::string& fname) {
+  std::ifstream ifile(fname, std::ios::binary);
+  size_t vecLen{0};
+  ifile.read(reinterpret_cast<char*>(&vecLen), sizeof(vecLen));
+
+  std::vector<KmerID> memberships(vecLen, std::numeric_limits<KmerID>::max());
+  ifile.read(reinterpret_cast<char*>(&memberships.front()), sizeof(memberships.front()) * vecLen);
+
+  ifile.close();
+  return memberships;
+}
+
 void dumpKmerLUT(
-    std::vector<TranscriptList> &transcriptsForKmer,
+    std::vector<TranscriptList> &transcriptsForKmerClass,
     const std::string &fname) {
 
-    tbb::parallel_for_each( transcriptsForKmer.begin(), transcriptsForKmer.end(),
+    tbb::parallel_for_each( transcriptsForKmerClass.begin(), transcriptsForKmerClass.end(),
     [&]( TranscriptList & t ) {
         std::sort(t.begin(), t.end());
     });
 
     std::ofstream ofile(fname, std::ios::binary);
     // number of kmers
-    auto numk = transcriptsForKmer.size();
+    auto numk = transcriptsForKmerClass.size();
     ofile.write(reinterpret_cast<const char *>(&numk), sizeof(numk));
     for (auto i : boost::irange(size_t(0), numk)) {
         // write the vector's size
-        auto s = transcriptsForKmer[i].size();
+        auto s = transcriptsForKmerClass[i].size();
         ofile.write(reinterpret_cast<const char *>(&s), sizeof(s));
         // write the vector's contents
         if ( s > 0 ) {
-            ofile.write(reinterpret_cast<const char *>(&transcriptsForKmer[i][0]), s * sizeof(transcriptsForKmer[i][0]));
+            ofile.write(reinterpret_cast<const char *>(&transcriptsForKmerClass[i][0]), s * sizeof(transcriptsForKmerClass[i][0]));
         }
     }
     // close the output file

@@ -18,6 +18,7 @@ SailfishUtils.cpp
 ComputeBiasFeatures.cpp
 PerformBiasCorrection.cpp
 PartitionRefiner.cpp
+StreamingSequenceParser.cpp
 cokus.cpp
 )
 

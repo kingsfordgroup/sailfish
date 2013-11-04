@@ -68,7 +68,7 @@
 #include "GenomicFeature.hpp"
 #include "PerfectHashIndex.hpp"
 
-void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vector<uint32_t>& counts, 
+void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vector<uint32_t>& counts,
                            size_t merLen, const boost::filesystem::path& indexBasePath) {
 
     namespace bfs = boost::filesystem;
@@ -78,14 +78,14 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
 
     // Source of keys -- oh C, how I love thee
     cmph_io_adapter_t *source = cmph_io_struct_vector_adapter(static_cast<void *>(&keys[0]),
-                                                              static_cast<cmph_uint32>(sizeof(uint64_t)), 
+                                                              static_cast<cmph_uint32>(sizeof(uint64_t)),
                                                               0, sizeof(uint64_t), nkeys);
 
     std::cerr << "Building a perfect hash from the Jellyfish hash.\n";
     cmph_t *hash = nullptr;
     size_t i = 0;
-    { 
-      boost::timer::auto_cpu_timer t;     
+    {
+      boost::timer::auto_cpu_timer t;
       //Create minimal perfect hash function using the brz algorithm.
       cmph_config_t *config = cmph_config_new(source);
       cmph_config_set_algo(config, CMPH_BDZ);
@@ -103,7 +103,7 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
     auto start = std::chrono::steady_clock::now();
     {
       boost::timer::auto_cpu_timer t;
-      tbb::parallel_for_each( keys.begin(), keys.end(), 
+      tbb::parallel_for_each( keys.begin(), keys.end(),
         [&ownedHash, &orderedMers]( uint64_t k ) -> void {
           char *key = (char*)(&k);
           unsigned int id = cmph_search(ownedHash.get(), key, sizeof(uint64_t));
@@ -118,7 +118,7 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
     std::cerr << "took: " << static_cast<double>(ms.count()) / keys.size() << " us / key\n";
 
     PerfectHashIndex phi(orderedMers, ownedHash, merLen, canonical);
-    
+
     bfs::path transcriptomeIndexPath(indexBasePath); transcriptomeIndexPath /= "transcriptome.sfi";
     std::cerr << "writing index to file " << transcriptomeIndexPath << "\n";
     auto dthread1 = std::thread( [&phi, transcriptomeIndexPath]() -> void { phi.dumpToFile(transcriptomeIndexPath.string()); } );
@@ -136,7 +136,7 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
     bfs::path transcriptomeCountPath(indexBasePath); transcriptomeCountPath /= "transcriptome.sfc";
 
     std::cerr << "writing transcript counts to file " << transcriptomeCountPath << "\n";
-    auto dthread2 = std::thread( [&thash, transcriptomeCountPath]() -> void { 
+    auto dthread2 = std::thread( [&thash, transcriptomeCountPath]() -> void {
                                   thash.dumpCountsToFile(transcriptomeCountPath.string());
                                 });
 
@@ -150,9 +150,9 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
 int jellyfish_count_main(int argc, char *argv[]);
 
 int runJellyfish(bool canonical,
-                 uint32_t merLen, 
-                 uint32_t numThreads, 
-                 const std::string& outputStem, 
+                 uint32_t merLen,
+                 uint32_t numThreads,
+                 const std::string& outputStem,
                  std::vector<std::string>& inputFiles) {
 
     namespace bfs = boost::filesystem;
@@ -181,7 +181,7 @@ int runJellyfish(bool canonical,
     boost::trim(argString);
 
     std::cerr << "running jellyfish with " << argString << "\n";
-    
+
     // Run Jellyfish as an separate process.
     // This will force the mmapped memory to be cleaned up.
     auto pid = fork();
@@ -201,7 +201,7 @@ int runJellyfish(bool canonical,
         std::exit(jfRet);
 
     } else if (pid < 0) { // fork failed!
-        
+
         std::cerr << "FATAL ERROR: Failed to spawn Jellyfish process. Exiting\n";
         std::exit(-1);
     } else { // parent
@@ -250,12 +250,14 @@ int mainIndex( int argc, char *argv[] ) {
     ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("kmerSize,k", po::value<uint32_t>()->required(), "Kmer size.")
     ("out,o", po::value<string>(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
-    ("canonical,c", po::bool_switch(), "Passing this flag in forces all processing to be done on canonical kmers.\n"
-                                       "This means transcripts will be mapped to their canonical kmer multiset and\n"
-                                       "that directionality will not be considered when mapping kmers from reads.\n"
-                                       "This slightly increases ambiguity in the isoform estimation step, but\n"
-                                       "is generally faster than non-canonical processing (about twice as fast\n"
-                                       "when counting kmers in the reads).\n")
+
+      //("canonical,c", po::bool_switch(), "Passing this flag in forces all processing to be done on canonical kmers.\n"
+      //                                       "This means transcripts will be mapped to their canonical kmer multiset and\n"
+      //                                       "that directionality will not be considered when mapping kmers from reads.\n"
+      //                                       "This slightly increases ambiguity in the isoform estimation step, but\n"
+      //                                       "is generally faster than non-canonical processing (about twice as fast\n"
+      //                                       "when counting kmers in the reads).\n")
+
     //("thash,t", po::value<string>(), "transcript hash file [Jellyfish format]")
     //("index,i", po::value<string>(), "transcript index file [Sailfish format]")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
@@ -286,7 +288,9 @@ the Jellyfish database [thash] of the transcripts.
         std::vector<string> transcriptFiles = vm["transcripts"].as<std::vector<string>>();
         uint32_t numThreads = vm["threads"].as<uint32_t>();
         bool force = vm["force"].as<bool>();
-        bool canonical = vm["canonical"].as<bool>();
+        // temporarily deprecated
+        // bool canonical = vm["canonical"].as<bool>();
+        bool canonical = false;
 
         // Check to make sure that the specified output directory either doesn't exist, or is
         // a valid path (e.g. not a file)
@@ -324,7 +328,7 @@ the Jellyfish database [thash] of the transcripts.
         mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
 
         if (!mustRecompute) {
-            // Check that the jellyfish has at the given location 
+            // Check that the jellyfish has at the given location
             // was computed with the correct kmer length.
             std::cout << "Checking that jellyfish hash is up to date" << std::endl;
         }
@@ -405,7 +409,7 @@ the Jellyfish database [thash] of the transcripts.
             bfs::path tlutPath(outputPath); tlutPath /= "transcriptome.tlut";
             bfs::path klutPath(outputPath); klutPath /= "transcriptome.klut";
 
-            buildLUTs(transcriptFiles, sfIndex, sfTranscriptCountIndex, 
+            buildLUTs(transcriptFiles, sfIndex, sfTranscriptCountIndex,
                       tgmap, tlutPath.string(), klutPath.string(), numThreads);
 
         } else {

@@ -122,8 +122,8 @@ private:
 
     class TranscriptInfo {
       public:
-      
-      TranscriptInfo() : binMers(std::unordered_map<KmerID, KmerQuantity>()), 
+
+      TranscriptInfo() : binMers(std::unordered_map<KmerID, KmerQuantity>()),
                          //logLikes(std::vector<KmerQuantity>()),
                          //weights(std::vector<KmerQuantity>()),
                          mean(0.0), length(0), effectiveLength(0) { updated.store(0); /* weightNum.store(0); totalWeight.store(0.0);*/ }
@@ -137,14 +137,14 @@ private:
         mean = other.mean;
         length = other.length;
         effectiveLength = other.effectiveLength;
-      } 
-        //std::atomic<double> totalWeight;    
+      }
+        //std::atomic<double> totalWeight;
         //btree::btree_map<KmerID, KmerQuantity> binMers;
-        //std::vector<KmerQuantity> weights;        
-        //std::vector<KmerQuantity> logLikes;        
+        //std::vector<KmerQuantity> weights;
+        //std::vector<KmerQuantity> logLikes;
         //std::atomic<uint32_t> weightNum;
         std::atomic<uint32_t> updated;
-        std::unordered_map<KmerID, KmerQuantity> binMers;        
+        std::unordered_map<KmerID, KmerQuantity> binMers;
         KmerQuantity mean;
         ReadLength length;
         ReadLength effectiveLength;
@@ -202,7 +202,7 @@ private:
     }
 
     /**
-     * Returns true if this kmer should be considered in our estimation, false 
+     * Returns true if this kmer should be considered in our estimation, false
      * otherwise
      * @param  mer [kmer id to test for consideration]
      * @return     [true if we consider the kmer with this id, false otherwise]
@@ -216,7 +216,7 @@ private:
 
     /**
      * The weight attributed to each appearence of the kmer with the given ID.
-     * If the kmer with ID k occurs in m different transcripts, then 
+     * If the kmer with ID k occurs in m different transcripts, then
      * _weight(k) = 1 / m.
      * @param  k [The ID of the kmer whose weight is to be computed]
      * @return   [The weight of each appearance of the kmer with the given ID]
@@ -234,16 +234,16 @@ private:
       for (auto binmer : ti.binMers) {
         acc(binmer.second);
       }
-      
+
       return median(acc);
     }
 
     /**
      * Computes the sum of kmer counts within the transcript given by ti, but clamping
      * all non-zero counts to the given quantile.  For example, if quantile was 0.25, and
-     * x and y represented the 1st and 3rd quantile of kmer counts, then every nonzero count c 
+     * x and y represented the 1st and 3rd quantile of kmer counts, then every nonzero count c
      * would be transformed as c = max(x, min(y,c));
-     * 
+     *
      * @param  ti       [description]
      * @param  quantile [description]
      * @return          [description]
@@ -253,7 +253,7 @@ private:
         using accumulator_t = accumulator_set<double, stats<tag::p_square_quantile> >;
         //using tail_t = accumulator_set<double, stats<tag::tail
         KmerQuantity sum = 0.0;
-        
+
 
         accumulator_t accLow(quantile_probability = quantile);
         accumulator_t accHigh(quantile_probability = 1.0-quantile);
@@ -283,7 +283,7 @@ private:
         }
         return sum;
     }
-    
+
     KmerQuantity _computeSumClamped( const TranscriptInfo& ti ) {
         if (ti.binMers.size() < 5) {return _computeSum(ti);}
         KmerQuantity sum = 0.0;
@@ -303,7 +303,7 @@ private:
           lowestCount = std::min(binmer.second, lowestCount);
           if (lowestCount < prevLowest) { secondLowestCount = prevLowest; }
           auto prevHighest = highestCount;
-          highestCount = std::max(binmer.second, highestCount);          
+          highestCount = std::max(binmer.second, highestCount);
           if (highestCount > prevHighest) { secondHighestCount = prevHighest; }
         }
         //std::cerr << lowestCount << ", " << secondLowestCount << ", " << highestCount << ", " << secondHighestCount << "\n";
@@ -320,11 +320,11 @@ private:
 
         return sum;
     }
-    
+
 
     bool _discard( const TranscriptInfo& ti) {
-        if ( ti.mean == 0.0 ) { 
-            return false; 
+        if ( ti.mean == 0.0 ) {
+            return false;
         } else {
             ti.mean = 0.0;
             ti.binMers.clear();
@@ -361,11 +361,11 @@ private:
         }
 
         auto nnz = count(acc);
-        
+
         if ( nnz < ti.effectiveLength ) {
             acc(0.0, weight=ti.effectiveLength-nnz);
         }
-       
+
         auto sum = sum_of_weights(acc);
         return sum > 0.0 ? weighted_mean(acc) : 0.0;
     }
@@ -417,9 +417,9 @@ private:
 
         // compute the new mean for each transcript
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
-            [this, sumMean](const BlockedIndexRange& range) -> void { 
+            [this, sumMean](const BlockedIndexRange& range) -> void {
               for(size_t tid = range.begin(); tid != range.end(); ++tid) {
-                this->transcripts_[tid].mean /= sumMean; 
+                this->transcripts_[tid].mean /= sumMean;
               }
             });
 
@@ -432,7 +432,7 @@ private:
 
     template <typename T>
     T psum_(std::vector<T>& v) {
-      auto func = std::bind( std::mem_fn(&CollapsedIterativeOptimizer<ReadHash>::psumAccumulate<T>), 
+      auto func = std::bind( std::mem_fn(&CollapsedIterativeOptimizer<ReadHash>::psumAccumulate<T>),
                              this, std::placeholders::_1, std::placeholders::_2 );
       auto sum = tbb::parallel_reduce(
         tbb::blocked_range<T*>(&v[0], &v[v.size()]),
@@ -489,9 +489,9 @@ private:
 
         // compute the new mean for each transcript
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
-            [&means, invSumMean](const BlockedIndexRange& range ) -> void { 
+            [&means, invSumMean](const BlockedIndexRange& range ) -> void {
               for (auto tid : boost::irange(range.begin(), range.end())) {
-                means[tid] *= invSumMean; 
+                means[tid] *= invSumMean;
               }
             });
 
@@ -510,7 +510,7 @@ private:
     /**
      * This function should be run only after <b>after</b> an EM loop.
      * It estimates kmer specific biases based on how much a kmer's count
-     * deviates from it's corresponding transcript's mean 
+     * deviates from it's corresponding transcript's mean
      */
     void computeKmerFidelities_() {
 
@@ -542,11 +542,11 @@ private:
                 //std::cerr << "fidelity (" << tid << ") = " << fidelity << "\n";
                }
             });
-        
+
         tbb::parallel_for(BlockedIndexRange(size_t(0), transcriptsForKmer_.size()),
             [this, &transcriptFidelities](const BlockedIndexRange& range) -> void {
               // Each transcript this kmer group appears in votes on the bias of this kmer.
-              // Underrepresented kmers get bias values > 1.0 while overrepresented kmers get 
+              // Underrepresented kmers get bias values > 1.0 while overrepresented kmers get
               // bias values < 1.0.  The vote of each transcript is weigted by it's fidelity
                 for (auto kid = range.begin(); kid != range.end(); ++kid) {
                   double totalBias = 0.0;
@@ -575,7 +575,7 @@ private:
       const auto numTranscripts = transcripts_.size();
       std::vector<double> likelihoods(numTranscripts, 0.0);
 
-        // Compute the log-likelihood 
+        // Compute the log-likelihood
         tbb::parallel_for(BlockedIndexRange(size_t(0), numTranscripts),
           // for each transcript
           [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
@@ -587,10 +587,10 @@ private:
               if (ti.binMers.size() > 0 ) { likelihoods[tid] = 1.0; }
               // For each kmer in this transcript
               for ( auto& binmer : ti.binMers ) {
-                likelihoods[tid] *=  binmer.second / 
+                likelihoods[tid] *=  binmer.second /
                            (this->kmerGroupBiases_[binmer.first] * this->kmerGroupCounts_[binmer.first]);
               }
-              likelihoods[tid] = (relativeAbundance > epsilon and likelihoods[tid] > epsilon) ? 
+              likelihoods[tid] = (relativeAbundance > epsilon and likelihoods[tid] > epsilon) ?
                                  std::log(relativeAbundance * likelihoods[tid]) : 0.0;
             }
           });
@@ -616,12 +616,12 @@ private:
 
       return (means.size() > 0) ? logLikelihood2_(sampProbs) / means.size() : 0.0;
     }
-    
+
     double logLikelihood2_(std::vector<double>& means) {
 
       std::vector<double> likelihoods(transcriptsForKmer_.size(), 0.0);
 
-        // Compute the log-likelihood 
+        // Compute the log-likelihood
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
           // for each transcript
           [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
@@ -630,7 +630,7 @@ private:
               for (auto& tid : this->transcriptsForKmer_[kid]) {
                 kmerLikelihood += this->transcripts_[tid].binMers[kid] * (means[tid] / this->transcripts_[tid].length);
               }
-              if (kmerLikelihood < 1e-20) { 
+              if (kmerLikelihood < 1e-20) {
                 // std::cerr << "kmer group: " << kid << " has probability too low\n";
               } else {
                 likelihoods[kid] = std::log(kmerLikelihood);
@@ -641,7 +641,7 @@ private:
       return psum_(likelihoods);
 
     }
-  
+
 
     // Since there's no built in hash code for vectors
   template <typename T>
@@ -674,11 +674,11 @@ private:
      * transcript list.  This allows us to collapse all kmers that exist in the
      * exact same set of transcripts into a single kmer group.
      */
-    tbb::concurrent_unordered_map< TranscriptIDVector, 
+    tbb::concurrent_unordered_map< TranscriptIDVector,
                                    tbb::concurrent_vector<KmerID>,
                                    my_hasher<std::vector<TranscriptID>> > m;
 
-     // Asynchronously print out the progress of our hashing procedure                              
+     // Asynchronously print out the progress of our hashing procedure
      std::atomic<size_t> prog{0};
      std::thread t([this, &prog]() -> void {
         ez::ezETAProgressBar pb(this->transcriptsForKmer_.size());
@@ -709,6 +709,15 @@ private:
      // wait for the parallel hashing to finish
      t.join();
 
+     // TESTING
+     std::ofstream eqFile("KMER_EQUIV_CLASSES.txt");
+     for (auto& kv : m ) {
+       for (auto e : kv.second) { eqFile << e << "\t"; }
+       eqFile << "\n";
+     }
+     eqFile.close();
+     // END TESTING
+
      std::cerr << "Out of " << transcriptsForKmer_.size() << " potential kmers, "
                << "there were " << m.size() << " distinct groups\n";
 
@@ -723,7 +732,7 @@ private:
      std::cerr << "building collapsed transcript map\n";
      for ( auto& kv : m ) {
 
-        // For each transcript covered by this kmer group, add this group to the set of kmer groups contained in 
+        // For each transcript covered by this kmer group, add this group to the set of kmer groups contained in
         // the transcript.  For efficiency, we also compute the kmer promiscuity values for each kmer
         // group here --- the promiscuity of a kmer group is simply the number of distinct transcripts in
         // which this group of kmers appears.
@@ -769,7 +778,7 @@ private:
       std::cerr << "groupCount(" << groupCounts << ") - parallelCount(" << tmp << ") = " << groupCounts - tmp << "\n";
       std::atomic<uint64_t> individualCounts{0};
       tbb::parallel_for(size_t{0}, readHash_.size(),
-        [&](size_t i) { 
+        [&](size_t i) {
           if (isActiveKmer[i]) {
             individualCounts += readHash_.atIndex(i);
           } });
@@ -777,6 +786,69 @@ private:
       std::cerr << "groupTotal(" << groupCounts << ") - totalNumKmers(" << individualCounts << ") = " << diff << "\n";
       */
   }
+
+
+  /**
+   * NEW! Assuming that equivalence classes were computed in the index
+   **/
+  void prepareCollapsedMaps_(
+                            const std::string& kmerEquivClassFname,
+                            bool discardZeroCountKmers) {
+
+    using std::cerr;
+
+    cerr << "reading Kmer equivalence classes \n";
+
+    auto memberships = LUTTools::readKmerEquivClasses(kmerEquivClassFname);
+    size_t numKmers{readHash_.size()};
+    size_t numKmerClasses{(*std::max_element(memberships.begin(), memberships.end())) + 1};
+    boost::dynamic_bitset<> isActiveKmer(numKmers);
+
+    kmerGroupCounts_.resize(numKmerClasses, 0.0);
+    kmerGroupPromiscuities_.resize(numKmerClasses, 0.0);
+
+    cerr << "updating Kmer group counts\n";
+    // Update the kmer group counts using the information from the read hash
+    for (auto kid : boost::irange(size_t{0}, numKmers)) {
+
+      size_t count = readHash_.atIndex(kid);
+      if (!discardZeroCountKmers or count != 0) {
+        auto kmerClassID = memberships[kid];
+        isActiveKmer[kmerClassID] = true;
+        kmerGroupCounts_[kmerClassID] += count;
+      }
+
+    }
+
+    cerr << "updating transcript map\n";
+    for (auto kmerClassID : boost::irange(size_t{0}, numKmerClasses)) {
+
+      // For each transcript covered by this kmer group, add this group to the set of kmer groups contained in
+      // the transcript.  For efficiency, we also compute the kmer promiscuity values for each kmer
+      // group here --- the promiscuity of a kmer group is simply the number of distinct transcripts in
+      // which this group of kmers appears.
+      auto prevTID = std::numeric_limits<TranscriptID>::max();
+      KmerQuantity numDistinctTranscripts = 0.0;
+
+      //cerr << "numKmerClasses = " << numKmerClasses << ", kmerClassID = " << kmerClassID << ", transcriptsForKmer_.size() = " << transcriptsForKmer_.size() << "\n";
+      for (auto& tid : transcriptsForKmer_[kmerClassID]) {
+        transcripts_[tid].binMers[kmerClassID] += 1;
+        // Since the transcript IDs are sorted we just have to check
+        // if this id is different from the previous one
+        if (tid != prevTID) { numDistinctTranscripts += 1.0; }
+        prevTID = tid;
+      }
+      // Set the promiscuity and the set of transcripts for this kmer group
+      kmerGroupPromiscuities_[kmerClassID] = numDistinctTranscripts;
+    }
+    cerr << "done\n";
+
+    // By now we should have properly filled out the vairables
+    // kmerGroupPromiscuities_
+    // kmerGroupCounts_
+    // transcripts_
+  }
+
 
   /**
    * This function should be called before performing any optimization procedure.
@@ -788,6 +860,7 @@ private:
     void initialize_(
         const std::string& klutfname,
         const std::string& tlutfname,
+        const std::string& kmerEquivClassFname,
         const bool discardZeroCountKmers) {
 
         // So we can concisely identify each transcript
@@ -795,71 +868,41 @@ private:
 
         size_t numTranscripts = transcriptGeneMap_.numTranscripts();
         size_t numKmers = readHash_.size();
-        auto merSize = readHash_.kmerLength();        
+        auto merSize = readHash_.kmerLength();
 
         size_t numActors = numThreads_;
         std::vector<std::thread> threads;
 
         transcripts_.resize(transcriptGeneMap_.numTranscripts());
-        /*
-        tbb::parallel_for(BlockedIndexRange(size_t{0}, transcriptGeneMap_.numTranscripts()),
-            [this](const BlockedIndexRange& range) -> void {
-              for (auto tid : boost::irange(range.begin(), range.end())) {
-                this->transcripts_[tid] = TranscriptInfo {
-                  std::unordered_map<KmerID, KmerQuantity>(),
-                  0.0, // total weight 
-                  //btree::btree_map<KmerID, KmerQuantity>(),
-                  0.0,
-                  0,
-                  0};
-              }
-            }
-        );
-        */
 
         // Get the kmer look-up-table from file
         LUTTools::readKmerLUT(klutfname, transcriptsForKmer_);
 
-        boost::dynamic_bitset<> isActiveKmer(numKmers);
-
-        //std::set<TranscriptID> uniquelyAnchoredTranscripts;
-
-        for (auto kid : boost::irange(size_t{0}, numKmers)) {
-          if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
-            isActiveKmer[kid] = 1;
-          }
 /*        size_t numContainingTranscripts = transcriptsForKmer_[kid].size();
           assert(numContainingTranscripts > 0);
-          if (numContainingTranscripts == 1 or 
-              std::all_of(transcriptsForKmer_[kid].begin(), transcriptsForKmer_[kid].end(), [this, kid](TranscriptID tid) -> bool { 
+          if (numContainingTranscripts == 1 or
+              std::all_of(transcriptsForKmer_[kid].begin(), transcriptsForKmer_[kid].end(), [this, kid](TranscriptID tid) -> bool {
                 return tid == this->transcriptsForKmer_[kid][0]; } )) {
               uniquelyAnchoredTranscripts.insert(transcriptsForKmer_[kid][0]);
           }
-          */
-        }
 
+        }
+*/
         //std::cerr << "\nIn the original set, there were " << uniquelyAnchoredTranscripts.size() << " transcripts with unique nonzero anchors\n";
 
-        // DYNAMIC_BITSET is *NOT* concurrent?!?!
-        // determine which kmers are active
-        // tbb::parallel_for(size_t(0), numKmers, 
-        //     [&](size_t kid) {  
-        //       if ( !discardZeroCountKmers or readHash_.atIndex(kid) != 0) {
-        //         isActiveKmer[kid] = 1;
-        //       }
-        // });
-
-        // compute the equivalent kmer sets
         std::cerr << "\n";
-        collapseKmers_(isActiveKmer);
+        //  collapseKmers_(isActiveKmer); // equiv-classes
+        prepareCollapsedMaps_(kmerEquivClassFname, discardZeroCountKmers);
 
-        // we have no biases currently
+
+        // we have no k-mer-specific biases currently
         kmerGroupBiases_.resize(transcriptsForKmer_.size(), 1.0);
 
         // Get transcript lengths
         std::ifstream ifile(tlutfname, std::ios::binary);
         size_t numRecords {0};
         ifile.read(reinterpret_cast<char *>(&numRecords), sizeof(numRecords));
+
         std::cerr << "Transcript LUT contained " << numRecords << " records\n";
         for (auto i : boost::irange(size_t(0), numRecords)) {
             auto ti = LUTTools::readTranscriptInfo(ifile);
@@ -871,7 +914,7 @@ private:
         // --- done ---
 
        // tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
-       //     [this]( size_t idx ) { 
+       //     [this]( size_t idx ) {
        //         auto& transcript = this->transcripts_[idx];
        //         transcript.effectiveLength = transcript.effectiveLength - transcript.binMers.size();
        //         for (auto binmer : transcript.binMers) {
@@ -879,23 +922,21 @@ private:
        //         }
        // });
 
-
-
         size_t numRes = 0;
         std::cerr << "\n\nRemoving duplicates from kmer transcript lists ... ";
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
-            [&numRes, this](const BlockedIndexRange& range) -> void { 
+            [&numRes, this](const BlockedIndexRange& range) -> void {
                 for (auto idx = range.begin(); idx != range.end(); ++idx) {
                   auto& transcripts = this->transcriptsForKmer_[idx];
                   // should already be sorted -- extra check can be removed eventually
                   std::is_sorted(transcripts.begin(), transcripts.end());
                   // Uniqify the transcripts
-                  auto it = std::unique(transcripts.begin(), transcripts.end()); 
+                  auto it = std::unique(transcripts.begin(), transcripts.end());
                   transcripts.resize(std::distance(transcripts.begin(), it));
                   ++numRes;
                 }
          });
-         
+
          std::cerr << "done\n";
 
          std::cerr << "Computing kmer group promiscuity rates\n";
@@ -905,7 +946,7 @@ private:
             [this]( KmerID kid ) -> void { this->kmerGroupPromiscuities_[kid] = this->_weight(kid); }
          );
          */
-        
+
         tbb::parallel_for(BlockedIndexRange(size_t{0}, transcripts_.size()),
           [&, this](const BlockedIndexRange& range) -> void {
             for (auto tid = range.begin(); tid != range.end(); ++tid) {
@@ -920,10 +961,10 @@ private:
 
         /**
          * gene-promiscuous kmers can never be added to a transcript's counts, so
-         * it's unfair to consider them in the transcripts effective length. 
+         * it's unfair to consider them in the transcripts effective length.
          */
         std::for_each( genePromiscuousKmers_.begin(), genePromiscuousKmers_.end(),
-            [this]( KmerID kmerId ) -> void { 
+            [this]( KmerID kmerId ) -> void {
                 for ( auto tid : transcriptsForKmer_[kmerId] ) {
                     transcripts_[tid].effectiveLength -= 1.0;
                 }
@@ -952,12 +993,12 @@ private:
 
         tbb::concurrent_queue<StringPtr> covQueue;
         // boost::lockfree::queue<StringPtr> covQueue(transcripts_.size());
-                
+
         tbb::parallel_for(BlockedIndexRange(size_t{0}, transcripts_.size()),
             [this, &covQueue] (const BlockedIndexRange& range) -> void {
                 for (auto index = range.begin(); index != range.end(); ++index) {
                   const auto& td = this->transcripts_[index];
-                
+
                   std::stringstream ostream;
                   ostream << this->transcriptGeneMap_.transcriptName(index) << " " << td.binMers.size();
                   for ( auto bm : td.binMers ) {
@@ -973,7 +1014,7 @@ private:
         );
 
 
-                        
+
         ez::ezETAProgressBar pb(transcripts_.size());
         pb.start();
 
@@ -994,13 +1035,13 @@ private:
     void EMUpdate_( const std::vector<double>& meansIn, std::vector<double>& meansOut ) {
       assert(meansIn.size() == meansOut.size());
 
-      auto reqNumJobs = transcriptsForKmer_.size();                
+      auto reqNumJobs = transcriptsForKmer_.size();
 
       std::atomic<size_t> numJobs{0};
       std::atomic<size_t> completedJobs{0};
 
       // Print out our progress
-      auto pbthread = std::thread( 
+      auto pbthread = std::thread(
         [&completedJobs, reqNumJobs]() -> bool {
           auto prevNumJobs = 0;
           ez::ezETAProgressBar show_progress(reqNumJobs);
@@ -1037,23 +1078,23 @@ private:
                   // binMer based
                   //auto idx = trans.weightNum++;
                   //auto kmerIt = trans.binMers.find(kmer);
-                  trans.binMers[kmer] = meansIn[tid] * norm * 
+                  trans.binMers[kmer] = meansIn[tid] * norm *
                                         kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
                   //++trans.updated;
                   if (trans.updated++ == lastIndex) {
                     //while (trans.updated.load() < trans.weightNum.load()) {}
-                    
-                    trans.mean = meansOut[tid] = this->_computeMean(trans); 
-                    //trans.mean = meansOut[tid] = this->_computeClampedMean(trans);                     
-                    
-                    //trans.weightNum.store(0); 
+
+                    trans.mean = meansOut[tid] = this->_computeMean(trans);
+                    //trans.mean = meansOut[tid] = this->_computeClampedMean(trans);
+
+                    //trans.weightNum.store(0);
                     trans.updated.store(0);
                   }
                         //this->transcripts_[tid].binMers[kmer] =
                         //meansIn[tid] * norm * kmerGroupBiases_[kmer] * this->kmerGroupCounts_[kmer];
 
 
-                        
+
 
                         /*
                         auto idx = trans.weightNum++;
@@ -1061,18 +1102,18 @@ private:
                         trans.logLikes[idx] = (weight > 0.0) ? std::log(weight / this->kmerGroupCounts_[kmer] ) : 0.0;
                         trans.weights[idx] = weight;
                         ++trans.updated;
-                        if (idx == trans.weights.size()-1) { 
+                        if (idx == trans.weights.size()-1) {
                           while (trans.updated.load() < trans.weightNum.load() ) {}
-                          meansOut[tid] = this->_computeMean(trans); 
-                          trans.weightNum.store(0); 
+                          meansOut[tid] = this->_computeMean(trans);
+                          trans.weightNum.store(0);
                           trans.updated.store(0);
                         }*/
-                        
+
                         /*
                         auto& weight = trans.totalWeight;
                         auto current = weight.load();
                         auto updated = current + delta;
-                        while( !weight.compare_exchange_strong(current, updated) ) { 
+                        while( !weight.compare_exchange_strong(current, updated) ) {
                           current = weight.load(); updated = current + delta;
                         }
                         */
@@ -1091,7 +1132,7 @@ private:
           double delta = 0.0;
           double norm = 1.0 / transcripts_.size();
           size_t discard = 0;
-          
+
 
           // M-Step
           // compute the new mean for each transcript
@@ -1105,7 +1146,7 @@ private:
               }
           });
           */
-         
+
           normalize_(meansOut);
 
     }
@@ -1116,19 +1157,20 @@ public:
      * Construct the solver with the read and transcript hashes
      */
     CollapsedIterativeOptimizer( ReadHash &readHash, TranscriptGeneMap& transcriptGeneMap,
-                                 BiasIndex& biasIndex, uint32_t numThreads ) : 
-                                 readHash_(readHash), merLen_(readHash.kmerLength()), 
+                                 BiasIndex& biasIndex, uint32_t numThreads ) :
+                                 readHash_(readHash), merLen_(readHash.kmerLength()),
                                  transcriptGeneMap_(transcriptGeneMap), biasIndex_(biasIndex),
                                  numThreads_(numThreads) {}
 
 
     KmerQuantity optimize(const std::string& klutfname,
-                           const std::string& tlutfname,
-                           size_t numIt, 
-                           double minMean) {
+                          const std::string& tlutfname,
+                          const std::string& kmerEquivClassFname,
+                          size_t numIt,
+                          double minMean) {
 
         const bool discardZeroCountKmers = true;
-        initialize_(klutfname, tlutfname, discardZeroCountKmers);
+        initialize_(klutfname, tlutfname, kmerEquivClassFname, discardZeroCountKmers);
 
         KmerQuantity globalError {0.0};
         bool done {false};
@@ -1149,7 +1191,7 @@ public:
         std::vector<double> r(transcripts_.size(), 0.0);
         std::vector<double> v(transcripts_.size(), 0.0);
         std::atomic<size_t> uniquelyAnchoredTranscripts{0};
-        std::atomic<size_t> nonZeroTranscripts{0};        
+        std::atomic<size_t> nonZeroTranscripts{0};
 
         // Compute the initial mean for each transcript
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptGeneMap_.numTranscripts())),
@@ -1177,7 +1219,7 @@ public:
               }
               //transcriptData.totalWeight.store(total);
               //transcriptData.weightNum.store(0);
-              
+
               transcriptData.mean = means0[tid] = this->_computeMean(transcriptData);
               //transcriptData.mean = means0[tid] = this->_computeClampedMean(transcriptData);
 
@@ -1205,7 +1247,7 @@ public:
           std::swap(means0, means1);
         }
         */
-        
+
         /**
          * Defaults for these values taken from the R implementation of
          * [SQUAREM](http://cran.r-project.org/web/packages/SQUAREM/index.html).
@@ -1242,11 +1284,11 @@ public:
           // r = Theta_1 - Theta_0
           // v = (Theta_2 - Theta_1) - r
           tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
-            [&means0, &means1, &means2, &r, &v](const BlockedIndexRange& range) -> void { 
+            [&means0, &means1, &means2, &r, &v](const BlockedIndexRange& range) -> void {
               for (auto tid = range.begin(); tid != range.end(); ++tid) {
                 r[tid] = means1[tid] - means0[tid];
                 v[tid] = (means2[tid] - means1[tid]) - r[tid];
-              } 
+              }
             }
           );
 
@@ -1255,15 +1297,15 @@ public:
           double alphaS = rNorm / vNorm;
 
           alphaS = std::max(minStep, std::min(maxStep, alphaS));
-          
+
           tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
-            [&r, &v, alphaS, &means0, &meansPrime](const BlockedIndexRange& range) -> void { 
+            [&r, &v, alphaS, &means0, &meansPrime](const BlockedIndexRange& range) -> void {
               for (auto tid = range.begin(); tid != range.end(); ++tid) {
                 meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
               }
             }
           );
-          
+
           // Stabilization step
           if ( std::abs(alphaS - 1.0) > 0.01) {
             std::cerr << "alpha = " << alphaS << ". ";
@@ -1311,13 +1353,13 @@ public:
           // }
 
         }
-        
+
 
         /*
         for ( size_t oiter = 0; oiter < outerIterations; ++oiter ) {
             for ( size_t iter = 0; iter < numIt; ++iter ) {
 
-                auto reqNumJobs = transcriptsForKmer_.size();                
+                auto reqNumJobs = transcriptsForKmer_.size();
                 std::cerr << "iteraton: " << iter << "\n";
 
                 globalError = 0.0;
@@ -1325,7 +1367,7 @@ public:
                 completedJobs = 0;
 
                 // Print out our progress
-                auto pbthread = std::thread( 
+                auto pbthread = std::thread(
                     [&completedJobs, reqNumJobs]() -> bool {
                         auto prevNumJobs = 0;
                         ez::ezETAProgressBar show_progress(reqNumJobs);
@@ -1414,8 +1456,8 @@ public:
             tbb::parallel_for( size_t(0), size_t(transcripts_.size()),
                 [this, minMean](size_t tid) -> void {
                     auto& ts = this->transcripts_[tid];
-                    if (ts.mean < minMean) { 
-                        ts.mean = 0.0; 
+                    if (ts.mean < minMean) {
+                        ts.mean = 0.0;
                         for (auto& kv : ts.binMers) {
                             kv.second = 0.0;
                         }
@@ -1460,8 +1502,8 @@ public:
 
         std::vector<double> fracNuc(fracTran.size(), 0.0);
         // Compute nucleotide fraction (\nu_i in RSEM)
-        tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()), 
-          [&](const BlockedIndexRange& range) -> void { 
+        tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
+          [&](const BlockedIndexRange& range) -> void {
             for (auto i = range.begin(); i != range.end(); ++i) {
               auto& ts = transcripts_[i];
               fracNuc[i] = fracTran[i] * ts.effectiveLength;
@@ -1477,25 +1519,34 @@ public:
         double kmersPerRead = ((estimatedReadLength - merLen_) + 1);
         ofile << headerLines;
 
-        ofile << "# " << "Transcript" << '\t' << "Length" << '\t' << 
-	  "TPM" << '\t' << "RPKM" << '\t' << "EstimatedNumReads" << '\n';
+        ofile << "# " << "Transcript" << '\t' << "Length" << '\t' <<
+          "TPM" << '\t' << "RPKM" << '\t' << "KPKM" << '\t' << "EstimatedNumReads" << '\n';
         for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
-          auto& ts = transcripts_[i]; 
+          auto& ts = transcripts_[i];
           // expected # of kmers coming from transcript i
           auto ci = estimatedGroupTotal * fracNuc[i];
           // expected # of reads coming from transcript i
           auto ri = ci / kmersPerRead;
           auto effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
-          auto rpkm = (effectiveLength > 0) ? 
+          auto rpkm = (effectiveLength > 0) ?
                       (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
                rpkm = (rpkm < 0.01) ? 0.0 : rpkm;
+
+          auto effectiveLengthKmer = ts.length - merLen_ + 1;
+
+          auto kpkm = (effectiveLengthKmer > 0) ?
+                      (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
+               kpkm = (kpkm < 0.01) ? 0.0 : kpkm;
+
           auto tpm = fracTran[i] * million;
                tpm = (tpm < 0.05) ? 0.0 : tpm;
-          ofile << transcriptGeneMap_.transcriptName(index) << 
+
+          ofile << transcriptGeneMap_.transcriptName(index) <<
                    '\t' << ts.length << '\t' <<
-                   tpm << '\t' << 
-	           rpkm << '\t' <<
-	           ri << '\n';
+                   tpm << '\t' <<
+                   rpkm << '\t' <<
+                   kpkm << '\t' <<
+                   ri << '\n';
 
           ++index;
           ++pb;

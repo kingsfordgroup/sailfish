@@ -40,6 +40,7 @@
 
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/program_options/parsers.hpp>
 
 #include "tbb/concurrent_vector.h"
@@ -77,7 +78,7 @@ struct ContainingTranscript{
  * This function builds both a kmer => transcript and transcript => kmer
  * lookup table.
  */
-int buildLUTs( 
+int buildLUTs(
   const std::vector<std::string>& transcriptFiles, //!< File from which transcripts are read
   PerfectHashIndex& transcriptIndex,               //!< Index of transcript kmers
   CountDBNew& transcriptHash,                      //!< Count of kmers in transcripts
@@ -86,6 +87,13 @@ int buildLUTs(
   const std::string& klutfname,                    //!< Kmer lookup table filename
   uint32_t numThreads                              //!< Number of threads to use in parallel
   ) {
+
+  using LUTTools::TranscriptInfo;
+  using std::vector;
+  using std::atomic;
+  using std::max_element;
+
+  using tbb::blocked_range;
 
   char** fnames = new char*[transcriptFiles.size()];
   size_t z{0};
@@ -101,21 +109,22 @@ int buildLUTs(
   // Create a jellyfish parser
   jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
 
-  std::vector<std::thread> threads;
-  std::vector<TranscriptList> transcriptsForKmer;
+  vector<std::thread> threads;
+  vector<TranscriptList> transcriptsForKmer;
 
   size_t numTranscripts = tgmap.numTranscripts();
-  //std::vector<TranscriptInfo*> transcripts;
-  //transcripts.resize(numTranscripts, nullptr);
+  vector<TranscriptInfo*> transcripts;
+  transcripts.resize(numTranscripts, nullptr);
 
   auto merLen = transcriptHash.kmerLength();
   bool done {false};
-  std::atomic<size_t> numRes {0};
-  std::atomic<size_t> nworking{numThreads-1};
+  atomic<size_t> numRes {0};
+  atomic<size_t> nworking{numThreads-1};
 
   // Start the thread that will print the progress bar
-  std::cerr << "number of kmers : " << transcriptHash.size() << "\n";
-  std::cerr << "Building transcript <-> kmer lookup tables \n";
+  std::cerr << "Number of kmers : " << transcriptHash.size() << "\n";
+  std::cerr << "Parsing transcripts an building k-mer equivalence classes\n";
+
   threads.push_back( std::thread( [&numRes, &nworking, numTranscripts] () {
     size_t lastCount = numRes;
     ez::ezETAProgressBar show_progress(numTranscripts);
@@ -132,54 +141,6 @@ int buildLUTs(
     std::cerr << "\n";
   }) );
 
-  std::mutex tmut;
-
-  transcriptsForKmer.resize( transcriptHash.size() );
-  tbb::concurrent_queue<ContainingTranscript> q;
-
-  /**
-    spawn off a thread to build the kmer look up table
-   */
-  threads.push_back(std::thread(
-    [&q, &transcriptsForKmer, &nworking]() {
-      ContainingTranscript ct;
-      while( nworking > 0 ) {
-        while( q.try_pop(ct) ) {
-          transcriptsForKmer[ct.kmerID].push_back(ct.transcriptID);
-        }
-      }
-    })
-  );
-
-  using LUTTools::TranscriptInfo;
-  tbb::concurrent_queue<TranscriptInfo*> tq;
-  //boost::lockfree::queue<TranscriptInfo*> tq(numTranscripts);
-
-  /**
-   * spawn off a thread to dump the transcript lookup table to file
-   */
-  threads.push_back(std::thread(
-    [&tq, &transcriptsForKmer, &nworking, tlutfname]() {
-      std::ofstream tlutstream(tlutfname, std::ios::binary);
-      size_t numRec = 0;
-      tlutstream.write(reinterpret_cast<const char*>(&numRec), sizeof(numRec));
-
-      TranscriptInfo* ti = nullptr;
-      while( nworking > 0 ) {
-        while( tq.try_pop(ti) ) {
-          LUTTools::writeTranscriptInfo(ti, tlutstream);
-          delete ti;
-          ++numRec;
-        }
-      }
-
-      // go back to the beginning of the file and write the total number
-      // of actual records
-      tlutstream.seekp(0);
-      tlutstream.write(reinterpret_cast<const char*>(&numRec), sizeof(numRec));
-      tlutstream.close();
-    })
-  );
 
   PartitionRefiner refiner(transcriptHash.size());
   std::mutex refinerMutex;
@@ -187,10 +148,10 @@ int buildLUTs(
   // Start the desired number of threads to parse the transcripts
   // and build our data structure.
   for (size_t i = 0; i < numThreads - 1; ++i) {
-	
-    threads.push_back( std::thread( 
-      [&numRes, &q, &tq, &tgmap, &parser, &transcriptHash, &nworking, 
-       &transcriptIndex, &transcriptsForKmer, &tmut, &refiner, &refinerMutex, merLen]() -> void {
+
+    threads.push_back( std::thread(
+      [&numRes, &tgmap, &parser, &transcriptHash, &nworking, &transcripts,
+       &transcriptIndex, &transcriptsForKmer, &refiner, &refinerMutex, merLen]() -> void {
 
         // Each thread gets it's own stream
         jellyfish::parse_read::thread stream = parser.new_thread();
@@ -199,77 +160,64 @@ int buildLUTs(
         bool useCanonical{transcriptIndex.canonical()};
 
         // while there are transcripts left to process
-        while ( (read = stream.next_read()) ) { 
+        while ( (read = stream.next_read()) ) {
+
           // The transcript name
           std::string fullHeader(read->header, read->hlen);
           std::string header = fullHeader.substr(0, fullHeader.find(' '));
-          
-          // The transcript sequence
-          // strip the newlines from the sequence and put it into a string (newSeq)
+
+          // The transcript sequence; strip the newlines from the
+          // sequence and put it into a string (newSeq)
           std::string seq(read->seq_s, std::distance(read->seq_s, read->seq_e) - 1);
           auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
           auto readLen = std::distance( seq.begin(), newEnd );
           std::string newSeq(seq.begin(), seq.begin() + readLen);
-    
+
           // Lookup the ID of this transcript in our transcript -> gene map
-          auto transcriptIndex = tgmap.findTranscriptID(header); 
-          bool valid = ((transcriptIndex != tgmap.INVALID) and 
-                        (readLen > merLen));
+          auto transcriptIndex = tgmap.findTranscriptID(header);
+          bool valid = (transcriptIndex != tgmap.INVALID);
           auto geneIndex = tgmap.gene(transcriptIndex);
 
           if ( not valid ) { continue; }
           ++numRes;
 
-          size_t numKmers {static_cast<size_t>(readLen) - merLen + 1};
+          size_t numKmers {(readLen >= merLen) ? static_cast<size_t>(readLen) - merLen + 1 : 0};
 
           TranscriptInfo* tinfo = new TranscriptInfo;
           tinfo->name = header;
           tinfo->transcriptID = transcriptIndex;
           tinfo->geneID = geneIndex;
           tinfo->length = readLen;
-          //tinfo->kmers.resize(numKmers);
+          tinfo->kmers.resize(numKmers, INVALID);
 
-	  std::vector<KmerID> kmers(numKmers, 0);
-		  
           // Iterate over the kmers
           ReadLength effectiveLength(0);
-          for ( auto offset : boost::irange( size_t(0), numKmers) ) { 
+          for ( auto offset : boost::irange( size_t(0), numKmers) ) {
             // the kmer and it's uint64_t representation
-            auto mer = newSeq.substr( offset, merLen );             
+            auto mer = newSeq.substr( offset, merLen );
             auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen );
-            
+
             if (useCanonical) {
               auto rcMer = jellyfish::parse_dna::reverse_complement(binMer, merLen);
               binMer = std::min(binMer, rcMer);
             }
 
             auto binMerId = transcriptHash.id(binMer);
-	    kmers[offset] = binMerId;
+            tinfo->kmers[offset] = binMerId;
 
-            // Only count and track kmers which should be considered
-            if ( binMerId != INVALID ) {
-              auto tcount = transcriptHash.atIndex(binMerId);
-              if ( tcount > 0 ) {
-               ContainingTranscript c{binMerId, static_cast<TranscriptID>(transcriptIndex)};
-               q.push(c);
-               // for boost lockfree queue
-               // while(!q.push( c ));
-             }
-           } else {
-             std::cerr << "When building the lookup table, I thought " << mer << " was an invalid k-mer\n";
-           }
          }
-	
-	 refinerMutex.lock();
-	 refiner.splitWith(kmers);
-	 refinerMutex.unlock();
 
-         tq.push(tinfo);
-         // for boost lockfree queue
-         // while(!tq.push(tinfo));
-         //transcripts[transcriptIndex] = tinfo;
+         // Partition refinement is not threadsafe.  Thus,
+         // we have to use a mutex here to assure that multiple
+         // threads don't try to refine the partitions at the
+         // same time (there may be a more efficient approach).
+         refinerMutex.lock();
+         refiner.splitWith(tinfo->kmers);
+         refinerMutex.unlock();
+
+         transcripts[transcriptIndex] = tinfo;
        }
-              
+
        --nworking;
      }) );
 
@@ -277,11 +225,149 @@ int buildLUTs(
 
   // Wait for all of the threads to finish
   for ( auto& thread : threads ){ thread.join(); }
-  refiner.relabel();
+  threads.clear();
 
-  std::cerr << "writing kmer lookup table . . . ";
-  std::cerr << "table size = " << transcriptsForKmer.size() << " . . . ";
-  LUTTools::dumpKmerLUT(transcriptsForKmer, klutfname);
+  // For simplicity and speed, the partition refiner is allowed to use many
+  // more labels than there are partitions (each newly created partition gets
+  // a new label, even when the label for one of the existing partitions could
+  // be used).  Here, we "compact" the labels, assuring they are [0,#part-1].
+  refiner.relabel();
+  const auto& membership = refiner.partitionMembership();
+
+  boost::filesystem::path p(tlutfname);
+  p = p.parent_path();
+  p /= "kmerEquivClasses.bin";
+
+  // Dump the vector of k-mer equivalence classes to file
+  LUTTools::dumpKmerEquivClasses(membership, p.string());
+
+  /**
+   *   Phase 2:
+   *   Build the [k] => t map and write to file
+   *   Build the t => [k] map and write to file
+   **/
+
+  // Start the thread that will print the progress bar
+  std::cerr << "Building the k-mer equiv. class <=> transcript mappings\n";
+  numRes = 0;
+  atomic<size_t> numTranscriptsRemaining{numTranscripts};
+
+  threads.push_back( std::thread( [&numRes, numTranscripts] () {
+        size_t lastCount = numRes;
+        ez::ezETAProgressBar show_progress(numTranscripts);
+        show_progress.start();
+        while ( numRes < numTranscripts ) {
+          auto diff = numRes - lastCount;
+          if ( diff > 0 ) {
+            show_progress += static_cast<unsigned int>(diff);
+            lastCount += diff;
+          }
+          boost::this_thread::sleep_for(boost::chrono::milliseconds(1010));
+        }
+        show_progress += static_cast<unsigned int>(numTranscripts - lastCount);
+        std::cerr << "\n";
+      }) );
+
+
+  /**
+   *  For each equivalence class, we keep a list of the transcripts in which it occurs.
+   *  For each transcript, we keep a list of the equivalence classes it contains.
+   **/
+  size_t numEquivClasses = (*max_element(membership.cbegin(), membership.cend())) + 1;
+  vector<TranscriptList> transcriptsForKmerClass(numEquivClasses);
+  tbb::concurrent_queue<ContainingTranscript> q;
+  tbb::concurrent_queue<TranscriptInfo*> tq;
+
+  // Spawn off a thread to build the kmer look up table
+  threads.push_back(std::thread(
+                                [&q, &transcriptsForKmerClass, &numTranscriptsRemaining]() {
+                                  ContainingTranscript ct;
+                                  while (numTranscriptsRemaining > 0) {
+                                    while (q.try_pop(ct)) {
+                                      transcriptsForKmerClass[ct.kmerID].push_back(ct.transcriptID);
+                                    }
+                                  }
+                                })
+                    );
+
+
+
+
+  // spawn off a thread to dump the transcript lookup table to file
+  threads.push_back(std::thread(
+                                [&tq, &numTranscriptsRemaining, tlutfname]() -> void {
+                                  std::ofstream tlutstream(tlutfname, std::ios::binary);
+                                  size_t numRec = 0;
+                                  tlutstream.write(reinterpret_cast<const char*>(&numRec), sizeof(numRec));
+
+                                  TranscriptInfo* ti = nullptr;
+                                  while( numTranscriptsRemaining > 0 ) {
+                                    while( tq.try_pop(ti) ) {
+                                      LUTTools::writeTranscriptInfo(ti, tlutstream);
+                                      delete ti;
+                                      ++numRec;
+                                    }
+                                  }
+
+                                  // go back to the beginning of the file and write the total number
+                                  // of actual records
+                                  tlutstream.seekp(0);
+                                  tlutstream.write(reinterpret_cast<const char*>(&numRec), sizeof(numRec));
+                                  tlutstream.close();
+                                })
+                    );
+
+  tbb::parallel_for(blocked_range<size_t>(0, transcripts.size()),
+                    [&] (blocked_range<size_t>& trange) -> void {
+
+
+                      auto INVALID = transcriptHash.INVALID;
+                      // For every transcript in this thread's range
+                      for (auto tidx = trange.begin(); tidx != trange.end(); ++tidx) {
+                        auto t = transcripts[tidx];
+                        // if (t == nullptr) { ++numRes; --numTranscriptsRemaining; continue; }
+
+                        // We'll transform the list of k-mers to the list of k-mer
+                        // equivalence classes
+                        size_t numKmers = t->kmers.size();
+                        vector<KmerID> kmerEquivClasses(numKmers, INVALID);
+                        auto& kmers = t->kmers;
+
+                        // Populate the equivalence class list, and pass each transcript
+                        // off to the
+                        for (size_t i = 0; i < numKmers; ++i) {
+                          // k-mer => k-mer class
+                          //
+
+                          size_t kmerClass = membership[kmers[i]];
+                          kmerEquivClasses[i] = kmerClass;
+
+                          // populate k-mer class => transcript index
+                          if ( kmerClass != INVALID ) {
+                              ContainingTranscript c{kmerClass, static_cast<TranscriptID>(t->transcriptID)};
+                              q.push(c);
+                          } else {
+                            std::cerr << "When building the lookup table, I thought " << kmerClass << " was an invalid k-mer class\n";
+                          }
+
+                        } // end for
+
+                        // Now the transcript holds a vector of equivalence classes
+                        std::swap(t->kmers, kmerEquivClasses);
+
+                        tq.push(t);
+                        --numTranscriptsRemaining;
+                        ++numRes;
+                      }
+
+                     }
+                   );
+
+  for (auto& t : threads) { t.join(); }
+
+  std::cerr << "writing k-mer equiv class lookup table . . . ";
+  std::cerr << "table size = " << transcriptsForKmerClass.size() << " . . . ";
+  LUTTools::dumpKmerLUT(transcriptsForKmerClass, klutfname);
   std::cerr << "done\n";
 
   return 0;
@@ -292,13 +378,14 @@ int buildLUTs(
  * building phase of Sailfish.  The 'buildlut' command that invokes this
  * driver is part of the 'advanced' Sailfish interface and thus, this function
  * is not usually called by the main pipeline.
- * 
+ *
  * @param  argc number of tokens on command line
  * @param  argv command line tokens
  * @return      0 on success; a different value otherwise
  */
 int mainBuildLUT(int argc, char* argv[] ) {
   using std::string;
+  using std::vector;
   namespace po = boost::program_options;
 
   try{
@@ -313,7 +400,7 @@ int mainBuildLUT(int argc, char* argv[] ) {
 
     po::options_description config("Configuration");
     config.add_options()
-      ("genes,g", po::value< std::vector<string> >(), "gene sequences")
+      ("genes,g", po::value< vector<string> >(), "gene sequences")
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
       ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("lutfile,l", po::value<string>(), "Lookup table prefix")
@@ -343,7 +430,7 @@ int mainBuildLUT(int argc, char* argv[] ) {
     uint32_t numThreads = vm["threads"].as<uint32_t>();
     tbb::task_scheduler_init init(numThreads);
 
-    std::vector<string> genesFile = vm["genes"].as<std::vector<string>>();
+    vector<string> genesFile = vm["genes"].as<vector<string>>();
     string sfIndexBase = vm["index"].as<string>();
     string sfIndexFile = sfIndexBase+".sfi";
     string sfTrascriptCountFile = sfIndexBase+".sfc";
@@ -355,7 +442,7 @@ int mainBuildLUT(int argc, char* argv[] ) {
 
     // If the user procided a GTF file, then use that to enumerate the
     // transcripts and build the transcript <-> gene map
-    if (vm.count("tgmap") ) { 
+    if (vm.count("tgmap") ) {
       string transcriptGeneMap = vm["tgmap"].as<string>();
       std::cerr << "building transcript to gene map using gtf file [" <<
                    transcriptGeneMap << "] . . .\n";
@@ -371,9 +458,9 @@ int mainBuildLUT(int argc, char* argv[] ) {
       std::cerr << "done\n";
     }
 
-    
+
     // save transcript <-> gene map to archive
-    { 
+    {
       string tgmOutFile = sfIndexBase+".tgm";
       std::cerr << "Saving transcritpt to gene map to [" << tgmOutFile << "] . . . ";
       std::ofstream ofs(tgmOutFile, std::ios::binary);

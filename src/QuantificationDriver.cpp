@@ -42,10 +42,12 @@ using std::string;
 int mainCount(int argc, char* argv[]);
 int runIterativeOptimizer(int argc, char* argv[]);
 
-int runKmerCounter(const std::string& sfCommand, 
+int runKmerCounter(const std::string& sfCommand,
                    uint32_t numThreads,
-                   const std::string& indexBase, 
-                   const std::vector<string>& readFiles, 
+                   const std::string& indexBase,
+                   const std::vector<string>& undirReadFiles,
+                   const std::vector<string>& fwdReadFiles,
+                   const std::vector<string>& revReadFiles,
                    const std::string& countFileOut,
                    bool discardPolyA) {
 
@@ -59,9 +61,26 @@ int runKmerCounter(const std::string& sfCommand,
     argStream << "--counts " << countFileOut << " ";
     argStream << "--threads " << numThreads << " ";
 
+    // Undirected reads
     argStream << "--reads ";
-    for (auto& rfile : readFiles) {
+    for (auto& rfile : undirReadFiles) {
         argStream << rfile << " ";
+    }
+
+    // Sense reads
+    if (fwdReadFiles.size() > 0) {
+      argStream << "--forward";
+      for (auto& rfile : fwdReadFiles) {
+        argStream << rfile << " ";
+      }
+    }
+
+    // Anti-sense reads
+    if (revReadFiles.size() > 0) {
+      argStream << "--reverse";
+      for (auto& rfile : revReadFiles) {
+        argStream << rfile << " ";
+      }
     }
 
     std::string argString = argStream.str();
@@ -89,7 +108,7 @@ int runKmerCounter(const std::string& sfCommand,
         std::exit(ret);
 
     } else if (pid < 0) { // fork failed!
-        
+
         std::cerr << "FATAL ERROR: Failed to spawn Sailfish process. Exiting\n";
         std::exit(-1);
     } else { // parent
@@ -103,16 +122,20 @@ int runKmerCounter(const std::string& sfCommand,
     return 0;
 }
 
-    
-int runSailfishEstimation(const std::string& sfCommand, 
-                          uint32_t numThreads, 
-                          const boost::filesystem::path& countFile, 
+
+int runSailfishEstimation(const std::string& sfCommand,
+                          uint32_t numThreads,
+                          const boost::filesystem::path& countFile,
                           const boost::filesystem::path& indexBasePath,
-                          //const std::string& tgmap, 
-                          size_t iterations, 
-                          const boost::filesystem::path& lookupTableBase, 
+                          //const std::string& tgmap,
+                          size_t iterations,
+                          const boost::filesystem::path& lookupTableBase,
                           const boost::filesystem::path& outFilePath,
                           bool noBiasCorrect) {
+
+  using std::vector;
+  using std::string;
+  using std::cerr;
 
     std::stringstream argStream;
     argStream << sfCommand << " ";
@@ -161,6 +184,7 @@ int runSailfishEstimation(const std::string& sfCommand,
 
 int mainQuantify( int argc, char *argv[] ) {
 
+    using std::vector;
     using std::string;
     namespace po = boost::program_options;
     namespace bfs = boost::filesystem;
@@ -169,13 +193,22 @@ int mainQuantify( int argc, char *argv[] ) {
     uint32_t maxThreads = std::thread::hardware_concurrency();
     bool noBiasCorrect = false;
 
+    std::vector<string> undirReadFiles;// = vm["reads"].as<std::vector<string>>();
+    std::vector<string> fwdReadFiles;// = vm["forward"].as<std::vector<string>>();
+    std::vector<string> revReadFiles;// = vm["reverse"].as<std::vector<string>>();
+
     po::options_description generic("Sailfish quant options");
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("index,i", po::value<string>(), "Sailfish index [output of the \"Sailfish index\" command")        
-    ("reads,r", po::value<std::vector<string>>()->multitoken(), "List of files containing reads")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")    
+    ("index,i", po::value<string>(), "Sailfish index [output of the \"Sailfish index\" command")
+    ("reads,r", po::value<vector<string>>(&undirReadFiles)->multitoken(),
+     "List of files containing reads of unknown orientation (i.e. \"undirected\" reads)")
+    ("forward,F", po::value<vector<string>>(&fwdReadFiles)->multitoken(),
+     "List of files containing reads oriented in the \"sense\" direction")
+    ("reverse,R", po::value<vector<string>>(&revReadFiles)->multitoken(),
+     "List of files containing reads oriented in the \"anti-sense\" direction")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("out,o", po::value<string>(), "Basename of file where estimates are written")
     ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
@@ -183,7 +216,7 @@ int mainQuantify( int argc, char *argv[] ) {
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
     ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded")
     ;
- 
+
     po::variables_map vm;
 
     try {
@@ -203,7 +236,6 @@ int mainQuantify( int argc, char *argv[] ) {
         //string tgmap = vm["tgmap"].as<string>();
         //string tgmap = indexBase+".tgm";
         uint32_t numThreads = vm["threads"].as<uint32_t>();
-        std::vector<string> readFiles = vm["reads"].as<std::vector<string>>();
         bool force = vm["force"].as<bool>();
         bool discardPolyA = vm["polya"].as<bool>();
 
@@ -241,7 +273,7 @@ int mainQuantify( int argc, char *argv[] ) {
 
         mustRecount = (force or !boost::filesystem::exists(countFilePath));
         if (mustRecount) {
-            runKmerCounter(sfCommand, numThreads, indexPath.string(), readFiles, countFilePath.string(), discardPolyA);
+          runKmerCounter(sfCommand, numThreads, indexPath.string(), undirReadFiles, fwdReadFiles, revReadFiles, countFilePath.string(), discardPolyA);
         }
 
         /*

@@ -64,10 +64,10 @@ bool readKmerOrder( const std::string& fname, std::vector<uint64_t>& kmers ) {
   // Get the number of kmers from file
   size_t numKmers{0};
   mlist.read( reinterpret_cast<char*>( &numKmers ), sizeof( size_t ) );
-  
+
   // Resize the array that will hold the sorted kmers
   kmers.resize(numKmers, 0);
-  mlist.read( reinterpret_cast<char*>( &kmers[0] ), sizeof( uint64_t) * kmers.size() ); 
+  mlist.read( reinterpret_cast<char*>( &kmers[0] ), sizeof( uint64_t) * kmers.size() );
 
   mlist.close();
 
@@ -179,7 +179,7 @@ TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFi
     jellyfish::parse_read::read_t* read;
 
     // while there are transcripts left to process
-    while ( (read = stream.next_read()) ) { 
+    while ( (read = stream.next_read()) ) {
       // The transcript name
       std::string fullHeader(read->header, read->hlen);
       std::string header = fullHeader.substr(0, fullHeader.find(' '));
@@ -188,13 +188,12 @@ TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFi
 
     // Sort the transcript names
     std::sort(transcriptNames.begin(), transcriptNames.end());
-    
+
     // Since we have no real gene groupings, the t2g vector is trivial,
     // everything maps to gene 0.
     IndexVector t2g(transcriptNames.size(), 0);
 
     return TranscriptGeneMap(transcriptNames, geneNames, t2g);
-
 }
 
 }
