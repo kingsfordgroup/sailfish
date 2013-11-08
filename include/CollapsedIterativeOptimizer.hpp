@@ -1478,7 +1478,8 @@ public:
 
 
     void writeAbundances(const boost::filesystem::path& outputFilePath,
-                         const std::string& headerLines) {
+                         const std::string& headerLines,
+                         double minAbundance) {
         std::cerr << "Writing output\n";
         ez::ezETAProgressBar pb(transcripts_.size());
         pb.start();
@@ -1486,13 +1487,15 @@ public:
         auto estimatedGroupTotal = psum_(kmerGroupCounts_);
         auto totalNumKmers = readHash_.totalLength() * (std::ceil(readHash_.averageLength()) - readHash_.kmerLength() + 1);
         std::vector<KmerQuantity> fracTran(transcripts_.size(), 0.0);
+        std::vector<KmerQuantity> numKmersFromTranscript(transcripts_.size(), 0.0);
 
         // Compute transcript fraction (\tau_i in RSEM)
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
-          [this, &fracTran](const BlockedIndexRange& range) -> void {
+          [this, &numKmersFromTranscript, &fracTran](const BlockedIndexRange& range) -> void {
             for (auto tid = range.begin(); tid != range.end(); ++tid) {
               auto& ts = this->transcripts_[tid];
-              fracTran[tid] = this->_computeMean( ts );
+              fracTran[tid] = this->_computeMean(ts);
+              numKmersFromTranscript[tid] = this->_computeSum(ts);
               //fracTran[tid] = this->_computeClampedMean( ts );
             }
         });
@@ -1517,6 +1520,11 @@ public:
         double billion = std::pow(10.0, 9);
         double estimatedReadLength = readHash_.averageLength();
         double kmersPerRead = ((estimatedReadLength - merLen_) + 1);
+        double totalMappedKmers = std::accumulate(numKmersFromTranscript.begin(),
+                                                  numKmersFromTranscript.end(),
+                                                  0.0);
+        double totalMappedReads = totalMappedKmers / kmersPerRead;
+
         ofile << headerLines;
 
         ofile << "# " << "Transcript" << '\t' << "Length" << '\t' <<
@@ -1524,22 +1532,38 @@ public:
         for ( auto i : boost::irange(size_t{0}, transcripts_.size()) ) {
           auto& ts = transcripts_[i];
           // expected # of kmers coming from transcript i
-          auto ci = estimatedGroupTotal * fracNuc[i];
+
+          // auto ci = estimatedGroupTotal * fracNuc[i];
+          auto ci = numKmersFromTranscript[i];
+
           // expected # of reads coming from transcript i
           auto ri = ci / kmersPerRead;
           auto effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
-          auto rpkm = (effectiveLength > 0) ?
-                      (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
-               rpkm = (rpkm < 0.01) ? 0.0 : rpkm;
-
           auto effectiveLengthKmer = ts.length - merLen_ + 1;
 
           auto kpkm = (effectiveLengthKmer > 0) ?
-                      (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
-               kpkm = (kpkm < 0.01) ? 0.0 : kpkm;
+            (ci * billion) / (ts.effectiveLength * totalMappedKmers) : 0.0;
+          kpkm = (kpkm < minAbundance) ? 0.0 : kpkm;
+
+          auto rpkm = (effectiveLength > 0) ?
+            (ri * billion) / (effectiveLength * totalMappedReads) : 0.0;
+          rpkm = (kpkm < minAbundance) ? 0.0 : rpkm;
+
+          // PREVIOUS
+          // auto ci = estimatedGroupTotal * fracNuc[i];
+          /*
+          auto kpkm = (effectiveLengthKmer > 0) ?
+            (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
+          kpkm = (kpkm < minAbundance) ? 0.0 : kpkm;
+          auto rpkm = (effectiveLength > 0) ?
+          (billion * (fracNuc[i] / ts.effectiveLength)) : 0.0;
+          rpkm = (kpkm < minAbundance) ? 0.0 : rpkm;
+
+          */
+
 
           auto tpm = fracTran[i] * million;
-               tpm = (tpm < 0.05) ? 0.0 : tpm;
+          tpm = (kpkm < minAbundance) ? 0.0 : tpm;
 
           ofile << transcriptGeneMap_.transcriptName(index) <<
                    '\t' << ts.length << '\t' <<

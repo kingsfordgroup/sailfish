@@ -2,18 +2,19 @@
 #define __PARTITION_REFINER_HPP__
 
 #include <vector>
+#include "LookUpTableUtils.hpp"
 
 class PartitionRefiner {
 public:
-        PartitionRefiner(std::size_t numElem);
-        void splitWith(std::vector<std::size_t> splitter);
+        PartitionRefiner(LUTTools::KmerID numElem);
+        void splitWith(std::vector<LUTTools::KmerID> splitter);
         void relabel();
-        const std::vector<std::size_t>& partitionMembership();
+        const std::vector<LUTTools::KmerID>& partitionMembership();
 
 private:
-        std::size_t numElem_;
-        std::vector<std::size_t> membership_;
-        std::size_t maxSetIdx_;
+        LUTTools::KmerID numElem_;
+        std::vector<LUTTools::KmerID> membership_;
+        LUTTools::KmerID maxSetIdx_;
 };
 
 #endif // __PARTITION_REFINER_HPP__

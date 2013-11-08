@@ -131,7 +131,8 @@ int runSailfishEstimation(const std::string& sfCommand,
                           size_t iterations,
                           const boost::filesystem::path& lookupTableBase,
                           const boost::filesystem::path& outFilePath,
-                          bool noBiasCorrect) {
+                          bool noBiasCorrect,
+                          double minAbundance) {
 
   using std::vector;
   using std::string;
@@ -149,6 +150,7 @@ int runSailfishEstimation(const std::string& sfCommand,
     //argStream << "--tgmap " << tgmap << " ";
     argStream << "--lutfile " << lookupTableBase.string() << " ";
     argStream << "--iterations " << iterations << " ";
+    argStream << "--min_abundance " << minAbundance << " ";
     argStream << "--out " << outFilePath.string();
 
     std::string argString = argStream.str();
@@ -192,6 +194,7 @@ int mainQuantify( int argc, char *argv[] ) {
     string sfCommand = argv[0];
     uint32_t maxThreads = std::thread::hardware_concurrency();
     bool noBiasCorrect = false;
+    double minAbundance{0.01};
 
     std::vector<string> undirReadFiles;// = vm["reads"].as<std::vector<string>>();
     std::vector<string> fwdReadFiles;// = vm["forward"].as<std::vector<string>>();
@@ -209,9 +212,11 @@ int mainQuantify( int argc, char *argv[] ) {
     ("reverse,R", po::value<vector<string>>(&revReadFiles)->multitoken(),
      "List of files containing reads oriented in the \"anti-sense\" direction")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.01),
+     "transcripts with an abundance (KPKM) lower than this value will be reported at zero.")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("out,o", po::value<string>(), "Basename of file where estimates are written")
-    ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
+      ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
     ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded")
@@ -294,7 +299,8 @@ int mainQuantify( int argc, char *argv[] ) {
         bfs::path estFilePath(outputBasePath); estFilePath /= "quant.sf";
         size_t iterations = vm["iterations"].as<size_t>();
         runSailfishEstimation(sfCommand, numThreads, countFilePath, indexPath,
-                              iterations, lutBasePath, estFilePath, noBiasCorrect);
+                              iterations, lutBasePath, estFilePath,
+                              noBiasCorrect, minAbundance);
 
     } catch (po::error &e) {
         std::cerr << "exception : [" << e.what() << "]. Exiting.\n";

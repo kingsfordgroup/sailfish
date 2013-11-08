@@ -5,14 +5,14 @@
 #include <unordered_map>
 
 
-PartitionRefiner::PartitionRefiner(size_t numElem) :
+PartitionRefiner::PartitionRefiner(LUTTools::KmerID numElem) :
 numElem_(numElem),
-membership_(std::vector<size_t>(numElem+1, 0)),
+membership_(std::vector<LUTTools::KmerID>(numElem+1, 0)),
 maxSetIdx_(0)
 {}
 
 
-void PartitionRefiner::splitWith(std::vector<size_t> splitter) {
+void PartitionRefiner::splitWith(std::vector<LUTTools::KmerID> splitter) {
 
   // If there is nothing in the splitter, then we shouldn't alter the equivalence classes;
   // just return
@@ -76,18 +76,18 @@ void PartitionRefiner::splitWith(std::vector<size_t> splitter) {
         }
 
 void PartitionRefiner::relabel() {
-        std::unordered_map<size_t, size_t> relabelMap;
+  std::unordered_map<LUTTools::KmerID, LUTTools::KmerID> relabelMap;
 
-                for (size_t i = 0; i < membership_.size(); ++i) {
-                        auto e = membership_[i];
-                        if (relabelMap.find(e) == relabelMap.end()) {
-                                relabelMap[e] = relabelMap.size();
-                        }
-                        membership_[i] = relabelMap[e];
-                }
+  for (LUTTools::KmerID i = 0; i < membership_.size(); ++i) {
+    auto e = membership_[i];
+    if (relabelMap.find(e) == relabelMap.end()) {
+      relabelMap[e] = static_cast<LUTTools::KmerID>(relabelMap.size());
+    }
+    membership_[i] = relabelMap[e];
+  }
 
-                std::cerr << "after relabling, there are " <<
-                             *std::max_element(membership_.begin(), membership_.end())+1 << " eq classes\n";
+  std::cerr << "after relabling, there are " <<
+                *std::max_element(membership_.begin(), membership_.end())+1 << " eq classes\n";
 }
 
-const std::vector<size_t>& PartitionRefiner::partitionMembership() { return membership_; }
+const std::vector<LUTTools::KmerID>& PartitionRefiner::partitionMembership() { return membership_; }

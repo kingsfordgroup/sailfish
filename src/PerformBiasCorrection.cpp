@@ -8,6 +8,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
+#include <boost/multiprecision/cpp_dec_float.hpp>
 
 #include "shark/Data/Dataset.h"
 #include "shark/Algorithms/Trainers/PCA.h"
@@ -40,6 +41,7 @@
 namespace bfs = boost::filesystem;
 using Kmer = uint64_t;
 using Sailfish::TranscriptFeatures;
+using mpdec = boost::multiprecision::cpp_dec_float_100;
 
 TranscriptFeatures parseFeature(std::ifstream& ifs) {
         TranscriptFeatures tf{};
@@ -109,7 +111,7 @@ ExpressionResults parseSailfishFile(const bfs::path& expFile) {
 }
 
 
-void populateFromTPMs(vector<double>& tpms,
+void populateFromTPMs(vector<mpdec>& tpms,
                       vector<TranscriptFeatures>& features,
                       vector<size_t>& retainedRows,
                       ExpressionResults& sfres,
@@ -117,22 +119,23 @@ void populateFromTPMs(vector<double>& tpms,
                       double kmersPerRead,
                       uint64_t mappedKmers,
                       uint64_t merLen,
-                      vector<double>& rpkms,
-                      vector<double>& readCounts) {
+                      vector<mpdec>& rpkms,
+                      vector<mpdec>& readCounts) {
 
   // compute the TPM normalization factor
-  double sumTPM = std::accumulate(tpms.begin(), tpms.end(), 0.0);
-  double norm = 1.0 / sumTPM;
+  mpdec mpzero = 0;
+  mpdec sumTPM = std::accumulate(tpms.begin(), tpms.end(), mpzero);
+  mpdec norm = 1.0 / sumTPM;
 
   // compute the relative transcript fractions
-  vector<double> tfracs(tpms.size());
+  vector<mpdec> tfracs(tpms.size());
   for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
     tfracs[i] = tpms[i] * norm;
   }
 
   // using the relative transcript fractions, compute the relative
   // nucleotide fractions (transcript fractions * length)
-  vector<double> tflens(tpms.size());
+  vector<mpdec> tflens(tpms.size());
   for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
     auto& name = features[i].name;
     auto& r = sfres.expressions[name];
@@ -141,7 +144,7 @@ void populateFromTPMs(vector<double>& tpms,
   }
 
   // normalize the nucleotide fractions
-  double tfnorm = 1.0 / std::accumulate(tflens.begin(), tflens.end(), 0.0);
+  mpdec tfnorm = 1.0 / std::accumulate(tflens.begin(), tflens.end(), mpzero);
   for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
     tflens[i] *= tfnorm;
   }
@@ -391,8 +394,9 @@ int performBiasCorrection(
                 ofile << c << "\n";
         }
 
+
         size_t retainedCnt = 0;
-        vector<double> kpkms(features.size());
+        vector<mpdec> kpkms(features.size());
         for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
           auto& name = features[i].name;
           auto& r = sfres.expressions[name];
@@ -406,20 +410,35 @@ int performBiasCorrection(
 
 
         // compute estimated TPM from the KPKMS
-
+        mpdec mpzero = 0;
         // normalize the KPKMS --- these will estimate the tau_i
-        double sumKPKM = std::accumulate(kpkms.begin(), kpkms.end(), 0.0);
-        double norm = 1.0 / sumKPKM;
+        mpdec sumKPKM = std::accumulate(kpkms.begin(), kpkms.end(), mpzero);
+        mpdec norm = 1.0 / sumKPKM;
 
         // then multiply by 10^6 to get TPM_i
         double million = pow(10, 6);
-        vector<double> tpms(kpkms.size());
+        vector<mpdec> tpms(kpkms.size());
         for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
           tpms[i] = kpkms[i] * norm * million;
         }
 
-        vector<double> rpkms;
-        vector<double> readCounts;
+        /*
+        size_t retainedCnt = 0;
+        vector<mpdec> tpms(features.size());
+        for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
+          auto& name = features[i].name;
+          auto& r = sfres.expressions[name];
+          if (i == retainedRows[retainedCnt]) {
+            tpms[i] = std::exp(pred[retainedCnt]);
+            ++retainedCnt;
+          } else {
+            tpms[i] = r.tpm;
+          }
+        }
+        */
+
+        vector<mpdec> rpkms;
+        vector<mpdec> readCounts;
         populateFromTPMs(tpms, features, retainedRows,
                          sfres, estimatedReadLength, kmersPerRead,
                          mappedKmers, merLen, rpkms, readCounts);
@@ -429,7 +448,7 @@ int performBiasCorrection(
           auto& r = sfres.expressions[name];
           auto length = r.length;
           ofile << name << '\t' << r.length << '\t' << tpms[i] << '\t'
-                << ((length - estimatedReadLength + 1) > 0 ? rpkms[i] : 0.0) << '\t'
+                << ((length - estimatedReadLength + 1) > 0 ? kpkms[i] : 0.0) << '\t'
                 << ((length - merLen + 1) > 0 ? kpkms[i] : 0.0) << '\t'
                 << readCounts[i] << '\n';
         }

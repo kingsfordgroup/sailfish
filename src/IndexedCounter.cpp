@@ -128,8 +128,8 @@ private:
 
 template <typename ParserT>
 bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_t merLen,
-                bool discardPolyA, MerDirection direction, std::atomic<size_t>& numReadsProcessed,
-                std::atomic<size_t>&unmappedKmers, std::atomic<uint64_t>& readNum, size_t numThreads) {
+                bool discardPolyA, MerDirection direction, std::atomic<uint64_t>& numReadsProcessed,
+                std::atomic<uint64_t>&unmappedKmers, std::atomic<uint64_t>& readNum, size_t numThreads) {
 
   using std::string;
   using std::cerr;

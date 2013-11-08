@@ -11,6 +11,7 @@ QuantificationDriver.cpp
 PerfectHashIndexer.cpp
 BuildLUT.cpp
 IndexedCounter.cpp
+LookUpTableUtils.cpp
 GenomicFeature.cpp
 JellyfishMerCounter.cpp
 VersionChecker.cpp
@@ -54,17 +55,16 @@ add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
 # Link the executable
 target_link_libraries(sailfish 
-	sailfish_core 
-	${Boost_LIBRARIES} 
+    sailfish_core 
+    ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
-	cmph # perfect hashing library
-	jellyfish-1.1 
+    cmph # perfect hashing library
+    jellyfish-1.1 
     pthread 
     gomp 
     m
     ${TBB_LIBRARIES}
-    shark
-    #${LIBSAILFISH_LINKER_FLAGS} shark
+    ${LIBSAILFISH_LINKER_FLAGS} shark
     #profiler
 )
 

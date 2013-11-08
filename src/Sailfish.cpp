@@ -82,7 +82,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
    bool poisson = false;
    bool noBiasCorrect = false;
-
+   double minAbundance{0.01};
    uint32_t maxThreads = std::thread::hardware_concurrency();
 
     po::options_description generic("Command Line Options");
@@ -95,6 +95,8 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::options_description config("Configuration");
     config.add_options()
       //("genes,g", po::value< std::vector<string> >(), "gene sequences")
+      ("min_abundance, m", po::value<double>(&minAbundance)->default_value(0.01),
+       "transcripts with abundance (KPKM) lower than this will be reported at 0.")
       ("counts,c", po::value<string>(), "count file")
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
       ("bias,b", po::value<string>(), "bias index prefix (without .bin/.dict)")
@@ -215,7 +217,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       for (size_t i : boost::irange(size_t(0), static_cast<size_t>(argc))) { headerLines << argv[i] << " "; }
       headerLines << "\n";
 
-      solver.writeAbundances(outputFilePath, headerLines.str());
+      solver.writeAbundances(outputFilePath, headerLines.str(), minAbundance);
 
 
       if (computeBiasCorrection) {
