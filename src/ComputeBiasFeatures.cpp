@@ -1,3 +1,4 @@
+
 /**
 >HEADER
     Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
@@ -43,6 +44,8 @@
 #include <boost/filesystem.hpp>
 
 #include "CommonTypes.hpp"
+#include "ReadProducer.hpp"
+#include "StreamingSequenceParser.hpp"
 
 // holding 2-mers as a uint64_t is a waste of space,
 // but using Jellyfish makes life so much easier, so
@@ -51,91 +54,29 @@ using Kmer = uint64_t;
 using Sailfish::TranscriptFeatures;
 namespace bfs = boost::filesystem;
 
+template <typename ParserT>
+bool computeBiasFeaturesHelper(ParserT& parser,
+                               tbb::concurrent_bounded_queue<TranscriptFeatures>& featQueue,
+                               size_t& numComplete, size_t numThreads) {
+    size_t merLen = 2;
+    Kmer lshift(2 * (merLen - 1));
+    Kmer masq((1UL << (2 * merLen)) - 1);
+    std::atomic<size_t> readNum{0};
 
-int computeBiasFeatures(
-    std::vector<std::string>& transcriptFiles,
-    bfs::path outFilePath,
-    size_t numThreads) {
+    size_t numActors = numThreads;
+    std::vector<std::thread> threads;
+    auto tstart = std::chrono::steady_clock::now();
 
-    using std::string;
-
-	std::vector<std::string> alphabet{{"AA", "AC", "AG", "AT",
-                        "CA", "CC", "CG", "CT",
-                        "GA", "GC", "GG", "GT",
-	                    "TA", "TC", "TG", "TT"}};
-
-	std::vector<Kmer> diNucleotides(16);
-	for (auto i : boost::irange(size_t{0}, diNucleotides.size())) {
-		diNucleotides[i] = jellyfish::parse_dna::mer_string_to_binary(alphabet[i].c_str(), 2);
-	}
-
-
-        std::vector<std::string> readFiles = transcriptFiles;
-        for( auto rf : readFiles ) {
-            std::cerr << "readFile: " << rf << ", ";
-        }
-        std::cerr << "\n";
-
-        char** fnames = new char*[readFiles.size()];
-        size_t z{0};
-        size_t numFnames{0};
-        for ( auto& s : readFiles ){
-            // Ugly, yes?  But this is not as ugly as the alternatives.
-            // The char*'s contained in fname are owned by the readFiles
-            // vector and need not be manually freed.
-            fnames[numFnames] = const_cast<char*>(s.c_str());
-            ++numFnames;
-        }
-
-        // Create a jellyfish parser
-        jellyfish::parse_read parser( fnames, fnames+numFnames, 5000);
-
-
-	    size_t merLen = 2;
-        Kmer lshift(2 * (merLen - 1));
-        Kmer masq((1UL << (2 * merLen)) - 1);
-        std::atomic<size_t> readNum{0};
-
-
-        size_t numActors = numThreads;
-        size_t numComplete = 0;
-	    std::vector<std::thread> threads;
-        auto tstart = std::chrono::steady_clock::now();
-
-        tbb::concurrent_bounded_queue<TranscriptFeatures> featQueue;
-
-        std::ofstream ofile(outFilePath.string());
-
-        auto outputThread = std::thread(
-        	[&ofile, &numComplete, &featQueue, numActors]() -> void {
-	   			TranscriptFeatures tf{};
-        		while( numComplete < numActors or !featQueue.empty() ) {
-	                while(featQueue.try_pop(tf)) {
-       				ofile << tf.name << '\t';
-       				ofile << tf.length << '\t';
-       				ofile << tf.gcContent << '\t';
-       				for (auto i : boost::irange(size_t{0}, tf.diNucleotides.size())) {
-       					ofile << tf.diNucleotides[i];
-       					char end = (i == tf.diNucleotides.size() - 1) ? '\n' : '\t';
-       					ofile << end;
-       				}
-	       			}
-	       			boost::this_thread::sleep_for(boost::chrono::milliseconds(100));
-
-        		}
-		       	ofile.close();
-        	}
-        );
-
-        for (auto i : boost::irange(size_t{0}, numActors)) {
-	    threads.push_back(std::thread(
+    for (auto i : boost::irange(size_t{0}, numActors)) {
+        threads.push_back(std::thread(
 	        [&featQueue, &numComplete, &parser, &readNum, &tstart, lshift, masq, merLen, numActors]() -> void {
 
-                jellyfish::parse_read::read_t* read;
-                jellyfish::parse_read::thread stream = parser.new_thread();
+                ReadProducer<ParserT> producer(parser);
+
+                ReadSeq* s;
                 size_t cmlen, kmer, numKmers;
-                while ( (read = stream.next_read()) ) {
-                    ++readNum; //++locallyProcessedReads;
+                while (producer.nextRead(s)) {
+                    ++readNum; 
                     if (readNum % 1000 == 0) {
                         auto tend = std::chrono::steady_clock::now();
                         auto sec = std::chrono::duration_cast<std::chrono::seconds>(tend-tstart);
@@ -144,20 +85,23 @@ int computeBiasFeatures(
                         std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
                     }
 
-
                     // we iterate over the entire read
-                    const char         *start = read->seq_s;
-                    const char * const  end   = read->seq_e;
+                    const char* start     = s->seq;
+                    uint32_t readLen      = s->len;
+                    const char* const end = s->seq + readLen;
 
-					TranscriptFeatures tfeat{};
+                    TranscriptFeatures tfeat{};
 
                     // reset all of the counts
                     numKmers = 0;
                     cmlen = kmer = 0;
 
-                    uint32_t readLen = std::distance(start, end);
+                    // the maximum number of kmers we'd have to store
+                    uint32_t maxNumKmers = (readLen >= merLen) ? readLen - merLen + 1 : 0;
+                    if (maxNumKmers == 0) { featQueue.push(tfeat); continue; }
+                    
                     // The transcript name
-                    std::string fullHeader(read->header, read->hlen);
+                    std::string fullHeader(s->name, s->nlen);
                     tfeat.name = fullHeader.substr(0, fullHeader.find(' '));
                     tfeat.length = readLen;
                     auto nfact = 1.0 / readLen;
@@ -186,9 +130,9 @@ int computeBiasFeatures(
                                   // form the new kmer
                                   kmer = ((kmer << 2) & masq) | c;
                                   if (++cmlen >= merLen) {
-									  tfeat.diNucleotides[kmer]++;
-									  if (base == 'G' or base == 'C') { tfeat.gcContent += nfact; }
-								  }
+                                      tfeat.diNucleotides[kmer]++;
+                                      if (base == 'G' or base == 'C') { tfeat.gcContent += nfact; }
+                                  }
 
                             } // end switch
 
@@ -198,15 +142,88 @@ int computeBiasFeatures(
                     if (lastBase == 'G' or lastBase == 'C') { tfeat.gcContent += nfact; }
                     featQueue.push(tfeat);
 
+                    producer.finishedWithRead(s);
+
                 } // end reads
             } // end lambda
             ));
 
-		} // actor loop
+        } // actor loop
 
-		for (auto& t : threads) { t.join(); ++numComplete; }
-		std::cerr << "\n";
-		outputThread.join();
+        for (auto& t : threads) { t.join(); ++numComplete; }
+        return true;
+}
 
+int computeBiasFeatures(
+    std::vector<std::string>& transcriptFiles,
+    bfs::path outFilePath,
+    bool useStreamingParser,
+    size_t numThreads) {
 
+    using std::string;
+    using std::vector;
+    using std::cerr;
+
+    size_t numActors = numThreads;
+    size_t numComplete = 0;
+    tbb::concurrent_bounded_queue<TranscriptFeatures> featQueue;
+
+    std::ofstream ofile(outFilePath.string());
+
+    auto outputThread = std::thread(
+         [&ofile, &numComplete, &featQueue, numActors]() -> void {
+             TranscriptFeatures tf{};
+             while( numComplete < numActors or !featQueue.empty() ) {
+                 while(featQueue.try_pop(tf)) {
+                     ofile << tf.name << '\t';
+                     ofile << tf.length << '\t';
+                     ofile << tf.gcContent << '\t';
+                     for (auto i : boost::irange(size_t{0}, tf.diNucleotides.size())) {
+                         ofile << tf.diNucleotides[i];
+                         char end = (i == tf.diNucleotides.size() - 1) ? '\n' : '\t';
+                         ofile << end;
+                     }
+                 }
+                 boost::this_thread::sleep_for(boost::chrono::milliseconds(100));
+
+             }
+             ofile.close();
+         });
+
+    bool tryJellyfish = !useStreamingParser;
+
+    std::vector<std::string> readFiles = transcriptFiles;
+    for( auto rf : readFiles ) {
+        std::cerr << "readFile: " << rf << ", ";
+    }
+    std::cerr << "\n";
+
+    for (auto& readFile : readFiles) {
+        std::cerr << "file " << readFile << ": \n";
+
+        namespace bfs = boost::filesystem;
+        bfs::path filePath(readFile);
+
+        // If this is a regular file, then use the Jellyfish parser
+        if (tryJellyfish and bfs::is_regular_file(filePath)) {
+
+            char** fnames = new char*[1];// fnames[1];
+            fnames[0] = const_cast<char*>(readFile.c_str());
+
+            jellyfish::parse_read parser(fnames, fnames+1, 5000);
+
+            computeBiasFeaturesHelper<jellyfish::parse_read>(
+                                                             parser, featQueue, numComplete, numActors);
+
+        } else { // If this is a named pipe, then use the kseq-based parser
+            vector<bfs::path> paths{readFile};
+            StreamingReadParser parser(paths);
+            parser.start();
+            computeBiasFeaturesHelper<StreamingReadParser>(
+                                                           parser, featQueue, numComplete, numActors);
+        }
+    }
+
+    std::cerr << "\n";
+    outputThread.join();
 }

@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include "StreamingSequenceParser.hpp"
 
 #include <cstdio>
@@ -79,11 +101,23 @@ bool StreamingReadParser::start() {
                       int ksv = kseq_read(seq);
                       while (ksv >= 0) {
                         this->seqContainerQueue_.pop(s);
+
+                        // Possibly allocate more space for the sequence
                         if (seq->seq.l > s->len) {
                             s->seq = static_cast<char*>(realloc(s->seq, seq->seq.l));
                         }
+                        // Copy the sequence length and sequence over to the ReadSeq struct
                         s->len = seq->seq.l;
                         memcpy(s->seq, seq->seq.s, s->len);
+
+                        // Possibly allocate more space for the name
+                        if (seq->name.l > s->nlen) {
+                            s->name = static_cast<char*>(realloc(s->name, seq->name.l));
+                        }
+                        // Copy the name length and name over to the ReadSeq struct
+                        s->nlen = seq->name.l;
+                        memcpy(s->name, seq->name.s, s->nlen);
+
                         this->readQueue_.push(s);
                         ksv = kseq_read(seq);
                       }
@@ -91,7 +125,6 @@ bool StreamingReadParser::start() {
                     // destroy the parser and close the file
                     kseq_destroy(seq);
                     close(pfd.fd);
-
                 }
 
 
@@ -105,10 +138,10 @@ bool StreamingReadParser::start() {
     }
 
 bool StreamingReadParser::nextRead(ReadSeq*& seq) {
-        while(parsing_) {
+        while(parsing_ or !readQueue_.empty()) {
             if (readQueue_.try_pop(seq)) { return true; }
         }
         return false;
-    }
+}
 
 void StreamingReadParser::finishedWithRead(ReadSeq*& s) { seqContainerQueue_.push(s); }

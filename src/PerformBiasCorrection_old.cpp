@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include <iostream>
 #include <fstream>
 #include <istream>
@@ -134,7 +156,7 @@ int main(int argc, char* argv[]) {
 		auto& tname = features[i].name;
 		auto rpkm = sfres.expressions[tname].rpkm;
 		shark::RealVector v(1);
-	
+
 		if ( rpkm >= 0.001 ) {
 			retainedRows.emplace_back(i);
 			retainedNames.push_back(tname);
@@ -147,7 +169,7 @@ int main(int argc, char* argv[]) {
 			minLRPKM = std::min(minLRPKM, v(0));
 			maxLRPKM = std::max(maxLRPKM, v(0));
 			avgLRPKM += v(0);
-			RPKMLabels.emplace_back(v);					
+			RPKMLabels.emplace_back(v);
 		}
 	}
 	avgLRPKM /= retainedRows.size();
@@ -203,7 +225,7 @@ int main(int argc, char* argv[]) {
 
 		v(0) = std::log(static_cast<double>(features[r].length));
 		train.X[c][0] = std::log(static_cast<double>(features[r].length));
-		train2.X[c][0] = std::log(static_cast<double>(features[r].length));		
+		train2.X[c][0] = std::log(static_cast<double>(features[r].length));
 		for (auto j : boost::irange(size_t{1}, dimCutoff+1)) {
 			train.X[c][j] = encodedXsub.element(c)(j-1);
 			train2.X[c][j] = encodedXsub.element(c)(j-1);
@@ -270,8 +292,8 @@ int main(int argc, char* argv[]) {
 	));*/
 
 	/*
-	std::cerr << "there are " << numRetainedSamples << " samples\n";			
-	std::cerr << "there are " << train.n_features << " features\n";	
+	std::cerr << "there are " << numRetainedSamples << " samples\n";
+	std::cerr << "there are " << train.n_features << " features\n";
 	reg->build(train.X, train.y, numRetainedSamples);
 
 	REAL* pred = new REAL[numRetainedSamples];
@@ -283,19 +305,19 @@ int main(int argc, char* argv[]) {
   std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
 	*/
 
-	
+
 	shark::Data<shark::RealVector> input = shark::createDataFromRange(X);
 	shark::Data<shark::RealVector> regLabels = shark::createDataFromRange(labels);
 
 	shark::LabeledData<shark::RealVector, shark::RealVector> regressionData(input, regLabels);
-	
+
 	shark::RFTrainer trainer;
 	shark::RFClassifier model;
-	
+
 	trainer.setNodeSize(20);
 	trainer.setNTrees(500);
 	trainer.setOOBratio(0.001);
-	
+
 	//std::cerr << "number of classes = " << shark::numberOfClasses(regressionSubset) << "\n";
 	//std::cerr << "number of classes = " << shark::numberOfClasses(regressionSubset) << "\n";
 	trainer.train(model, regressionData);
@@ -316,10 +338,10 @@ int main(int argc, char* argv[]) {
 	/*
 	auto mm = std::minmax_element(train.y, train.y + numRetainedSamples);
 	double minLRPKM = std::get<0>(mm);
-	double maxLRPKM = std::get<1>(mm);	
+	double maxLRPKM = std::get<1>(mm);
 	*/
 
-	for (auto i : boost::irange(size_t{0}, size_t{numRetainedSamples})) { 
+	for (auto i : boost::irange(size_t{0}, size_t{numRetainedSamples})) {
 		pred[i] = RPKMLabels[i](0) - pred[i];
 	}
 
@@ -333,9 +355,9 @@ int main(int argc, char* argv[]) {
 	std::cerr << "min, max pred : " << minPred << ", " << maxPred  << "\n";
 	std::cerr << "SCALE: " << scale << "\n";
 
-	
+
 	minPred = std::numeric_limits<double>::max();
-	for (auto i : boost::irange(size_t{0}, size_t{numRetainedSamples})) { 
+	for (auto i : boost::irange(size_t{0}, size_t{numRetainedSamples})) {
 		pred[i] *= scale;
 		minPred = std::min(minPred, pred[i]);
 	}
@@ -348,7 +370,7 @@ int main(int argc, char* argv[]) {
 		minPred = std::min(minPred, pred[i]);
 		maxPred = std::max(maxPred, pred[i]);
 	}
-	
+
 	/*
    trn_rmse=rmse(pred, train.y, numRetainedSamples);
    trn_r2=R2(pred, train.y, numRetainedSamples);
@@ -365,8 +387,8 @@ int main(int argc, char* argv[]) {
 
 		double rpkm = 0.0;
 		auto& name = features[i].name;
-		auto& r = sfres.expressions[name];		
-		
+		auto& r = sfres.expressions[name];
+
 		if (i == retainedRows[retainedCnt]) {
 			//rpkm = std::exp(pred[retainedCnt]);
 			rpkm = std::exp(pred[retainedCnt]);
@@ -381,7 +403,7 @@ int main(int argc, char* argv[]) {
 			}
 
 			rpkm = std::exp(RPKMLabels[retainedCnt](0));// pred[retainedCnt]);
-			
+
 			++retainedCnt;
 		} else {
 			rpkm = sfres.expressions[features[i].name].rpkm;

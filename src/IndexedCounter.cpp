@@ -49,6 +49,8 @@
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
 
+#include "ReadProducer.hpp"
+
 #include "jellyfish/parse_dna.hpp"
 #include "jellyfish/mapped_file.hpp"
 #include "jellyfish/parse_read.hpp"
@@ -65,66 +67,6 @@
 #include "StreamingSequenceParser.hpp"
 
 enum class MerDirection : std::int8_t { FORWARD = 1, REVERSE = 2, BOTH = 3 };
-
-template <typename Parser>
-class ReadProducer {
-};
-
-template <>
-class ReadProducer<jellyfish::parse_read> {
-public:
-  ReadProducer(jellyfish::parse_read& parser) : s_(new ReadSeq), stream_(parser.new_thread()) {}
-  ~ReadProducer() { delete s_; }
-
-  bool nextRead(ReadSeq*& s) {
-    if ((read_ = stream_.next_read())) {
-        // we iterate over the entire read
-        const char*         start = read_->seq_s;
-        const char*  const  end   = read_->seq_e;
-        uint32_t readLen = std::distance(start, end);
-
-        s_->seq = const_cast<char*>(read_->seq_s);
-        s_->len = readLen;
-        s = s_;
-        return true;
-    } else {
-      return false;
-    }
-  }
-
-  void finishedWithRead(ReadSeq*& s) { s = nullptr; }
-
-private:
-  ReadSeq* s_;
-  jellyfish::parse_read::read_t* read_;//{parser.new_thread()};
-  jellyfish::parse_read::thread stream_;//{parser.new_thread()};
-};
-
-
-
-template <>
-class ReadProducer<StreamingReadParser> {
-public:
-  ReadProducer(StreamingReadParser& parser) : parser_(parser) {}
-
-  bool nextRead(ReadSeq*& s) {
-    if (parser_.nextRead(s)) {
-      return true;
-    } else {
-      s = nullptr;
-      return false;
-    }
-  }
-
-  void finishedWithRead(ReadSeq*& s) { parser_.finishedWithRead(s); }
-
-private:
-  StreamingReadParser& parser_;
-};
-
-
-
-
 
 template <typename ParserT>
 bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_t merLen,

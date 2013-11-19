@@ -35,6 +35,8 @@
 #include "TranscriptGeneMap.hpp"
 #include "GenomicFeature.hpp"
 #include "SailfishUtils.hpp"
+#include "ReadProducer.hpp"
+#include "StreamingSequenceParser.hpp"
 
 namespace sailfish {
 namespace utils {
@@ -167,23 +169,24 @@ TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile ) {
 
 TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFile ) {
 
+    using std::vector;
     NameVector transcriptNames;
     NameVector geneNames {"gene"};
 
-    char* fnames[1]  = { const_cast<char*>(transcriptsFile.c_str()) };
-    // Create a jellyfish parser
-    jellyfish::parse_read parser( fnames, fnames+1, 1000);
+    vector<bfs::path> paths{transcriptsFile};
+    StreamingReadParser parser(paths);
+    parser.start();
 
-    // Each thread gets it's own stream
-    jellyfish::parse_read::thread stream = parser.new_thread();
-    jellyfish::parse_read::read_t* read;
+    ReadProducer<StreamingReadParser> producer(parser);
 
+    ReadSeq* s;
     // while there are transcripts left to process
-    while ( (read = stream.next_read()) ) {
+    while (producer.nextRead(s)) {
       // The transcript name
-      std::string fullHeader(read->header, read->hlen);
+      std::string fullHeader(s->name, s->nlen);
       std::string header = fullHeader.substr(0, fullHeader.find(' '));
       transcriptNames.emplace_back(header);
+      producer.finishedWithRead(s);
     }
 
     // Sort the transcript names
