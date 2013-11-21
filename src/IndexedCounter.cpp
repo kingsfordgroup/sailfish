@@ -166,7 +166,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                             switch(c) {
                                 case jellyfish::CODE_IGNORE: break;
                                 case jellyfish::CODE_COMMENT:
-                                  std::cerr << "ERROR\n";
+                                    std::cerr << "ERROR: unexpected character " << c << " in read!\n";
 
                                 // Fall through
                                 case jellyfish::CODE_RESET:
@@ -318,8 +318,8 @@ int mainCount( int argc, char *argv[] ) {
     ("help,h", "produce help message")
     ("index,i", po::value<string>(), "transcript index file [Sailfish format]")
     ("reads,r", po::value<std::vector<string>>(&undirReadFiles)->multitoken(), "List of files containing \"undirected\" reads")
-    ("reverse,R", po::value<std::vector<string>>(&fwdReadFiles)->multitoken(), "List of files containing \"sense\" reads")
-    ("forward,F", po::value<std::vector<string>>(&revReadFiles)->multitoken(), "List of files containing \"anti-sense\" reads")
+    ("reverse,R", po::value<std::vector<string>>(&revReadFiles)->multitoken(), "List of files containing \"anti-sense\" reads")
+    ("forward,F", po::value<std::vector<string>>(&fwdReadFiles)->multitoken(), "List of files containing \"sense\" reads")
     ("counts,c", po::value<string>(), "File where Sailfish read count is written")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
     ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded")

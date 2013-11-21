@@ -61,27 +61,38 @@ int runKmerCounter(const std::string& sfCommand,
     argStream << "--counts " << countFileOut << " ";
     argStream << "--threads " << numThreads << " ";
 
+    std::cerr << "Undirected reads:[";
     // Undirected reads
-    argStream << "--reads ";
-    for (auto& rfile : undirReadFiles) {
-        argStream << rfile << " ";
+    if (undirReadFiles.size() > 0) {
+        argStream << "--reads=";
+        for (auto& rfile : undirReadFiles) {
+            std::cerr << rfile << " ";
+            argStream << rfile << " ";
+        }
     }
+    std::cerr << "]\n";
 
+    std::cerr << "Sense reads:[";
     // Sense reads
     if (fwdReadFiles.size() > 0) {
-      argStream << "--forward";
+      argStream << "--forward=";
       for (auto& rfile : fwdReadFiles) {
-        argStream << rfile << " ";
+          std::cerr << rfile << " ";
+          argStream << rfile << " ";
       }
     }
+    std::cerr << "]\n";
 
+    std::cerr << "Anti-sense reads:[";
     // Anti-sense reads
     if (revReadFiles.size() > 0) {
-      argStream << "--reverse";
+      argStream << "--reverse=";
       for (auto& rfile : revReadFiles) {
-        argStream << rfile << " ";
+          std::cerr << rfile << " ";
+          argStream << rfile << " ";
       }
     }
+    std::cerr << "]\n";
 
     std::string argString = argStream.str();
     boost::trim(argString);
