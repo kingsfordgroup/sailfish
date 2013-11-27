@@ -481,7 +481,22 @@ private:
         return diff;
     }
 
-
+    template <typename T>
+    std::vector<T> relAbsDiff_(std::vector<T>& v0, std::vector<T>& v1, T minVal) { 
+        std::vector<T> relDiff(v0.size(), T());
+        // compute the new mean for each transcript
+        tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(v0.size())),
+                          [&v0, &v1, &relDiff, minVal](const BlockedIndexRange& range ) -> void {
+                              for (auto tid : boost::irange(range.begin(), range.end())) {
+                                  T oldVal = v0[tid];
+                                  T newVal = v1[tid];
+                                  if (oldVal > minVal or newVal > minVal) {
+                                      relDiff[tid] = std::abs(newVal - oldVal) / oldVal;
+                                  } 
+                              }
+                          });
+        return relDiff;
+    }
 
     void normalize_(std::vector<double>& means) {
         auto sumMean = psum_(means);
@@ -494,7 +509,6 @@ private:
                 means[tid] *= invSumMean;
               }
             });
-
     }
 
     double averageCount(const TranscriptInfo& ts){
@@ -617,23 +631,29 @@ private:
       return (means.size() > 0) ? logLikelihood2_(sampProbs) / means.size() : 0.0;
     }
 
-    double logLikelihood2_(std::vector<double>& means) {
+    double logLikelihood2_(std::vector<double>& sampProbs) {
 
       std::vector<double> likelihoods(transcriptsForKmer_.size(), 0.0);
 
         // Compute the log-likelihood
         tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
           // for each transcript
-          [&likelihoods, &means, this](const BlockedIndexRange& range) ->void {
-            double kmerLikelihood = 0.0;
+          [&likelihoods, &sampProbs, this](const BlockedIndexRange& range) ->void {
             for (auto kid = range.begin(); kid != range.end(); ++kid) {
+              double kmerLikelihood = 0.0;
+              KmerQuantity totalKmerMass = 0.0;
               for (auto& tid : this->transcriptsForKmer_[kid]) {
-                kmerLikelihood += this->transcripts_[tid].binMers[kid] * (means[tid] / this->transcripts_[tid].length);
+                double kmerMass{this->transcripts_[tid].binMers[kid]};
+                kmerLikelihood += kmerMass * (sampProbs[tid] / this->transcripts_[tid].length);
+                totalKmerMass += kmerMass;
               }
-              if (kmerLikelihood < 1e-20) {
-                // std::cerr << "kmer group: " << kid << " has probability too low\n";
-              } else {
-                likelihoods[kid] = std::log(kmerLikelihood);
+              // If 
+              if (totalKmerMass > 0) {
+                  if (kmerLikelihood < 1e-20) {
+                      std::cerr << "kmer group: " << kid << " has probability (" << kmerLikelihood << "); too low\n";
+                  } else {
+                      likelihoods[kid] = std::log(kmerLikelihood);
+                  }
               }
             }
           });
@@ -1167,7 +1187,8 @@ public:
                           const std::string& tlutfname,
                           const std::string& kmerEquivClassFname,
                           size_t numIt,
-                          double minMean) {
+                          double minMean,
+                          double maxDelta) {
 
         const bool discardZeroCountKmers = true;
         initialize_(klutfname, tlutfname, kmerEquivClassFname, discardZeroCountKmers);
@@ -1261,11 +1282,25 @@ public:
         double negLogLikelihoodOld = std::numeric_limits<double>::infinity();
         double negLogLikelihoodNew = std::numeric_limits<double>::infinity();
 
+        std::function<bool(std::vector<double>&, std::vector<double>&)> hasConverged;
+        if (std::isfinite(maxDelta)) {
+            hasConverged = [maxDelta, this] (std::vector<double>& v0, std::vector<double>& v1) -> bool {
+                double minVal = 10e-7;
+                auto relDiff = this->relAbsDiff_(v0, v1, minVal);
+                double maxRelativeChange = *std::max_element( relDiff.begin(), relDiff.end() );
+                return maxRelativeChange < maxDelta;
+            };
+        } else {
+            hasConverged = [] (std::vector<double>& v0, std::vector<double>& v1) -> bool {
+                return false;
+            };
+        }
+
         // Right now, the # of iterations is fixed, but termination should
         // also be based on tolerance
         for ( size_t iter = 0; iter < numIt; ++iter ) {
           std::cerr << "SQUAREM iteraton [" << iter << "]\n";
-
+          
           // Theta_1 = EMUpdate(Theta_0)
           std::cerr << "1/3\n";
           EMUpdate_(means0, means1);
@@ -1277,6 +1312,12 @@ public:
           // Theta_2 = EMUpdate(Theta_1)
           std::cerr << "2/3\n";
           EMUpdate_(means1, means2);
+
+          // ALTERNATE CONVERGENCE CRITERIA
+          if (hasConverged(means1, means2)) {
+              std::cerr << "convergence criteria met; terminating SQUAREM\n";
+              break;
+          }
 
           double delta = pabsdiff_(means1, means2);
           std::cerr << "delta = " << delta << "\n";
@@ -1336,7 +1377,11 @@ public:
           std::swap(meansPrime, means0);//EMUpdate_(meansPrime, means0);
 
           if (!std::isnan(negLogLikelihoodNew)) {
+            std::cerr << "negLogLikelihood = " << negLogLikelihoodNew << "\n";
+            // std::cerr << "Log-likelihood relative difference = " 
+            //           << std::abs(negLogLikelihoodOld - negLogLikelihoodNew) / std::abs(negLogLikelihoodOld) << "\n";
             negLogLikelihoodOld = negLogLikelihoodNew;
+
           }
 
           // if (iter > 0 and iter % 5 == 0 and iter < numIt - 1) {
@@ -1352,6 +1397,7 @@ public:
           //   std::cerr << "done\n";
           // }
 
+          
         }
 
 

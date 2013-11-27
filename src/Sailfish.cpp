@@ -83,6 +83,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
    bool poisson = false;
    bool noBiasCorrect = false;
    double minAbundance{0.01};
+   double maxDelta{std::numeric_limits<double>::infinity()};
    uint32_t maxThreads = std::thread::hardware_concurrency();
 
     po::options_description generic("Command Line Options");
@@ -103,6 +104,8 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       //("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
       ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+      ("delta,d", po::value<double>(&maxDelta)->default_value(std::numeric_limits<double>::infinity()), "consider the optimization to have converged if the relative change in \n"
+       "the estimated abundance of all transcripts is below this threshold")
       //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("filter,f", po::value<double>()->default_value(0.0), "during iterative optimization, remove transcripts with a mean less than filter")
       ("iterations,n", po::value<size_t>(), "number of iterations to run the optimzation")
@@ -207,7 +210,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
       // for CollapsedIterativeOptimizer (EM algorithm)
 
-      solver.optimize(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean );
+      solver.optimize(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean, maxDelta);
 
       std::stringstream headerLines;
       headerLines << "# [sailfish version]\t" << Sailfish::version << "\n";
