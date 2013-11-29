@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #define NODEBUG
 #include <iostream>
 #ifdef DEBUG
@@ -9,11 +31,11 @@
 using namespace std;
 using namespace Eigen;
 
-int Pca::Calculate(vector<float> &x, 
-              const unsigned int &nrows, 
-              const unsigned int &ncols, 
-              const bool is_corr, 
-              const bool is_center, 
+int Pca::Calculate(vector<float> &x,
+              const unsigned int &nrows,
+              const unsigned int &ncols,
+              const bool is_corr,
+              const bool is_center,
               const bool is_scale) {
   _ncols = ncols;
   _nrows = nrows;
@@ -43,7 +65,7 @@ int Pca::Calculate(vector<float> &x,
   for (unsigned int i = 0; i < _ncols; ++i) {
      VectorXf curr_col  = VectorXf::Constant(_nrows, mean_vector(i)); // mean(x) for column x
      curr_col = _xXf.col(i) - curr_col; // x - mean(x)
-     curr_col = curr_col.array().square(); // (x-mean(x))^2  
+     curr_col = curr_col.array().square(); // (x-mean(x))^2
      sd_vector(i) = sqrt((curr_col.sum())/denom);
      if (0 == sd_vector(i)) {
       zero_sd_num++;
@@ -112,13 +134,13 @@ int Pca::Calculate(vector<float> &x,
     }
     #ifdef DEBUG
       cout << "\n\nStandard deviations for PCs:\n";
-      copy(_sd.begin(), _sd.end(),std::ostream_iterator<float>(std::cout," "));  
+      copy(_sd.begin(), _sd.end(),std::ostream_iterator<float>(std::cout," "));
       cout << "\n\nKaiser criterion: PC #" << _kaiser << endl;
     #endif
     tmp_vec.resize(0);
     // PC's cumulative proportion
     _thresh95 = 1;
-    _cum_prop.push_back(_prop_of_var[0]); 
+    _cum_prop.push_back(_prop_of_var[0]);
     for (unsigned int i = 1; i < _prop_of_var.size(); ++i) {
       _cum_prop.push_back(_cum_prop[i-1]+_prop_of_var[i]);
       if (_cum_prop[i] < 0.95) {
@@ -127,7 +149,7 @@ int Pca::Calculate(vector<float> &x,
     }
     #ifdef DEBUG
       cout << "\nCumulative proportion:\n";
-      copy(_cum_prop.begin(), _cum_prop.end(),std::ostream_iterator<float>(std::cout," "));  
+      copy(_cum_prop.begin(), _cum_prop.end(),std::ostream_iterator<float>(std::cout," "));
       cout << "\n\nThresh95 criterion: PC #" << _thresh95 << endl;
     #endif
     // Scores
@@ -144,8 +166,8 @@ int Pca::Calculate(vector<float> &x,
     eigen_scores.resize(0, 0);
     #ifdef DEBUG
       cout << "\n\nScores in vector:\n";
-      copy(_scores.begin(), _scores.end(),std::ostream_iterator<float>(std::cout," "));  
-      cout << "\n";  
+      copy(_scores.begin(), _scores.end(),std::ostream_iterator<float>(std::cout," "));
+      cout << "\n";
     #endif
   } else { // COR OR COV MATRICES ARE HERE
     _method = "cor";
@@ -167,14 +189,14 @@ int Pca::Calculate(vector<float> &x,
     #ifdef DEBUG
       cout << endl << eigen_eigenvalues.transpose() << endl;
     #endif
-    MatrixXf eigen_eigenvectors = edc.eigenvectors().real();	
+    MatrixXf eigen_eigenvectors = edc.eigenvectors().real();
     #ifdef DEBUG
       cout << endl << eigen_eigenvectors << endl;
     #endif
     // The eigenvalues and eigenvectors are not sorted in any particular order.
     // So, we should sort them
     typedef pair<float, int> eigen_pair;
-    vector<eigen_pair> ep;	
+    vector<eigen_pair> ep;
     for (unsigned int i = 0 ; i < _ncols; ++i) {
 	    ep.push_back(make_pair(eigen_eigenvalues(i), i));
     }
@@ -191,11 +213,11 @@ int Pca::Calculate(vector<float> &x,
     #ifdef DEBUG
       cout << endl << eigen_eigenvalues_sorted.transpose() << endl;
       cout << endl << eigen_eigenvectors_sorted << endl;
-    #endif  
+    #endif
     // We don't need not sorted arrays anymore
     eigen_eigenvalues.resize(0);
     eigen_eigenvectors.resize(0, 0);
-    
+
     _sd.clear(); _prop_of_var.clear(); _kaiser = 0;
     float tmp_sum = eigen_eigenvalues_sorted.sum();
     for (unsigned int i = 0; i < _ncols; ++i) {
@@ -207,9 +229,9 @@ int Pca::Calculate(vector<float> &x,
     }
     #ifdef DEBUG
       cout << "\nStandard deviations for PCs:\n";
-      copy(_sd.begin(), _sd.end(), std::ostream_iterator<float>(std::cout," "));  
+      copy(_sd.begin(), _sd.end(), std::ostream_iterator<float>(std::cout," "));
       cout << "\nProportion of variance:\n";
-      copy(_prop_of_var.begin(), _prop_of_var.end(), std::ostream_iterator<float>(std::cout," ")); 
+      copy(_prop_of_var.begin(), _prop_of_var.end(), std::ostream_iterator<float>(std::cout," "));
       cout << "\nKaiser criterion: PC #" << _kaiser << endl;
     #endif
     // PC's cumulative proportion
@@ -220,10 +242,10 @@ int Pca::Calculate(vector<float> &x,
       if (_cum_prop[i] < 0.95) {
         _thresh95 = i+1;
       }
-    }  
+    }
     #ifdef DEBUG
       cout << "\n\nCumulative proportions:\n";
-      copy(_cum_prop.begin(), _cum_prop.end(), std::ostream_iterator<float>(std::cout," "));  
+      copy(_cum_prop.begin(), _cum_prop.end(), std::ostream_iterator<float>(std::cout," "));
       cout << "\n\n95% threshold: PC #" << _thresh95 << endl;
     #endif
     // Scores for PCA with correlation matrix
@@ -246,14 +268,14 @@ int Pca::Calculate(vector<float> &x,
     eigen_scores.resize(0, 0);
     #ifdef DEBUG
       cout << "\n\nScores in vector:\n";
-      copy(_scores.begin(), _scores.end(), std::ostream_iterator<float>(std::cout," "));  
-      cout << "\n";  
+      copy(_scores.begin(), _scores.end(), std::ostream_iterator<float>(std::cout," "));
+      cout << "\n";
     #endif
   }
 
   return 0;
 }
-std::vector<float> Pca::sd(void) { return _sd; };    
+std::vector<float> Pca::sd(void) { return _sd; };
 std::vector<float> Pca::prop_of_var(void) {return _prop_of_var; };
 std::vector<float> Pca::cum_prop(void) { return _cum_prop; };
 std::vector<float> Pca::scores(void) { return _scores; };
@@ -270,7 +292,7 @@ Pca::Pca(void) {
   _ncols      = 0;
   // Variables will be scaled by default
   _is_center  = true;
-  _is_scale   = true;  
+  _is_scale   = true;
   // By default will be used singular value decomposition
   _method   = "svd";
   _is_corr  = false;
@@ -278,7 +300,7 @@ Pca::Pca(void) {
   _kaiser   = 0;
   _thresh95 = 1;
 }
-Pca::~Pca(void) { 
+Pca::~Pca(void) {
   _xXf.resize(0, 0);
   _x.clear();
 }

@@ -62,6 +62,8 @@
 #include "CountDBNew.hpp"
 #include "ezETAProgressBar.hpp"
 #include "PartitionRefiner.hpp"
+#include "StreamingSequenceParser.hpp"
+#include "ReadProducer.hpp"
 
 using TranscriptID = uint32_t;
 using KmerID = uint64_t;
@@ -95,6 +97,7 @@ int buildLUTs(
 
   using tbb::blocked_range;
 
+  /*
   char** fnames = new char*[transcriptFiles.size()];
   size_t z{0};
   size_t numFnames{0};
@@ -105,9 +108,13 @@ int buildLUTs(
     fnames[numFnames] = const_cast<char*>(s.c_str());
     ++numFnames;
   }
-
   // Create a jellyfish parser
   jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
+  */
+
+  vector<bfs::path> paths{transcriptFiles[0]};
+  StreamingReadParser parser(paths);
+  parser.start();
 
   vector<std::thread> threads;
   vector<TranscriptList> transcriptsForKmer;
@@ -119,17 +126,17 @@ int buildLUTs(
   auto merLen = transcriptHash.kmerLength();
   bool done {false};
   atomic<size_t> numRes {0};
-  atomic<size_t> nworking{numThreads-1};
+  atomic<size_t> nworking{(numThreads > 1) ? (numThreads - 1) : 1};
 
   // Start the thread that will print the progress bar
   std::cerr << "Number of kmers : " << transcriptHash.size() << "\n";
-  std::cerr << "Parsing transcripts an building k-mer equivalence classes\n";
+  std::cerr << "Parsing transcripts and building k-mer equivalence classes\n";
 
   threads.push_back( std::thread( [&numRes, &nworking, numTranscripts] () {
     size_t lastCount = numRes;
     ez::ezETAProgressBar show_progress(numTranscripts);
     show_progress.start();
-    while ( nworking > 0 ) {
+    while ( numRes < numTranscripts ) {
       auto diff = numRes - lastCount;
       if ( diff > 0 ) {
         show_progress += static_cast<unsigned int>(diff);
@@ -147,38 +154,42 @@ int buildLUTs(
 
   // Start the desired number of threads to parse the transcripts
   // and build our data structure.
-  for (size_t i = 0; i < numThreads - 1; ++i) {
+  size_t numWorkers = (numThreads > 1) ? numThreads -1 : 1;
+  for (size_t i = 0; i < numWorkers; ++i) {
 
     threads.push_back( std::thread(
       [&numRes, &tgmap, &parser, &transcriptHash, &nworking, &transcripts,
        &transcriptIndex, &transcriptsForKmer, &refiner, &refinerMutex, merLen]() -> void {
 
         // Each thread gets it's own stream
-        jellyfish::parse_read::thread stream = parser.new_thread();
-        jellyfish::parse_read::read_t* read;
+        //jellyfish::parse_read::thread stream = parser.new_thread();
+        //jellyfish::parse_read::read_t* read;
+        ReadProducer<StreamingReadParser> producer(parser);
+        ReadSeq* s;
+
         auto INVALID = transcriptHash.INVALID;
         bool useCanonical{transcriptIndex.canonical()};
 
         // while there are transcripts left to process
-        while ( (read = stream.next_read()) ) {
-
+        while (producer.nextRead(s)) {
           // The transcript name
-          std::string fullHeader(read->header, read->hlen);
+          std::string fullHeader(s->name, s->nlen);
           std::string header = fullHeader.substr(0, fullHeader.find(' '));
 
           // The transcript sequence; strip the newlines from the
           // sequence and put it into a string (newSeq)
-          std::string seq(read->seq_s, std::distance(read->seq_s, read->seq_e) - 1);
-          auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
-          auto readLen = std::distance( seq.begin(), newEnd );
-          std::string newSeq(seq.begin(), seq.begin() + readLen);
+          //std::string seq(s->seq_s, std::distance(read->seq_s, read->seq_e) - 1);
+          //auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
+          //auto readLen = std::distance( seq.begin(), newEnd );
+          auto readLen = s->len;
+          std::string newSeq(s->seq, s->len);//seq.begin(), seq.begin() + readLen);
 
           // Lookup the ID of this transcript in our transcript -> gene map
           auto transcriptIndex = tgmap.findTranscriptID(header);
           bool valid = (transcriptIndex != tgmap.INVALID);
           auto geneIndex = tgmap.gene(transcriptIndex);
 
-          if ( not valid ) { continue; }
+          if ( not valid ) { ++numRes; continue; }
           ++numRes;
 
           size_t numKmers {(readLen >= merLen) ? static_cast<size_t>(readLen) - merLen + 1 : 0};
@@ -216,6 +227,7 @@ int buildLUTs(
          refinerMutex.unlock();
 
          transcripts[transcriptIndex] = tinfo;
+         producer.finishedWithRead(s);
        }
 
        --nworking;

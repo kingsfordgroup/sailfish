@@ -1,3 +1,25 @@
+/**
+>HEADER
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+
+    This file is part of Sailfish.
+
+    Sailfish is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Sailfish is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+<HEADER
+**/
+
+
 #include <iostream>
 #include <vector>
 
@@ -21,7 +43,7 @@ int main(int argc, char* argv[]) {
   jellyfish::parse_read::thread stream{parser.new_thread()};
   HeptamerIndex hi;
 
-  size_t merLen = 7;  
+  size_t merLen = 7;
   uint64_t lshift{2 * (merLen - 1)};
   uint64_t masq{(1UL << (2 * merLen)) - 1};
 
@@ -48,7 +70,7 @@ int main(int argc, char* argv[]) {
           cmlen = kmer = rkmer = 0;
           break;
 
-          default:          
+          default:
           kmer = ((kmer << 2) & masq) | c;
           rkmer = (rkmer >> 2) | ((0x3 - c) << lshift);
           // count if the kmer is valid in the forward and

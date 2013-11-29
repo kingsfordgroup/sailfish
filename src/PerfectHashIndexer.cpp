@@ -234,6 +234,7 @@ void buildLUTs(
 int computeBiasFeatures(
     std::vector<std::string>& transcriptFiles,
     boost::filesystem::path outFilePath,
+    bool useStreamingParser,
     size_t numThreads);
 
 int mainIndex( int argc, char *argv[] ) {
@@ -241,6 +242,7 @@ int mainIndex( int argc, char *argv[] ) {
     namespace po = boost::program_options;
 
     uint32_t maxThreads = std::thread::hardware_concurrency();
+    bool useStreamingParser = true;
 
     po::options_description generic("Command Line Options");
     generic.add_options()
@@ -265,7 +267,7 @@ int mainIndex( int argc, char *argv[] ) {
     ;
 
     po::variables_map vm;
-
+    
     try {
 
         po::store(po::command_line_parser(argc, argv).options(generic).run(), vm);
@@ -321,7 +323,7 @@ the Jellyfish database [thash] of the transcripts.
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
-        computeBiasFeatures(transcriptFiles, transcriptBiasFile, numThreads);
+        computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
         bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts_0";
 
@@ -381,6 +383,7 @@ the Jellyfish database [thash] of the transcripts.
                 std::cerr << "building transcript to gene map using transcript fasta file [" <<
                              transcriptFiles[0] << "] . . .\n";
                 tgmap = sailfish::utils::transcriptToGeneMapFromFasta(transcriptFiles[0]);
+                std::cerr << "there are " << tgmap.numTranscripts() << " transcripts . . . ";
                 std::cerr << "done\n";
             }
 
