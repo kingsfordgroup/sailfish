@@ -62,13 +62,13 @@ def main(args):
             orig = o[offset]
             x[offset] = mutate(orig)
             assert(x[offset] != orig)
-            #nMut += 1
+            nMut += 1
             currBase = nextMut
             nextMut = currBase + randCeilFloor(random.expovariate(mutRate))
         currBase = lastBase
-        assert(len(o) == len(x))
-        for a,b in itertools.izip(o,x):
-            if a != b: nMut += 1
+        #assert(len(o) == len(x))
+        #for a,b in itertools.izip(o,x):
+        #    if a != b: nMut += 1
         s.seq = x
         SeqIO.write(s, ofile, 'fasta')
         if (i % 1000 == 0):
