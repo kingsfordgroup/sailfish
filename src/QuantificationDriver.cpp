@@ -37,20 +37,28 @@
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
 
+#include "LibraryFormat.hpp"
+
 using std::string;
 
-int mainCount(int argc, char* argv[]);
+//int mainCount(int argc, char* argv[]);
+int mainCount(uint32_t numThreads, const std::string& indexBase, const LibraryFormat& libFmt,
+              const std::vector<string>& undirReadFiles, const std::vector<string>& fwdReadFiles,
+              const std::vector<string>& revReadFiles, const std::string& countFileOut,
+              bool discardPolyA); 
 int runIterativeOptimizer(int argc, char* argv[]);
 
 int runKmerCounter(const std::string& sfCommand,
                    uint32_t numThreads,
                    const std::string& indexBase,
+                   const LibraryFormat& libFmt,
                    const std::vector<string>& undirReadFiles,
                    const std::vector<string>& fwdReadFiles,
                    const std::vector<string>& revReadFiles,
                    const std::string& countFileOut,
                    bool discardPolyA) {
 
+    /*
     std::stringstream argStream;
 
     argStream << sfCommand << " ";
@@ -96,11 +104,13 @@ int runKmerCounter(const std::string& sfCommand,
 
     std::string argString = argStream.str();
     boost::trim(argString);
+    */
 
     // Run the Sailfish counting phase as an separate process.
     // This will force the mmapped memory to be cleaned up.
     auto pid = fork();
     if (pid == 0) { //child
+        /*
         // Create the argv array for the main call to Sailfish
         std::vector<std::string> argStrings;
         boost::split(argStrings, argString, boost::is_any_of(" "));
@@ -116,6 +126,10 @@ int runKmerCounter(const std::string& sfCommand,
         std::cerr << "In Sailfish Counting thread. Counting read kmers\n";
         int ret = mainCount(argStrings.size(), args);
         delete [] args;
+        */
+        
+        int ret = mainCount(numThreads, indexBase, libFmt, undirReadFiles,
+                            fwdReadFiles, revReadFiles, countFileOut, discardPolyA); 
         std::exit(ret);
 
     } else if (pid < 0) { // fork failed!
@@ -197,6 +211,84 @@ int runSailfishEstimation(const std::string& sfCommand,
    return ret;
 }
 
+/**
+ * This function parses the library format string that specifies the format in which
+ * the reads are to be expected.
+ */
+LibraryFormat parseLibraryFormatString(std::string& fmt) {
+    using std::vector;
+    using std::string;
+    using std::map;
+    using std::stringstream;
+ 
+    // inspired by http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
+
+    // first convert the string to upper-case
+    for (auto& c : fmt) { c = std::toupper(c); }
+    // split on the delimiter ':', and put the key, value (k=v) pairs into a map
+    stringstream ss(fmt);
+    string item;
+    map<string, string> kvmap;
+    while (std::getline(ss, item, ':')) {
+        auto splitPos = item.find('=', 0);
+        string key{item.substr(0, splitPos)};
+        string value{item.substr(splitPos+1)};
+        kvmap[key] = value;
+    }
+   
+    map<string, ReadType> readType = {{"SE", ReadType::SINGLE_END}, {"PE", ReadType::PAIRED_END}};
+    map<string, ReadOrientation> orientationType = {{">>", ReadOrientation::SAME},
+                                           {"<>", ReadOrientation::AWAY},
+                                           {"><", ReadOrientation::TOWARD},
+                                           {"*", ReadOrientation::NONE}};
+    map<string, ReadStrandedness> strandType = {{"SA", ReadStrandedness::SA}, 
+                                    {"AS", ReadStrandedness::AS}, 
+                                    {"A", ReadStrandedness::A}, 
+                                    {"S", ReadStrandedness::S},
+                                    {"U", ReadStrandedness::U}};
+    auto it = kvmap.find("T");
+    string typeStr = "";
+    if (it != kvmap.end()) {
+        typeStr = it->second;
+    } else {
+        it = kvmap.find("TYPE");
+        if (it != kvmap.end()) {
+            typeStr = it->second;
+        }
+    }
+    
+    if (typeStr != "SE" and typeStr != "PE") {
+        string e = typeStr + " is not a valid read type; must be one of {SE, PE}";
+        throw std::invalid_argument(e);
+    }
+   
+    ReadType type = (typeStr == "SE") ? ReadType::SINGLE_END : ReadType::PAIRED_END;
+    ReadOrientation orientation = (type == ReadType::SINGLE_END) ? ReadOrientation::NONE : ReadOrientation::TOWARD;
+    ReadStrandedness strandedness{ReadStrandedness::U};
+    // Construct the LibraryFormat class from the key, value map
+    for (auto& kv : kvmap) {
+        auto& k = kv.first; auto& v = kv.second;
+        if (k == "O" or k == "ORIENTATION") {
+            auto it = orientationType.find(v);
+            if (it != orientationType.end()) { orientation = orientationType[it->first]; } else {
+                string e = v + " is not a valid orientation type; must be one of {>>, <>, ><}";
+                throw std::invalid_argument(e);
+            }
+
+        }
+        if (k == "S" or k == "STRAND") {
+            auto it = strandType.find(v);
+            if (it != strandType.end()) { strandedness = strandType[it->first]; } else {
+                string e = v + " is not a valid strand type; must be one of {SA, AS, S, A, U}";
+                throw std::invalid_argument(e);
+            }
+        }
+        
+    }
+    LibraryFormat lf(type, orientation, strandedness);
+    return lf;
+}
+
 int mainQuantify( int argc, char *argv[] ) {
 
     using std::vector;
@@ -214,17 +306,29 @@ int mainQuantify( int argc, char *argv[] ) {
     std::vector<string> fwdReadFiles;// = vm["forward"].as<std::vector<string>>();
     std::vector<string> revReadFiles;// = vm["reverse"].as<std::vector<string>>();
 
+    std::vector<string> unmatedReadFiles;// = vm["reads"].as<std::vector<string>>();
+    std::vector<string> mate1ReadFiles;// = vm["forward"].as<std::vector<string>>();
+    std::vector<string> mate2ReadFiles;// = vm["reverse"].as<std::vector<string>>();
+
+
+
+    // format string: (T|TYPE)=(SE|PE):(O|ORIENTATION)=(>>|<>|><):(S|STRAND)=(AS|SA|S|A|U)
     po::options_description generic("Sailfish quant options");
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ("index,i", po::value<string>(), "Sailfish index [output of the \"Sailfish index\" command")
-    ("reads,r", po::value<vector<string>>(&undirReadFiles)->multitoken(),
+    ("libtype,l", po::value<string>(), "Format string describing the library type")
+    ("reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
      "List of files containing reads of unknown orientation (i.e. \"undirected\" reads)")
     ("forward,F", po::value<vector<string>>(&fwdReadFiles)->multitoken(),
      "List of files containing reads oriented in the \"sense\" direction")
     ("reverse,R", po::value<vector<string>>(&revReadFiles)->multitoken(),
      "List of files containing reads oriented in the \"anti-sense\" direction")
+    ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),
+        "File containing the #1 mates")
+    ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
+        "File containing the #2 mates")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.01),
      "transcripts with an abundance (KPKM) lower than this value will be reported at zero.")
@@ -251,6 +355,32 @@ int mainQuantify( int argc, char *argv[] ) {
         }
 
         po::notify(vm);
+
+        string libFmtStr = vm["libtype"].as<string>();
+        LibraryFormat libFmt = parseLibraryFormatString(libFmtStr);
+
+        if (libFmt.check()) {
+            std::cerr << libFmt << "\n";
+        } else {
+            std::stringstream ss;
+            ss << libFmt << " is invalid!";
+            throw std::invalid_argument(ss.str());
+        }
+       
+        // Ensure that we have only unmated reads with a single end library
+        if (libFmt.type == ReadType::SINGLE_END) {
+            if (unmatedReadFiles.size() == 0) {
+                string e= "You must provide unmated read files with a single-end library type";
+                throw std::invalid_argument(e);
+            }
+        }
+        // or #1 and #2 mates with a paired-end library
+        if (libFmt.type == ReadType::PAIRED_END) {
+            if (mate1ReadFiles.size() == 0 or mate2ReadFiles.size() == 0) {
+                string e = "You must provide #1 and #2 mated read files with a paired-end library type";
+                throw std::invalid_argument(e);
+            }
+        }
 
         bfs::path indexBasePath(vm["index"].as<string>());
         bfs::path outputBasePath(vm["out"].as<string>());
@@ -287,6 +417,10 @@ int mainQuantify( int argc, char *argv[] ) {
                 std::exit(1);
             }
         }
+        
+        // create the directory for log files
+        bfs::path logDir = outputBasePath / "logs";
+        boost::filesystem::create_directory(logDir);
 
         //string countFileOut = outputBase + ".sfc";
         bfs::path countFilePath(outputBasePath); countFilePath /= "reads.sfc";
@@ -294,8 +428,12 @@ int mainQuantify( int argc, char *argv[] ) {
 
         mustRecount = (force or !boost::filesystem::exists(countFilePath));
         if (mustRecount) {
-          runKmerCounter(sfCommand, numThreads, indexPath.string(), undirReadFiles, fwdReadFiles, revReadFiles, countFilePath.string(), discardPolyA);
+            //          runKmerCounter(sfCommand, numThreads, indexPath.string(), undirReadFiles, fwdReadFiles, revReadFiles, countFilePath.string(), discardPolyA);
+            runKmerCounter(sfCommand, numThreads, indexPath.string(), libFmt, unmatedReadFiles, mate1ReadFiles,
+                           mate2ReadFiles, countFilePath.string(), discardPolyA);
+
         }
+
 
         /*
         //("genes,g", po::value< std::vector<string> >(), "gene sequences")
@@ -322,9 +460,11 @@ int mainQuantify( int argc, char *argv[] ) {
         std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
         std::exit(1);
     } catch (std::exception& e) {
+        std::cerr << "============\n";
         std::cerr << "Exception : [" << e.what() << "]\n";
+        std::cerr << "============\n";
         std::cerr << argv[0] << " quant was invoked improperly.\n";
-        std::cerr << "For usage information, try " << argv[0] << " index --help\nExiting.\n";
+        std::cerr << "For usage information, try " << argv[0] << " quant --help\nExiting.\n";
     }
 
     return 0;

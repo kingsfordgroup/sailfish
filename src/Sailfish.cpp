@@ -52,6 +52,9 @@
 #include <jellyfish/misc.hpp>
 #include <jellyfish/compacted_hash.hpp>
 
+#include "g2logworker.h"
+#include "g2log.h"
+
 #include "BiasIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
@@ -119,8 +122,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv).options(programOptions).run(), vm);
 
-    //bool poisson = ( vm.count("poisson") ) ? true : false;
-
     if ( vm.count("version") ) {
       std::cout << "version : " << Sailfish::version <<"\n";
       std::exit(0);
@@ -155,6 +156,11 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     string sfIndexFile = sfIndexBase+".sfi";
     string sfTrascriptCountFile = sfIndexBase+".sfc";
     bfs::path outputFilePath = bfs::path(vm["output"].as<string>());
+    
+    bfs::path logDir = outputFilePath.parent_path() / "logs";
+    std::cerr << "writing logs to " << logDir.string() << "\n";
+    g2LogWorker logger(argv[0], logDir.string());
+    g2::initializeLogging(&logger);
 
     double minMean = vm["filter"].as<double>();
     string lutprefix = vm["lutfile"].as<string>();
@@ -169,6 +175,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       string tgmFile = sfIndexBase+".tgm";
       std::cerr << "Reading the transcript <-> gene map from [" <<
                    tgmFile << "]\n";
+      LOG(INFO) << "Read transcript <=> gene map from [" << tgmFile << "]";
       std::ifstream ifs(tgmFile, std::ios::binary);
       boost::archive::binary_iarchive ia(ifs);
       ia >> tgm;
@@ -180,12 +187,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     auto del = []( PerfectHashIndex* h ) -> void { /*do nothing*/; };
     auto sfIndexPtr = std::shared_ptr<PerfectHashIndex>( &sfIndex, del );
     std::cerr << "done\n";
-
-    /*
-    std::cerr << "Reading transcript counts from [" << sfTrascriptCountFile << "] . . .";
-    auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
-    std::cerr << "done\n";
-    */
 
     // the READ hash
     std::cerr << "Reading read counts from [" << hashFile << "] . . .";
@@ -201,29 +202,30 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     // IterativeOptimizer<CountDBNew, CountDBNew> solver( hash, transcriptHash, tgm, bidx );
     std::cerr << "done\n";
 
-    if ( poisson ) {
-      std::cerr << "optimizing using Poisson model\n";
-      // for IterativeOptimizer
-      // solver.optimizePoisson( geneFiles, outputFile );
-    } else {
-      size_t numIter = vm["iterations"].as<size_t>();
-      std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
-      // for CollapsedIterativeOptimizer (EM algorithm)
+    size_t numIter = vm["iterations"].as<size_t>();
+    std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
 
-      solver.optimize(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean, maxDelta);
+    // EM
+    bool haveCI{false};
+    solver.optimize(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean, maxDelta);
 
-      std::stringstream headerLines;
-      headerLines << "# [sailfish version]\t" << Sailfish::version << "\n";
-      headerLines << "# [kmer length]\t" << sfIndex.kmerLength() << "\n";
-      headerLines << "# [using canonical kmers]\t" << (sfIndex.canonical() ? "true" : "false") << "\n";
-      headerLines << "# [command]\t";
-      for (size_t i : boost::irange(size_t(0), static_cast<size_t>(argc))) { headerLines << argv[i] << " "; }
-      headerLines << "\n";
+    // VB
+    //bool haveCI{true};
+    //solver.optimizeVB(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean, maxDelta);
+      
+    std::stringstream headerLines;
+    headerLines << "# [sailfish version]\t" << Sailfish::version << "\n";
+    headerLines << "# [kmer length]\t" << sfIndex.kmerLength() << "\n";
+    headerLines << "# [using canonical kmers]\t" << (sfIndex.canonical() ? "true" : "false") << "\n";
+    headerLines << "# [command]\t";
+    for (size_t i : boost::irange(size_t(0), static_cast<size_t>(argc))) { headerLines << argv[i] << " "; }
+    headerLines << "\n";
 
-      solver.writeAbundances(outputFilePath, headerLines.str(), minAbundance);
+    solver.writeAbundances(outputFilePath, headerLines.str(), minAbundance, haveCI);
 
+    bool applyCoverageFilter{false};
 
-      if (computeBiasCorrection) {
+    if (computeBiasCorrection) {
 
         // Estimated read length
         double estimatedReadLength = hash.averageLength();
@@ -232,29 +234,40 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
         // Total number of mapped kmers
         uint64_t mappedKmers= 0;
         for (auto i : boost::irange(size_t(0), hash.kmers().size())) {
-          mappedKmers += hash.atIndex(i);
+            mappedKmers += hash.atIndex(i);
         }
 
+        auto origExpressionFile = outputFilePath;
 
         sfIndexBasePath.remove_filename();
         outputFilePath.remove_filename();
+ 
         auto biasFeatPath = sfIndexBasePath / "bias_feats.txt";
-        auto expressionFilePath = outputFilePath / "quant.sf";
+        //auto expressionFilePath = outputFilePath / "quant.sf";
+        auto expressionFilePath = origExpressionFile;
         auto biasCorrectedFile = outputFilePath / "quant_bias_corrected.sf";
         std::cerr << "biasFeatPath = " << biasFeatPath << "\n";
         std::cerr << "expressionFilePath = " << expressionFilePath << "\n";
         std::cerr << "biasCorrectedFile = " << biasCorrectedFile << "\n";
         performBiasCorrection(biasFeatPath, expressionFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
                               hash.kmerLength(), biasCorrectedFile, numThreads);
-      }
 
-      // for LASSO Iterative Optimizer
-      //solver.optimizeNNLASSO(klutfname, tlutfname, outputFile, numIter, minMean );
-      // for IterativeOptimizer
-      // solver.optimize( geneFiles, outputFile, numIter, minMean );
+        if (applyCoverageFilter) { 
+            auto transcriptKmerMapFile = sfIndexBasePath / "transcripts.map";
+            auto filteredOutputFile = outputFilePath / "quant_bias_corrected_filtered.sf";
+            solver.applyCoverageFilter_(biasCorrectedFile, transcriptKmerMapFile, filteredOutputFile, minAbundance);
+        }
+
+    } else {
+        if (applyCoverageFilter) { 
+            sfIndexBasePath.remove_filename();
+            auto outputFile = outputFilePath;
+            auto transcriptKmerMapFile = sfIndexBasePath / "transcripts.map";
+            outputFilePath.remove_filename();
+            auto filteredOutputFile = outputFilePath / "quant_filtered.sf";
+            solver.applyCoverageFilter_(outputFile, transcriptKmerMapFile, filteredOutputFile, minAbundance);
+        }
     }
-
-
 
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
@@ -304,7 +317,7 @@ int mainSailfish(int argc, char* argv[]) {
 
 //int indexMain( int argc, char* argv[] );
 int mainIndex(int argc, char* argv[]);
-int mainCount(int argc, char* argv[]);
+//int mainCount(int argc, char* argv[]);
 int mainQuantify(int argc, char* argv[]);
 int mainBuildLUT(int argc, char* argv[] );
 
@@ -376,7 +389,7 @@ int main( int argc, char* argv[] ) {
       {"index", mainIndex},
       {"buildlut", mainBuildLUT},
       {"quant", mainQuantify},
-      {"count", mainCount},
+      //{"count", mainCount},
       {"sf", mainSailfish}
     });
 

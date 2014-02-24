@@ -2,11 +2,16 @@ set ( SAILFISH_MAIN_SRCS
 Sailfish.cpp
 )
 
+set (BUILD_TRANSCRIPT_MAP_SRCS
+BuildTranscriptMap.cpp
+)
+
 # Build the specific Sailfish commands as a 
 # shared libraray (for some reason, building
 # them into a single executable was causing 
 # multiple symbold definition errors).
 set (SAILFISH_LIB_SRCS
+LibraryFormat.cpp
 QuantificationDriver.cpp
 PerfectHashIndexer.cpp
 BuildLUT.cpp
@@ -53,6 +58,23 @@ add_library(sailfish_core SHARED ${SAILFISH_LIB_SRCS} )
 # Build the Sailfish executable
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
+add_executable(build_transcript_map ${BUILD_TRANSCRIPT_MAP_SRCS})
+
+target_link_libraries(build_transcript_map
+  sailfish_core
+  ${Boost_LIBRARIES}
+  ${ZLIB_LIBRARY}
+  cmph
+  jellyfish-1.1
+  pthread
+  gomp
+  m
+  ${TBB_LIBRARIES}
+  lib_g2logger
+  lib_activeobject
+  ${LIBSAILFISH_LINKER_FLAGS} shark
+)
+   
 # Link the executable
 target_link_libraries(sailfish 
     sailfish_core 
@@ -64,6 +86,8 @@ target_link_libraries(sailfish
     gomp 
     m
     ${TBB_LIBRARIES}
+    lib_g2logger
+    lib_activeobject
     ${LIBSAILFISH_LINKER_FLAGS} shark
     #profiler
 )

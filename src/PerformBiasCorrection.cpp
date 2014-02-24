@@ -27,6 +27,7 @@
 #include <array>
 #include <unordered_map>
 #include <limits>
+#include <cmath>
 
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
@@ -285,7 +286,6 @@ int performBiasCorrection(
 
         }
         std::cerr << varCutoff * 100.0 << "% of the variance is explained by " << dimCutoff << " dimensions\n";
-
         /*
         std::vector<float> scores = pca.scores();
         std::cerr << "score.size() " << scores.size() << "\n";
@@ -318,11 +318,11 @@ int performBiasCorrection(
         }
 
         /** Random Forest Regression **/
-
+        size_t minDepth = 5;
         auto reg = std::unique_ptr<RandomForestRegressor>(new RandomForestRegressor(
                 500,
                 train.n_features,
-                4, // max tree depth
+                7, // max tree depth
                 1, // min_samples_leaf
                 1.0, // features ratio
                 true, // bootstrap
@@ -332,17 +332,17 @@ int performBiasCorrection(
                 numThreads, // num jobs
                 true // verbose
         ));
+        
 
-
-        /*
+        /* 
         auto reg = std::unique_ptr<GBMRegressor>(new GBMRegressor(
                 SQUARE_LOSS,
                 500,
                 train.n_features,
-                4, // max tree depth
+                7, // max tree depth
                 1, //min sample leaf
                 1.0, // max features ratio
-                0.5, // subsample
+                0.8, // subsample
                 0.05, //learn rate
                 true, //out-of-bag
                 true, // compute imporance
@@ -359,9 +359,9 @@ int performBiasCorrection(
         std::vector<REAL> pred(train.n_samples, 0.0);
         reg->predict(train.X, &pred[0], train.n_samples, train.n_features);
 
-  REAL trn_rmse=rmse(&pred[0], train.y, train.n_samples);
-  REAL trn_r2=R2(&pred[0], train.y, train.n_samples);
-  std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
+        REAL trn_rmse=rmse(&pred[0], train.y, train.n_samples);
+        REAL trn_r2=R2(&pred[0], train.y, train.n_samples);
+        std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
 
         double grandMean = 0.0;
         for (auto i : boost::irange(size_t{0}, size_t{train.n_samples})) {
@@ -426,7 +426,7 @@ int performBiasCorrection(
             kpkms[i] = std::exp(pred[retainedCnt]);
             ++retainedCnt;
           } else {
-            kpkms[i] = r.kpkm;
+              kpkms[i] = r.kpkm;
           }
         }
 

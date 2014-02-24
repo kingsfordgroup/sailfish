@@ -331,6 +331,20 @@ ExternalProject_Add(libshark
     UPDATE_COMMAND ""
 )
 
+message("Build system will compile g2log logging library")
+message("==================================================================")
+ExternalProject_Add(libg2log
+  DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+  URL http://www.cs.cmu.edu/~robp/files/g2log.tar.gz
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
+  INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+  BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
+  UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install
+  BUILD_COMMAND sh -c "make"
+  INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib/"
+)
+
 # ###
 # # Armadillo library
 # ####

@@ -294,7 +294,7 @@ int buildLUTs(
   threads.push_back(std::thread(
                                 [&q, &transcriptsForKmerClass, &numTranscriptsRemaining]() {
                                   ContainingTranscript ct;
-                                  while (numTranscriptsRemaining > 0) {
+                                  while (numTranscriptsRemaining > 0 or not q.empty()) {
                                     while (q.try_pop(ct)) {
                                       transcriptsForKmerClass[ct.kmerID].push_back(ct.transcriptID);
                                     }
@@ -313,7 +313,7 @@ int buildLUTs(
                                   tlutstream.write(reinterpret_cast<const char*>(&numRec), sizeof(numRec));
 
                                   TranscriptInfo* ti = nullptr;
-                                  while( numTranscriptsRemaining > 0 ) {
+                                  while (numTranscriptsRemaining > 0 or not tq.empty()) {
                                     while( tq.try_pop(ti) ) {
                                       LUTTools::writeTranscriptInfo(ti, tlutstream);
                                       delete ti;
@@ -337,7 +337,6 @@ int buildLUTs(
                       // For every transcript in this thread's range
                       for (auto tidx = trange.begin(); tidx != trange.end(); ++tidx) {
                         auto t = transcripts[tidx];
-                        // if (t == nullptr) { ++numRes; --numTranscriptsRemaining; continue; }
 
                         // We'll transform the list of k-mers to the list of k-mer
                         // equivalence classes
@@ -349,7 +348,6 @@ int buildLUTs(
                         // off to the
                         for (size_t i = 0; i < numKmers; ++i) {
                           // k-mer => k-mer class
-                          //
 
                           size_t kmerClass = membership[kmers[i]];
                           kmerEquivClasses[i] = kmerClass;

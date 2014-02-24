@@ -65,12 +65,13 @@
 
 #include "PerfectHashIndex.hpp"
 #include "StreamingSequenceParser.hpp"
+#include "LibraryFormat.hpp"
 
 enum class MerDirection : std::int8_t { FORWARD = 1, REVERSE = 2, BOTH = 3 };
 
 template <typename ParserT>
 bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_t merLen,
-                bool discardPolyA, MerDirection direction, std::atomic<uint64_t>& numReadsProcessed,
+                bool discardPolyA, ReadStrandedness direction, std::atomic<uint64_t>& numReadsProcessed,
                 std::atomic<uint64_t>&unmappedKmers, std::atomic<uint64_t>& readNum, size_t numThreads) {
 
   using std::string;
@@ -192,7 +193,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                                     switch (dir) {
                                        // We're certain that more kmers map in the forward direction
                                        // so we only consider the rest of the read in this direction.
-                                       case MerDirection::FORWARD:
+                                       case ReadStrandedness::S:
                                         // get the index of the forward kmer
                                         binMerId = phi.index(kmer);
                                         if (binMerId != INVALID) {
@@ -205,7 +206,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
 
                                        // We're certain that more kmers map in the reverse direction
                                        // so we only consider the rest of the read in this direction.
-                                       case MerDirection::REVERSE:
+                                       case ReadStrandedness::A:
                                           // get the index of the forward kmer
                                           rMerId = phi.index(rkmer);
                                           if (rMerId != INVALID) {
@@ -216,7 +217,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                                           break;
                                        // end case REVERSE
 
-                                       case MerDirection::BOTH:
+                                       case ReadStrandedness::U:
                                           // form the new kmer and it's reverse complement
 
                                           // Find the index of the forward kmer and determine
@@ -234,15 +235,15 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                                           ++numKmers; --numRemaining;
 
                                           // Determine if we need to continue looking at both directions
-                                          dir = (fCount > (rCount + numRemaining)) ? MerDirection::FORWARD :
-                                                (rCount > (fCount + numRemaining)) ? MerDirection::REVERSE : MerDirection::BOTH;
+                                          dir = (fCount > (rCount + numRemaining)) ? ReadStrandedness::S :
+                                                (rCount > (fCount + numRemaining)) ? ReadStrandedness::A : ReadStrandedness::U;
 
                                           switch (dir) {
-                                            case MerDirection::FORWARD:
+                                            case ReadStrandedness::S:
                                               for (auto i : boost::irange(size_t(0), fCount)) { rhash.incAtIndex(fwdMers[i]);
                                               }
                                               break;
-                                            case MerDirection::REVERSE:
+                                            case ReadStrandedness::A:
                                               for (auto i : boost::irange(size_t(0), rCount)) { rhash.incAtIndex(revMers[i]);
                                               }
                                               break;
@@ -262,8 +263,8 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                           // The same number of things mapped in both directions.  In
                           // this case, we _arbitrarily_ choose the forward kmers. We haven't
                           // actually incremented counts yet, so we do that here.
-                          case MerDirection::BOTH:
-                            if (dir == MerDirection::BOTH) {
+                          case ReadStrandedness::U:
+                            if (dir == ReadStrandedness::U) {
                               for (auto i : boost::irange(size_t(0), fCount)) { rhash.incAtIndex(fwdMers[i]);
                               }
                             }
@@ -271,11 +272,11 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                             break;
 
                           // More things mapped in the forward direction
-                          case MerDirection::FORWARD:
+                          case ReadStrandedness::S:
                             count = fCount; break;
 
                           // More things mapped in the reverse direction
-                          case MerDirection::REVERSE:
+                          case ReadStrandedness::A:
                             count = rCount; break;
                         }
 
@@ -298,7 +299,19 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
 }
 
 
-int mainCount( int argc, char *argv[] ) {
+//int mainCount( int argc, char *argv[] ) {
+int mainCount( uint32_t numThreads,
+               const std::string& sfIndexBase,
+               const LibraryFormat& libFmt,
+               //const std::vector<std::string>& undirReadFiles,
+               //const std::vector<std::string>& fwdReadFiles,
+               //const std::vector<std::string>& revReadFiles,
+               const std::vector<std::string>& unmatedReadFiles,
+               const std::vector<std::string>& mate1ReadFiles,
+               const std::vector<std::string>& mate2ReadFiles,
+               const std::string& countsFile,
+               bool discardPolyA) {
+
 
     using std::vector;
     using std::map;
@@ -307,6 +320,7 @@ int mainCount( int argc, char *argv[] ) {
     namespace po = boost::program_options;
     namespace bfs = boost::filesystem;
 
+    /*
     uint32_t maxThreads = std::thread::hardware_concurrency();
     std::vector<string> undirReadFiles;// = vm["reads"].as<std::vector<string>>();
     std::vector<string> fwdReadFiles;// = vm["forward"].as<std::vector<string>>();
@@ -326,8 +340,13 @@ int mainCount( int argc, char *argv[] ) {
     ;
 
     po::variables_map vm;
+    */
 
     try {
+        size_t numActors = numThreads;
+        string sfTrascriptIndexFile = sfIndexBase+".sfi";
+        
+        /*
         po::store(po::command_line_parser(argc, argv).options(generic).run(), vm);
 
         if ( vm.count("help") ) {
@@ -349,6 +368,7 @@ same index, and the counts will be written to the file [counts].
         string sfIndexBase = vm["index"].as<string>();
         string sfTrascriptIndexFile = sfIndexBase+".sfi";
         bool discardPolyA = vm["polya"].as<bool>();
+        size_t numActors = vm["threads"].as<uint32_t>();
 
         // auto cpuset = new cpu_set_t;
         // CPU_ZERO(cpuset);
@@ -357,6 +377,7 @@ same index, and the counts will be written to the file [counts].
         //   std::cerr << "COULD NOT SET PROCESSOR AFFINITY!!!\n";
         //   std::exit(1);
         // }
+        */
 
         std::cerr << "reading index . . . ";
         auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
@@ -366,7 +387,6 @@ same index, and the counts will be written to the file [counts].
         size_t nkeys = phi.numKeys();
         size_t merLen = phi.kmerLength();
 
-        size_t numActors = vm["threads"].as<uint32_t>();
         tbb::task_scheduler_init init(numActors);
         std::vector<std::thread> threads;
 
@@ -380,69 +400,98 @@ same index, and the counts will be written to the file [counts].
         std::atomic<uint64_t> numReadsProcessed{0};
         std::atomic<uint64_t> unmappedKmers{0};
 
+        /*
         map<MerDirection, vector<string>> fnameMap{
             {MerDirection::BOTH, undirReadFiles},
             {MerDirection::FORWARD, fwdReadFiles},
             {MerDirection::REVERSE, revReadFiles}};
-
+        */
+        
         { // create a scope --- the timer will be destructed at the end
 
           boost::timer::auto_cpu_timer t(std::cerr);
           auto start = std::chrono::steady_clock::now();
 
-        for (auto& df : fnameMap) {
+          std::vector<std::tuple<const std::string&, ReadStrandedness, CountDBNew*>> filesToProcess;
+          ReadStrandedness orientation;
+          if (libFmt.type == ReadType::PAIRED_END) {
+              for (auto& readFile : mate1ReadFiles) {
+                  switch (libFmt.strandedness) {
+                  case ReadStrandedness::SA:
+                  case ReadStrandedness::S:
+                      orientation = ReadStrandedness::S;
+                      break;
+                  case ReadStrandedness::AS:
+                  case ReadStrandedness::A:
+                      orientation = ReadStrandedness::A;
+                      break;
+                  case ReadStrandedness::U:
+                      orientation = ReadStrandedness::U;
+                      break;
+                  }
+                  filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
+              }
 
-          auto& direction = df.first;
-
-          cerr << "Parsing ";
-          switch (direction) {
-              case MerDirection::BOTH:
-                cerr << "undirected ";
-                break;
-              case MerDirection::FORWARD:
-                cerr << "sense ";
-                break;
-              case MerDirection::REVERSE:
-                cerr << "antisense ";
-                break;
-          }
-          cerr << "reads\n";
-
-          for (auto& readFile : df.second) {
-            cerr << "file " << readFile << ": \n";
-
-            namespace bfs = boost::filesystem;
-            bfs::path filePath(readFile);
-
-            // If this is a regular file, then use the Jellyfish parser
-            if (bfs::is_regular_file(filePath)) {
-
-              char** fnames = new char*[1];// fnames[1];
-              fnames[0] = const_cast<char*>(readFile.c_str());
-
-              jellyfish::parse_read parser(fnames, fnames+1, 5000);
-
-              countKmers<jellyfish::parse_read>(
-                         parser, phi, rhash, merLen, discardPolyA,
-                         direction, numReadsProcessed,
-                         unmappedKmers, readNum, numActors);
-
-            } else { // If this is a named pipe, then use the kseq-based parser
-              vector<bfs::path> paths{readFile};
-              StreamingReadParser parser(paths);
-              parser.start();
-
-              countKmers<StreamingReadParser>(
-                         parser, phi, rhash, merLen, discardPolyA,
-                         direction, numReadsProcessed,
-                         unmappedKmers, readNum, numActors);
+              for (auto& readFile : mate2ReadFiles) {
+                  switch (libFmt.strandedness) {
+                  case ReadStrandedness::AS:
+                  case ReadStrandedness::S:
+                      orientation = ReadStrandedness::S;
+                      break;
+                  case ReadStrandedness::SA:
+                  case ReadStrandedness::A:
+                      orientation = ReadStrandedness::A;
+                      break;
+                  case ReadStrandedness::U:
+                      orientation = ReadStrandedness::U;
+                      break;
+                  }
+                  filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
+              }
+          } else if (libFmt.type == ReadType::SINGLE_END) { 
+              
+            for (auto& readFile : unmatedReadFiles) {
+                auto orientation = libFmt.strandedness;
+                filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
             }
-
-            cerr << "\n";
           }
 
-        }
+          for (auto& countJob : filesToProcess) {
+              auto& readFile = std::get<0>(countJob);
+              auto orientation = std::get<1>(countJob);
+              auto& countHash = *std::get<2>(countJob);
+              cerr << "file " << readFile << ": \n";
 
+              namespace bfs = boost::filesystem;
+              bfs::path filePath(readFile);
+
+              // If this is a regular file, then use the Jellyfish parser
+              if (bfs::is_regular_file(filePath)) {
+
+                  char** fnames = new char*[1];// fnames[1];
+                  fnames[0] = const_cast<char*>(readFile.c_str());
+
+                  jellyfish::parse_read parser(fnames, fnames+1, 5000);
+
+                  countKmers<jellyfish::parse_read>(
+                                                    parser, phi, countHash, merLen, discardPolyA,
+                                                    orientation , numReadsProcessed,
+                                                    unmappedKmers, readNum, numActors);
+
+              } else { // If this is a named pipe, then use the kseq-based parser
+                  vector<bfs::path> paths{readFile};
+                  StreamingReadParser parser(paths);
+                  parser.start();
+
+                  countKmers<StreamingReadParser>(
+                                                  parser, phi, countHash, merLen, discardPolyA,
+                                                  orientation, numReadsProcessed,
+                                                  unmappedKmers, readNum, numActors);
+              }
+
+              cerr << "\n";
+          }
+               
           auto end = std::chrono::steady_clock::now();
           auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
           auto nsec = sec.count();
@@ -484,10 +533,7 @@ same index, and the counts will be written to the file [counts].
         std::cerr << "Program Options Error : [" << e.what() << "]. Exiting.\n";
         std::exit(1);
     } catch (std::exception &e) {
-        std::cerr << "ERROR: " << argv[0] << " count invoked improperly.\n";
-        std::cerr << "Usage\n";
-        std::cerr << "=====\n";
-        std::cout << generic << std::endl;
+        std::cerr << "ERROR: sailfish count (subordinate command) invoked improperly.\n";
         std::exit(1);
     }
 
