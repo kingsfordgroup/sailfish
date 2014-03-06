@@ -4,10 +4,10 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.6.2")
+set(CPACK_PACKAGE_VERSION "0.6.3")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
 set(CPACK_PACKAGE_VERSION_MINOR "6")
-set(CPACK_PACKAGE_VERSION_PATCH "2")
+set(CPACK_PACKAGE_VERSION_PATCH "3")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
@@ -339,7 +339,8 @@ ExternalProject_Add(libg2log
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
   INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
   BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
-  UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
+  #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
+  UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install
   BUILD_COMMAND sh -c "make"
   INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib/"

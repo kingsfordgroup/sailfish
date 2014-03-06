@@ -56,6 +56,9 @@
 #include <jellyfish/compacted_hash.hpp>
 #include <jellyfish/parse_dna.hpp>
 
+#include "g2logworker.h"
+#include "g2log.h"
+
 #include "LookUpTableUtils.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
@@ -142,7 +145,7 @@ int buildLUTs(
         show_progress += static_cast<unsigned int>(diff);
         lastCount += diff;
       }
-      boost::this_thread::sleep_for(boost::chrono::milliseconds(1010));
+      boost::this_thread::sleep_for(boost::chrono::milliseconds(100));
     }
     show_progress += static_cast<unsigned int>(numTranscripts - lastCount);
     std::cerr << "\n";
@@ -152,6 +155,7 @@ int buildLUTs(
   PartitionRefiner refiner(transcriptHash.size());
   std::mutex refinerMutex;
 
+  std::atomic<size_t> numInvalidKmers{0};
   // Start the desired number of threads to parse the transcripts
   // and build our data structure.
   size_t numWorkers = (numThreads > 1) ? numThreads -1 : 1;
@@ -159,7 +163,7 @@ int buildLUTs(
 
     threads.push_back( std::thread(
       [&numRes, &tgmap, &parser, &transcriptHash, &nworking, &transcripts,
-       &transcriptIndex, &transcriptsForKmer, &refiner, &refinerMutex, merLen]() -> void {
+       &transcriptIndex, &transcriptsForKmer, &refiner, &refinerMutex, &numInvalidKmers, merLen]() -> void {
 
         // Each thread gets it's own stream
         //jellyfish::parse_read::thread stream = parser.new_thread();
@@ -203,10 +207,12 @@ int buildLUTs(
 
           // Iterate over the kmers
           ReadLength effectiveLength(0);
+          size_t nextKmerID{0};
+          size_t locallyInvalidKmers{0};
           for ( auto offset : boost::irange( size_t(0), numKmers) ) {
             // the kmer and it's uint64_t representation
-            auto mer = newSeq.substr( offset, merLen );
-            auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen );
+            auto mer = newSeq.substr(offset, merLen);
+            auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen);
 
             if (useCanonical) {
               auto rcMer = jellyfish::parse_dna::reverse_complement(binMer, merLen);
@@ -214,8 +220,19 @@ int buildLUTs(
             }
 
             auto binMerId = transcriptHash.id(binMer);
-            tinfo->kmers[offset] = binMerId;
+            // For now, we "handle" k-mers with Ns by skipping them 
+            if (binMerId != INVALID) {
+                tinfo->kmers[nextKmerID++] = binMerId;
+            } else {
+                ++locallyInvalidKmers;
+            }
 
+         }
+         // Discount k-mers containing Ns
+         tinfo->kmers.resize(nextKmerID);
+         if (locallyInvalidKmers > 0) { 
+             numInvalidKmers += locallyInvalidKmers; 
+             LOG(WARNING) << "Transcript [" << tinfo->name << "] contains " << locallyInvalidKmers << " unhashable k-mers";
          }
 
          // Partition refinement is not threadsafe.  Thus,
@@ -238,6 +255,12 @@ int buildLUTs(
   // Wait for all of the threads to finish
   for ( auto& thread : threads ){ thread.join(); }
   threads.clear();
+
+  if (numInvalidKmers > 0) {
+      LOG(WARNING) << "total unhashable k-mers: " << numInvalidKmers;
+      std::cerr << "\nSome target transcripts contained \'N\'s or other characters resulting in some unhashable k-mers.\n";
+      std::cerr << "This may be okay, but check the log -- in the \'logs\' directory under the index --- for details.\n\n";
+  }
 
   // For simplicity and speed, the partition refiner is allowed to use many
   // more labels than there are partitions (each newly created partition gets

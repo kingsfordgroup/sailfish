@@ -61,6 +61,9 @@
 #include "jellyfish/mer_counting.hpp"
 #include "jellyfish/misc.hpp"
 
+#include "g2logworker.h"
+#include "g2log.h"
+
 #include "cmph.h"
 #include "CountDBNew.hpp"
 // #include "LookUpTableUtils.hpp"
@@ -319,6 +322,15 @@ the Jellyfish database [thash] of the transcripts.
         }
 
         bfs::path outputPath(outputStem);
+
+        // create the directory for log files
+        bfs::path logDir = outputPath / "logs";
+        boost::filesystem::create_directory(logDir);
+
+        std::cerr << "writing logs to " << logDir.string() << "\n";
+        g2LogWorker logger(argv[0], logDir.string());
+        g2::initializeLogging(&logger);
+
 
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results

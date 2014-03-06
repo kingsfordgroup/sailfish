@@ -96,6 +96,7 @@ struct TranscriptResult{
         double tpm;
         double rpkm;
         double kpkm;
+        double approxKmerCount;
         double approxCount;
 };
 
@@ -121,6 +122,7 @@ ExpressionResults parseSailfishFile(const bfs::path& expFile) {
                         ifile >> tr.tpm;
                         ifile >> tr.rpkm;
                         ifile >> tr.kpkm;
+                        ifile >> tr.approxKmerCount;
                         ifile >> tr.approxCount;
                         res.expressions[tname] = tr;
                         // eat the newline
@@ -143,6 +145,7 @@ void populateFromTPMs(vector<mpdec>& tpms,
                       uint64_t mappedKmers,
                       uint64_t merLen,
                       vector<mpdec>& rpkms,
+                      vector<mpdec>& kmerCounts,
                       vector<mpdec>& readCounts) {
 
   // compute the TPM normalization factor
@@ -166,10 +169,12 @@ void populateFromTPMs(vector<mpdec>& tpms,
     tflens[i] = tfracs[i] * (l);
   }
 
-  // normalize the nucleotide fractions
+  // normalize the nucleotide fractions and fill in the estimated k-mer counts
+  kmerCounts.clear(); kmerCounts.resize(features.size());
   mpdec tfnorm = 1.0 / std::accumulate(tflens.begin(), tflens.end(), mpzero);
   for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
     tflens[i] *= tfnorm;
+    kmerCounts[i] = tflens[i] * mappedKmers;
   }
 
   uint64_t numReads = mappedKmers / kmersPerRead;
@@ -184,7 +189,7 @@ void populateFromTPMs(vector<mpdec>& tpms,
     auto& r = sfres.expressions[name];
     double l = (r.length - merLen + 1);
     rpkms[i] = billion * (tflens[i] / l);
-    readCounts[i] = (tflens[i] * numReads) / kmersPerRead;
+    readCounts[i] = (tflens[i] * numReads);
   }
 
 }
@@ -222,7 +227,7 @@ int performBiasCorrection(
                 auto rpkm = sfres.expressions[tname].kpkm; // ALTERATION
                 shark::RealVector v(1);
 
-                if ( rpkm >= 0.001 ) {
+                if ( rpkm >= 1e-3 ) {
                         retainedRows.emplace_back(i);
                         retainedNames.push_back(tname);
                         v(0) = std::log(rpkm);
@@ -322,7 +327,7 @@ int performBiasCorrection(
         auto reg = std::unique_ptr<RandomForestRegressor>(new RandomForestRegressor(
                 500,
                 train.n_features,
-                7, // max tree depth
+                5, // max tree depth
                 1, // min_samples_leaf
                 1.0, // features ratio
                 true, // bootstrap
@@ -332,9 +337,9 @@ int performBiasCorrection(
                 numThreads, // num jobs
                 true // verbose
         ));
-        
 
-        /* 
+
+        /*
         auto reg = std::unique_ptr<GBMRegressor>(new GBMRegressor(
                 SQUARE_LOSS,
                 500,
@@ -458,20 +463,23 @@ int performBiasCorrection(
           }
         }
         */
-
+        
         vector<mpdec> rpkms;
+        vector<mpdec> kmerCounts;
         vector<mpdec> readCounts;
         populateFromTPMs(tpms, features, retainedRows,
                          sfres, estimatedReadLength, kmersPerRead,
-                         mappedKmers, merLen, rpkms, readCounts);
+                         mappedKmers, merLen, rpkms, kmerCounts, readCounts);
 
         for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
           auto& name = features[i].name;
           auto& r = sfres.expressions[name];
           auto length = r.length;
+          double effectiveLength = length - merLen + 1;
           ofile << name << '\t' << r.length << '\t' << tpms[i] << '\t'
                 << ((length - estimatedReadLength + 1) > 0 ? kpkms[i] : 0.0) << '\t'
                 << ((length - merLen + 1) > 0 ? kpkms[i] : 0.0) << '\t'
+                << kmerCounts[i] << '\t'
                 << readCounts[i] << '\n';
         }
         std::cerr << "retainedCnt = " << retainedCnt << ", nsamps = " << train.n_samples << "\n";

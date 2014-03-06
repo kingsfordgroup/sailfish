@@ -38,23 +38,30 @@
 #include <boost/range/irange.hpp>
 
 #include "LibraryFormat.hpp"
+#include "ReadLibrary.hpp"
 
 using std::string;
 
 //int mainCount(int argc, char* argv[]);
-int mainCount(uint32_t numThreads, const std::string& indexBase, const LibraryFormat& libFmt,
+int mainCount(uint32_t numThreads, const std::string& indexBase, 
+              /*const LibraryFormat& libFmt,
               const std::vector<string>& undirReadFiles, const std::vector<string>& fwdReadFiles,
-              const std::vector<string>& revReadFiles, const std::string& countFileOut,
+              const std::vector<string>& revReadFiles, 
+              */
+              const std::vector<ReadLibrary>& readLibraries,
+              const std::string& countFileOut,
               bool discardPolyA); 
 int runIterativeOptimizer(int argc, char* argv[]);
 
 int runKmerCounter(const std::string& sfCommand,
                    uint32_t numThreads,
                    const std::string& indexBase,
-                   const LibraryFormat& libFmt,
+                   const std::vector<ReadLibrary>& readLibraries,
+                   /*                   const LibraryFormat& libFmt,
                    const std::vector<string>& undirReadFiles,
                    const std::vector<string>& fwdReadFiles,
                    const std::vector<string>& revReadFiles,
+                   */
                    const std::string& countFileOut,
                    bool discardPolyA) {
 
@@ -126,10 +133,11 @@ int runKmerCounter(const std::string& sfCommand,
         std::cerr << "In Sailfish Counting thread. Counting read kmers\n";
         int ret = mainCount(argStrings.size(), args);
         delete [] args;
-        */
-        
-        int ret = mainCount(numThreads, indexBase, libFmt, undirReadFiles,
+       int ret = mainCount(numThreads, indexBase, libFmt, undirReadFiles,
                             fwdReadFiles, revReadFiles, countFileOut, discardPolyA); 
+ 
+        */
+       int ret = mainCount(numThreads, indexBase, readLibraries, countFileOut, discardPolyA); 
         std::exit(ret);
 
     } else if (pid < 0) { // fork failed!
@@ -300,15 +308,16 @@ int mainQuantify( int argc, char *argv[] ) {
     uint32_t maxThreads = std::thread::hardware_concurrency();
     bool noBiasCorrect = false;
     double minAbundance{0.01};
-    double maxDelta{std::numeric_limits<double>::infinity()};
+    double maxDelta;
+    size_t iterations;
 
-    std::vector<string> undirReadFiles;// = vm["reads"].as<std::vector<string>>();
-    std::vector<string> fwdReadFiles;// = vm["forward"].as<std::vector<string>>();
-    std::vector<string> revReadFiles;// = vm["reverse"].as<std::vector<string>>();
+    vector<string> undirReadFiles;// = vm["reads"].as<std::vector<string>>();
+    vector<string> fwdReadFiles;// = vm["forward"].as<std::vector<string>>();
+    vector<string> revReadFiles;// = vm["reverse"].as<std::vector<string>>();
 
-    std::vector<string> unmatedReadFiles;// = vm["reads"].as<std::vector<string>>();
-    std::vector<string> mate1ReadFiles;// = vm["forward"].as<std::vector<string>>();
-    std::vector<string> mate2ReadFiles;// = vm["reverse"].as<std::vector<string>>();
+    vector<string> unmatedReadFiles;// = vm["reads"].as<std::vector<string>>();
+    vector<string> mate1ReadFiles;// = vm["forward"].as<std::vector<string>>();
+    vector<string> mate2ReadFiles;// = vm["reverse"].as<std::vector<string>>();
 
 
 
@@ -318,24 +327,25 @@ int mainQuantify( int argc, char *argv[] ) {
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ("index,i", po::value<string>(), "Sailfish index [output of the \"Sailfish index\" command")
-    ("libtype,l", po::value<string>(), "Format string describing the library type")
-    ("reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
-     "List of files containing reads of unknown orientation (i.e. \"undirected\" reads)")
-    ("forward,F", po::value<vector<string>>(&fwdReadFiles)->multitoken(),
-     "List of files containing reads oriented in the \"sense\" direction")
-    ("reverse,R", po::value<vector<string>>(&revReadFiles)->multitoken(),
-     "List of files containing reads oriented in the \"anti-sense\" direction")
+    ("libtype,l", po::value<vector<string>>(), "Format string describing the library type")
+    //("libtype,l", po::value<string>(), "Format string describing the library type")
+    ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
+     "List of files containing unmated reads of (e.g. single-end reads)")
+    // ("forward,F", po::value<vector<string>>(&fwdReadFiles)->multitoken(),
+    //  "List of files containing reads oriented in the \"sense\" direction")
+    // ("reverse,R", po::value<vector<string>>(&revReadFiles)->multitoken(),
+    //  "List of files containing reads oriented in the \"anti-sense\" direction")
     ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),
         "File containing the #1 mates")
     ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
         "File containing the #2 mates")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
-    ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.01),
+    ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.0),
      "transcripts with an abundance (KPKM) lower than this value will be reported at zero.")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("out,o", po::value<string>(), "Basename of file where estimates are written")
-    ("iterations,n", po::value<size_t>()->default_value(30), "number of iterations to run the optimzation")
-    ("delta,d", po::value<double>(&maxDelta)->default_value(std::numeric_limits<double>::infinity()), "consider the optimization to have converged if the relative change in \n"
+    ("iterations,n", po::value<size_t>(&iterations)->default_value(1000), "number of iterations to run the optimzation")
+    ("delta,d", po::value<double>(&maxDelta)->default_value(5e-3), "consider the optimization to have converged if the relative change in \n"
                                                            "the estimated abundance of all transcripts is below this threshold")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
@@ -345,8 +355,8 @@ int mainQuantify( int argc, char *argv[] ) {
     po::variables_map vm;
 
     try {
-
-        po::store(po::command_line_parser(argc, argv).options(generic).run(), vm);
+        auto orderedOptions = po::command_line_parser(argc, argv).options(generic).run();
+        po::store(orderedOptions, vm);
 
         if ( vm.count("help") ){
           std::cout << "Sailfish quant\n";
@@ -356,32 +366,66 @@ int mainQuantify( int argc, char *argv[] ) {
 
         po::notify(vm);
 
-        string libFmtStr = vm["libtype"].as<string>();
-        LibraryFormat libFmt = parseLibraryFormatString(libFmtStr);
-
-        if (libFmt.check()) {
-            std::cerr << libFmt << "\n";
-        } else {
-            std::stringstream ss;
-            ss << libFmt << " is invalid!";
-            throw std::invalid_argument(ss.str());
-        }
-       
-        // Ensure that we have only unmated reads with a single end library
-        if (libFmt.type == ReadType::SINGLE_END) {
-            if (unmatedReadFiles.size() == 0) {
-                string e= "You must provide unmated read files with a single-end library type";
-                throw std::invalid_argument(e);
-            }
-        }
-        // or #1 and #2 mates with a paired-end library
-        if (libFmt.type == ReadType::PAIRED_END) {
-            if (mate1ReadFiles.size() == 0 or mate2ReadFiles.size() == 0) {
-                string e = "You must provide #1 and #2 mated read files with a paired-end library type";
-                throw std::invalid_argument(e);
+        vector<ReadLibrary> readLibraries;
+        for (auto& opt : orderedOptions.options) {
+            if (opt.string_key == "libtype") {
+                LibraryFormat libFmt = parseLibraryFormatString(opt.value[0]);
+                if (libFmt.check()) {
+                    std::cerr << libFmt << "\n";
+                } else {
+                    std::stringstream ss;
+                    ss << libFmt << " is invalid!";
+                    throw std::invalid_argument(ss.str());
+                }
+                readLibraries.emplace_back(libFmt);
+            } else if (opt.string_key == "mates1") {
+                readLibraries.back().addMates1(opt.value);
+            } else if (opt.string_key == "mates2") {
+                readLibraries.back().addMates2(opt.value);
+            } else if (opt.string_key == "unmated_reads") {
+                readLibraries.back().addUnmated(opt.value);
             }
         }
 
+        for (auto& rl : readLibraries) { rl.checkValid(); }
+        /*
+        // Collect the read libraries
+        for (auto& libFmtStr : libFmtStrs) {
+            LibraryFormat libFmt = parseLibraryFormatString(libFmtStr);
+            
+            if (libFmt.check()) {
+                std::cerr << libFmt << "\n";
+            } else {
+                std::stringstream ss;
+                ss << libFmt << " is invalid!";
+                throw std::invalid_argument(ss.str());
+            }
+
+            // Ensure that we have only unmated reads with a single end library
+            if (libFmt.type == ReadType::SINGLE_END) {
+                if (nextUnpaired >= unmatedReadFiles.size()) {
+                    string e= "You must provide unmated read files with a single-end library type";
+                    throw std::invalid_argument(e);
+                }
+                string unpairedFilename = unmatedReadFiles[nextUnpaired];
+                readLibraries.emplace_back(libFmt, unpairedFilename);
+                ++nextUnpaired;
+            }
+            
+            // or #1 and #2 mates with a paired-end library
+            if (libFmt.type == ReadType::PAIRED_END) {
+                if (nextPairedEnd >= mate1ReadFiles.size() or nextPairedEnd >= mate2ReadFiles.size()) {
+                    string e = "You must provide #1 and #2 mated read files with a paired-end library type";
+                    throw std::invalid_argument(e);
+                }
+                string mateOneFilename = mate1ReadFiles[nextPairedEnd];
+                string mateTwoFilename = mate2ReadFiles[nextPairedEnd];
+                readLibraries.emplace_back(libFmt, mateOneFilename, mateTwoFilename);
+                ++nextPairedEnd;
+            }
+
+        }
+        */
         bfs::path indexBasePath(vm["index"].as<string>());
         bfs::path outputBasePath(vm["out"].as<string>());
         //string tgmap = vm["tgmap"].as<string>();
@@ -429,8 +473,7 @@ int mainQuantify( int argc, char *argv[] ) {
         mustRecount = (force or !boost::filesystem::exists(countFilePath));
         if (mustRecount) {
             //          runKmerCounter(sfCommand, numThreads, indexPath.string(), undirReadFiles, fwdReadFiles, revReadFiles, countFilePath.string(), discardPolyA);
-            runKmerCounter(sfCommand, numThreads, indexPath.string(), libFmt, unmatedReadFiles, mate1ReadFiles,
-                           mate2ReadFiles, countFilePath.string(), discardPolyA);
+            runKmerCounter(sfCommand, numThreads, indexPath.string(), readLibraries, countFilePath.string(), discardPolyA);
 
         }
 
@@ -451,7 +494,6 @@ int mainQuantify( int argc, char *argv[] ) {
 
         bfs::path lutBasePath(indexBasePath); lutBasePath /= "transcriptome";
         bfs::path estFilePath(outputBasePath); estFilePath /= "quant.sf";
-        size_t iterations = vm["iterations"].as<size_t>();
         runSailfishEstimation(sfCommand, numThreads, countFilePath, indexPath,
                               iterations, lutBasePath, estFilePath,
                               noBiasCorrect, minAbundance, maxDelta);

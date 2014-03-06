@@ -29,7 +29,6 @@ cokus.cpp
 )
 
 include_directories( 
-/home/robp/dist/include/eigen3
 ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/install/include
@@ -89,7 +88,6 @@ target_link_libraries(sailfish
     lib_g2logger
     lib_activeobject
     ${LIBSAILFISH_LINKER_FLAGS} shark
-    #profiler
 )
 
 #
@@ -117,6 +115,8 @@ target_link_libraries(analyze_kmer_tradeoff
     pthread 
     gomp 
     m
+    lib_g2logger
+    lib_activeobject
     ${TBB_LIBRARIES}
     shark
 )

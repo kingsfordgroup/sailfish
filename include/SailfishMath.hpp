@@ -16,7 +16,7 @@ namespace sailfish {
         inline bool approxEqual(double a, double b, double eps=EPSILON) {
             return std::abs(a-b) <= eps;
         }
- 
+
         // Taken from https://github.com/adarob/eXpress/blob/master/src/main.h
         inline double logAdd(double x, double y) {
             if (std::abs(x) == LOG_0) { return y; }

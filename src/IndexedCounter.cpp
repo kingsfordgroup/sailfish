@@ -50,6 +50,7 @@
 #include "tbb/task_scheduler_init.h"
 
 #include "ReadProducer.hpp"
+#include "ReadLibrary.hpp"
 
 #include "jellyfish/parse_dna.hpp"
 #include "jellyfish/mapped_file.hpp"
@@ -66,7 +67,7 @@
 #include "PerfectHashIndex.hpp"
 #include "StreamingSequenceParser.hpp"
 #include "LibraryFormat.hpp"
-
+ 
 enum class MerDirection : std::int8_t { FORWARD = 1, REVERSE = 2, BOTH = 3 };
 
 template <typename ParserT>
@@ -86,6 +87,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
 
   atomic<size_t> fileReadNum{0};
   vector<thread> threads;
+  atomic<bool> notDone{true};
   // Start the desired number of threads to parse the reads
   // and build our data structure.
   for (size_t k = 0; k < numThreads; ++k) {
@@ -129,6 +131,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
                             auto rate = (nsec > 0) ? fileReadNum / sec.count() : 0;
                             cerr << "processed " << readNum << " reads (" << rate << ") reads/s\r\r";
                         }
+
                         const char* start     = s->seq;
                         uint32_t readLen      = s->len;
                         const char* const end = s->seq + readLen;
@@ -302,13 +305,7 @@ bool countKmers(ParserT& parser, PerfectHashIndex& phi, CountDBNew& rhash, size_
 //int mainCount( int argc, char *argv[] ) {
 int mainCount( uint32_t numThreads,
                const std::string& sfIndexBase,
-               const LibraryFormat& libFmt,
-               //const std::vector<std::string>& undirReadFiles,
-               //const std::vector<std::string>& fwdReadFiles,
-               //const std::vector<std::string>& revReadFiles,
-               const std::vector<std::string>& unmatedReadFiles,
-               const std::vector<std::string>& mate1ReadFiles,
-               const std::vector<std::string>& mate2ReadFiles,
+               const std::vector<ReadLibrary>& readLibraries,
                const std::string& countsFile,
                bool discardPolyA) {
 
@@ -399,61 +396,60 @@ same index, and the counts will be written to the file [counts].
         std::atomic<uint64_t> processedReads{0};
         std::atomic<uint64_t> numReadsProcessed{0};
         std::atomic<uint64_t> unmappedKmers{0};
-
-        /*
-        map<MerDirection, vector<string>> fnameMap{
-            {MerDirection::BOTH, undirReadFiles},
-            {MerDirection::FORWARD, fwdReadFiles},
-            {MerDirection::REVERSE, revReadFiles}};
-        */
-        
+       
         { // create a scope --- the timer will be destructed at the end
 
           boost::timer::auto_cpu_timer t(std::cerr);
           auto start = std::chrono::steady_clock::now();
-
           std::vector<std::tuple<const std::string&, ReadStrandedness, CountDBNew*>> filesToProcess;
-          ReadStrandedness orientation;
-          if (libFmt.type == ReadType::PAIRED_END) {
-              for (auto& readFile : mate1ReadFiles) {
-                  switch (libFmt.strandedness) {
-                  case ReadStrandedness::SA:
-                  case ReadStrandedness::S:
-                      orientation = ReadStrandedness::S;
-                      break;
-                  case ReadStrandedness::AS:
-                  case ReadStrandedness::A:
-                      orientation = ReadStrandedness::A;
-                      break;
-                  case ReadStrandedness::U:
-                      orientation = ReadStrandedness::U;
-                      break;
-                  }
-                  filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
-              }
 
-              for (auto& readFile : mate2ReadFiles) {
-                  switch (libFmt.strandedness) {
-                  case ReadStrandedness::AS:
-                  case ReadStrandedness::S:
-                      orientation = ReadStrandedness::S;
-                      break;
-                  case ReadStrandedness::SA:
-                  case ReadStrandedness::A:
-                      orientation = ReadStrandedness::A;
-                      break;
-                  case ReadStrandedness::U:
-                      orientation = ReadStrandedness::U;
-                      break;
+          for (auto& rl : readLibraries) {
+              auto& libFmt = rl.format();
+              auto& mate1ReadFiles = rl.mates1();
+              auto& mate2ReadFiles = rl.mates2();
+              auto& unmatedReadFiles = rl.unmated();
+              ReadStrandedness orientation;
+              if (libFmt.type == ReadType::PAIRED_END) {
+                  for (auto& readFile : mate1ReadFiles) {
+                      switch (libFmt.strandedness) {
+                      case ReadStrandedness::SA:
+                      case ReadStrandedness::S:
+                          orientation = ReadStrandedness::S;
+                          break;
+                      case ReadStrandedness::AS:
+                      case ReadStrandedness::A:
+                          orientation = ReadStrandedness::A;
+                          break;
+                      case ReadStrandedness::U:
+                          orientation = ReadStrandedness::U;
+                          break;
+                      }
+                      filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
                   }
-                  filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
-              }
-          } else if (libFmt.type == ReadType::SINGLE_END) { 
+
+                  for (auto& readFile : mate2ReadFiles) {
+                      switch (libFmt.strandedness) {
+                      case ReadStrandedness::AS:
+                      case ReadStrandedness::S:
+                          orientation = ReadStrandedness::S;
+                          break;
+                      case ReadStrandedness::SA:
+                      case ReadStrandedness::A:
+                          orientation = ReadStrandedness::A;
+                          break;
+                      case ReadStrandedness::U:
+                          orientation = ReadStrandedness::U;
+                          break;
+                      }
+                      filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
+                  }
+              } else if (libFmt.type == ReadType::SINGLE_END) { 
               
-            for (auto& readFile : unmatedReadFiles) {
-                auto orientation = libFmt.strandedness;
-                filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
-            }
+                  for (auto& readFile : unmatedReadFiles) {
+                      auto orientation = libFmt.strandedness;
+                      filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
+                  }
+              }
           }
 
           for (auto& countJob : filesToProcess) {

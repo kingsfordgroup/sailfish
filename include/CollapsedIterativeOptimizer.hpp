@@ -1085,7 +1085,8 @@ private:
             // copy over the length, then we're done.
             auto& ts = transcripts_[ti->transcriptID];
             ts.length = ti->length;
-            ts.effectiveLength = ti->length - merSize + 1;
+            // would be length - k + 1, but we could have other Ns in the transcript
+            ts.effectiveLength = ti->kmers.size();
             ts.isAnchored = false;
             ts.logInvEffectiveLength = (ts.effectiveLength > 0) ? std::log(1.0 / ts.effectiveLength) : sailfish::math::LOG_0;
         }
@@ -1713,6 +1714,7 @@ public:
             "TPM" << '\t' <<
             "RPKM" << '\t' <<
             "KPKM" << '\t' <<
+            "EstimatedNumKmers" << '\t' << 
             "EstimatedNumReads";
 
         if (haveCI) {
@@ -1730,8 +1732,8 @@ public:
 
           // expected # of reads coming from transcript i
           auto ri = ci / kmersPerRead;
-          double effectiveLength = ts.length - std::floor(estimatedReadLength) + 1;
-          double effectiveLengthKmer = ts.length - merLen_ + 1;
+          double effectiveLength = ts.effectiveLength + (merLen_ - 1) - std::floor(estimatedReadLength) + 1;//ts.length - std::floor(estimatedReadLength) + 1;
+          double effectiveLengthKmer = ts.effectiveLength;//ts.length - merLen_ + 1;
 
           auto kpkm = (effectiveLengthKmer > 0) ?
             (ci * billion) / (effectiveLengthKmer * totalMappedKmers) : 0.0;
@@ -1762,6 +1764,7 @@ public:
                    tpm << '\t' <<
                    rpkm << '\t' <<
                    kpkm << '\t' <<
+                   ci << '\t' <<
                    ri;
           if (haveCI) {
               ofile << '\t' <<

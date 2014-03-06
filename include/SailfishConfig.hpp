@@ -28,8 +28,8 @@
 namespace Sailfish {
 	constexpr char majorVersion[] = "0";
 	constexpr char minorVersion[] = "6";
-	constexpr char patchVersion[] = "2";
-	constexpr char version[] = "0.6.2";
+	constexpr char patchVersion[] = "3";
+	constexpr char version[] = "0.6.3";
 }
 
 #endif // SAILFISH_CONFIG_HPP

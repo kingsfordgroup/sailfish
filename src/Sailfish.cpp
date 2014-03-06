@@ -88,6 +88,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
    double minAbundance{0.01};
    double maxDelta{std::numeric_limits<double>::infinity()};
    uint32_t maxThreads = std::thread::hardware_concurrency();
+   size_t numIter;
 
     po::options_description generic("Command Line Options");
     generic.add_options()
@@ -99,7 +100,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::options_description config("Configuration");
     config.add_options()
       //("genes,g", po::value< std::vector<string> >(), "gene sequences")
-      ("min_abundance, m", po::value<double>(&minAbundance)->default_value(0.01),
+      ("min_abundance, m", po::value<double>(&minAbundance)->default_value(0.0),
        "transcripts with abundance (KPKM) lower than this will be reported at 0.")
       ("counts,c", po::value<string>(), "count file")
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
@@ -107,11 +108,11 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       //("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
       ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
-      ("delta,d", po::value<double>(&maxDelta)->default_value(std::numeric_limits<double>::infinity()), "consider the optimization to have converged if the relative change in \n"
+      ("delta,d", po::value<double>(&maxDelta)->default_value(5e-3), "consider the optimization to have converged if the relative change in \n"
        "the estimated abundance of all transcripts is below this threshold")
       //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
       ("filter,f", po::value<double>()->default_value(0.0), "during iterative optimization, remove transcripts with a mean less than filter")
-      ("iterations,n", po::value<size_t>(), "number of iterations to run the optimzation")
+      ("iterations,n", po::value<size_t>(&numIter)->default_value(1000), "number of iterations to run the optimzation")
       ("lutfile,l", po::value<string>(), "Lookup table prefix")
       ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
       ;
@@ -156,7 +157,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     string sfIndexFile = sfIndexBase+".sfi";
     string sfTrascriptCountFile = sfIndexBase+".sfc";
     bfs::path outputFilePath = bfs::path(vm["output"].as<string>());
-    
+
     bfs::path logDir = outputFilePath.parent_path() / "logs";
     std::cerr << "writing logs to " << logDir.string() << "\n";
     g2LogWorker logger(argv[0], logDir.string());
@@ -202,7 +203,6 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     // IterativeOptimizer<CountDBNew, CountDBNew> solver( hash, transcriptHash, tgm, bidx );
     std::cerr << "done\n";
 
-    size_t numIter = vm["iterations"].as<size_t>();
     std::cerr << "optimizing using iterative optimization [" << numIter << "] iterations";
 
     // EM
@@ -212,7 +212,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     // VB
     //bool haveCI{true};
     //solver.optimizeVB(klutfname, tlutfname, kmerEquivClassFname.string(), numIter, minMean, maxDelta);
-      
+
     std::stringstream headerLines;
     headerLines << "# [sailfish version]\t" << Sailfish::version << "\n";
     headerLines << "# [kmer length]\t" << sfIndex.kmerLength() << "\n";
@@ -241,7 +241,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
         sfIndexBasePath.remove_filename();
         outputFilePath.remove_filename();
- 
+
         auto biasFeatPath = sfIndexBasePath / "bias_feats.txt";
         //auto expressionFilePath = outputFilePath / "quant.sf";
         auto expressionFilePath = origExpressionFile;
@@ -252,14 +252,14 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
         performBiasCorrection(biasFeatPath, expressionFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
                               hash.kmerLength(), biasCorrectedFile, numThreads);
 
-        if (applyCoverageFilter) { 
+        if (applyCoverageFilter) {
             auto transcriptKmerMapFile = sfIndexBasePath / "transcripts.map";
             auto filteredOutputFile = outputFilePath / "quant_bias_corrected_filtered.sf";
             solver.applyCoverageFilter_(biasCorrectedFile, transcriptKmerMapFile, filteredOutputFile, minAbundance);
         }
 
     } else {
-        if (applyCoverageFilter) { 
+        if (applyCoverageFilter) {
             sfIndexBasePath.remove_filename();
             auto outputFile = outputFilePath;
             auto transcriptKmerMapFile = sfIndexBasePath / "transcripts.map";
