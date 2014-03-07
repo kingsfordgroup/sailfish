@@ -61,8 +61,10 @@
 #include "jellyfish/mer_counting.hpp"
 #include "jellyfish/misc.hpp"
 
+#if HAVE_LOGGER
 #include "g2logworker.h"
 #include "g2log.h"
+#endif
 
 #include "cmph.h"
 #include "CountDBNew.hpp"
@@ -270,7 +272,7 @@ int mainIndex( int argc, char *argv[] ) {
     ;
 
     po::variables_map vm;
-    
+
     try {
 
         po::store(po::command_line_parser(argc, argv).options(generic).run(), vm);
@@ -327,10 +329,11 @@ the Jellyfish database [thash] of the transcripts.
         bfs::path logDir = outputPath / "logs";
         boost::filesystem::create_directory(logDir);
 
+        #if HAVE_LOGGER
         std::cerr << "writing logs to " << logDir.string() << "\n";
         g2LogWorker logger(argv[0], logDir.string());
         g2::initializeLogging(&logger);
-
+        #endif
 
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results

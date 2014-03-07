@@ -56,8 +56,10 @@
 #include <jellyfish/compacted_hash.hpp>
 #include <jellyfish/parse_dna.hpp>
 
+#if HAVE_LOGGER
 #include "g2logworker.h"
 #include "g2log.h"
+#endif
 
 #include "LookUpTableUtils.hpp"
 #include "SailfishUtils.hpp"
@@ -220,7 +222,7 @@ int buildLUTs(
             }
 
             auto binMerId = transcriptHash.id(binMer);
-            // For now, we "handle" k-mers with Ns by skipping them 
+            // For now, we "handle" k-mers with Ns by skipping them
             if (binMerId != INVALID) {
                 tinfo->kmers[nextKmerID++] = binMerId;
             } else {
@@ -230,9 +232,11 @@ int buildLUTs(
          }
          // Discount k-mers containing Ns
          tinfo->kmers.resize(nextKmerID);
-         if (locallyInvalidKmers > 0) { 
-             numInvalidKmers += locallyInvalidKmers; 
+         if (locallyInvalidKmers > 0) {
+             numInvalidKmers += locallyInvalidKmers;
+#if HAVE_LOGGER
              LOG(WARNING) << "Transcript [" << tinfo->name << "] contains " << locallyInvalidKmers << " unhashable k-mers";
+#endif
          }
 
          // Partition refinement is not threadsafe.  Thus,
@@ -257,9 +261,14 @@ int buildLUTs(
   threads.clear();
 
   if (numInvalidKmers > 0) {
+#if HAVE_LOGGER
       LOG(WARNING) << "total unhashable k-mers: " << numInvalidKmers;
       std::cerr << "\nSome target transcripts contained \'N\'s or other characters resulting in some unhashable k-mers.\n";
       std::cerr << "This may be okay, but check the log -- in the \'logs\' directory under the index --- for details.\n\n";
+#else
+      std::cerr << "\nSome target transcripts contained \'N\'s or other characters resulting in some unhashable k-mers.\n";
+      std::cerr << "This may be okay, but there were a total of " << numInvalidKmers << " unhashable k-mers.\n\n";
+#endif
   }
 
   // For simplicity and speed, the partition refiner is allowed to use many

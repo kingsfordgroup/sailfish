@@ -47,6 +47,11 @@ ${LAPACK_LIBRARY_DIR}
 ${BLAS_LIBRARY_DIR}
 )
 
+if(HAVE_LOGGER)
+    set (LOGGING_LIBS lib_g2logger lib_activeobject)
+else()
+    set (LOGGING_LIBS )
+endif()
 #dd_library(pca SHARED ${PCA_LIB_SRCS})
 
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
@@ -69,8 +74,7 @@ target_link_libraries(build_transcript_map
   gomp
   m
   ${TBB_LIBRARIES}
-  lib_g2logger
-  lib_activeobject
+  ${LOGGING_LIBS}
   ${LIBSAILFISH_LINKER_FLAGS} shark
 )
    
@@ -85,8 +89,7 @@ target_link_libraries(sailfish
     gomp 
     m
     ${TBB_LIBRARIES}
-    lib_g2logger
-    lib_activeobject
+    ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
 )
 
@@ -115,8 +118,7 @@ target_link_libraries(analyze_kmer_tradeoff
     pthread 
     gomp 
     m
-    lib_g2logger
-    lib_activeobject
+    ${LOGGING_LIBS}
     ${TBB_LIBRARIES}
     shark
 )

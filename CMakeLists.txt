@@ -33,8 +33,12 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
     # In order to "think different", we also have to use non-standard suffixes
     # for our shared libraries
     set(SHARED_LIB_EXTENSION "dylib")
+    set(IS_DARWIN TRUE)
+    set(HAVE_LOGGER FALSE)
 else()
     # We're in sane linux world
+    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
+    set (HAVE_LOGGER TRUE)
     set (SHARED_LIB_EXTENSION "so")
     set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
@@ -331,6 +335,7 @@ ExternalProject_Add(libshark
     UPDATE_COMMAND ""
 )
 
+if(HAVE_LOGGER)
 message("Build system will compile g2log logging library")
 message("==================================================================")
 ExternalProject_Add(libg2log
@@ -345,6 +350,7 @@ ExternalProject_Add(libg2log
   BUILD_COMMAND sh -c "make"
   INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib/"
 )
+endif()
 
 # ###
 # # Armadillo library
