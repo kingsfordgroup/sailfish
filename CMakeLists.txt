@@ -34,14 +34,13 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
     # for our shared libraries
     set(SHARED_LIB_EXTENSION "dylib")
     set(IS_DARWIN TRUE)
-    set(HAVE_LOGGER FALSE)
+    #set(HAVE_LOGGER FALSE)
 else()
     # We're in sane linux world
-    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
-    set (HAVE_LOGGER TRUE)
-    set (SHARED_LIB_EXTENSION "so")
+   set (SHARED_LIB_EXTENSION "so")
     set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
+
 
 ##
 # Compiler-specific C++11 activation.
@@ -53,6 +52,18 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     if (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
         message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
     endif ()
+
+    if (NOT IS_DARWIN OR 
+            GCC_VERSION VERSION_GREATER 4.8.2 OR
+            GCC_VERSION VERSION_EQUAL 4.8.2) 
+        #Perhaps the logger now works in both worlds
+        set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
+        set (HAVE_LOGGER TRUE)
+    else()
+        message(WARNING "Logging requires gcc >= 4.8.2 on OSX; it will be disabled")
+    endif()
+
+
     set (BOOST_CONFIGURE_TOOLSET "")
     set (BOOST_EXTRA_FLAGS "")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
