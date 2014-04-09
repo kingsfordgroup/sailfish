@@ -248,7 +248,7 @@ and vice-versa.
 (S|STRAND)=(AS|SA|S|A|U)
 ~~~~
 
-This option specifies the strandedness of the reads.  If the type is `PE` the
+This option specifies the strandedness of the reads.  If the type is `SE` the
 only allowable options are `S`, `A`, and `U`, which denote, respectively, that
 the reads come from the sense strand, the antisense strand, or are of unknown
 strandedness (in which case both strands are tried and the one resulting in

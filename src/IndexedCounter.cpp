@@ -67,7 +67,7 @@
 #include "PerfectHashIndex.hpp"
 #include "StreamingSequenceParser.hpp"
 #include "LibraryFormat.hpp"
- 
+
 enum class MerDirection : std::int8_t { FORWARD = 1, REVERSE = 2, BOTH = 3 };
 
 template <typename ParserT>
@@ -342,7 +342,7 @@ int mainCount( uint32_t numThreads,
     try {
         size_t numActors = numThreads;
         string sfTrascriptIndexFile = sfIndexBase+".sfi";
-        
+
         /*
         po::store(po::command_line_parser(argc, argv).options(generic).run(), vm);
 
@@ -396,7 +396,7 @@ same index, and the counts will be written to the file [counts].
         std::atomic<uint64_t> processedReads{0};
         std::atomic<uint64_t> numReadsProcessed{0};
         std::atomic<uint64_t> unmappedKmers{0};
-       
+
         { // create a scope --- the timer will be destructed at the end
 
           boost::timer::auto_cpu_timer t(std::cerr);
@@ -443,8 +443,8 @@ same index, and the counts will be written to the file [counts].
                       }
                       filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
                   }
-              } else if (libFmt.type == ReadType::SINGLE_END) { 
-              
+              } else if (libFmt.type == ReadType::SINGLE_END) {
+
                   for (auto& readFile : unmatedReadFiles) {
                       auto orientation = libFmt.strandedness;
                       filesToProcess.push_back(make_tuple(std::ref(readFile), orientation, &rhash));
@@ -487,7 +487,7 @@ same index, and the counts will be written to the file [counts].
 
               cerr << "\n";
           }
-               
+
           auto end = std::chrono::steady_clock::now();
           auto sec = std::chrono::duration_cast<std::chrono::seconds>(end-start);
           auto nsec = sec.count();
@@ -507,7 +507,7 @@ same index, and the counts will be written to the file [counts].
 
           size_t totalCount = mappedKmers + unmappedKmers;
           std::ofstream countInfoFile(countInfoFilename.string());
-          countInfoFile << "total_reads\t" << totalCount << "\n";
+          countInfoFile << "total_kmers\t" << totalCount << "\n";
           countInfoFile << "mapped\t" << mappedKmers << "\n";
           countInfoFile << "unmapped\t" << unmappedKmers << "\n";
           countInfoFile << "mapped_ratio\t" <<

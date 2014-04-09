@@ -25,7 +25,7 @@ set (CMAKE_CXX_FLAGS "-fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
 ##
-if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
+if (APPLE)
     # To allow ourselves to build a dynamic library, we have to tell the compiler
     # that, yes, the symbols will be around at runtime.
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -undefined dynamic_lookup")
@@ -33,7 +33,6 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
     # In order to "think different", we also have to use non-standard suffixes
     # for our shared libraries
     set(SHARED_LIB_EXTENSION "dylib")
-    set(IS_DARWIN TRUE)
     #set(HAVE_LOGGER FALSE)
 else()
     # We're in sane linux world
@@ -53,7 +52,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
         message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
     endif ()
 
-    if (NOT IS_DARWIN OR 
+    if (NOT APPLE OR 
             GCC_VERSION VERSION_GREATER 4.8.2 OR
             GCC_VERSION VERSION_EQUAL 4.8.2) 
         #Perhaps the logger now works in both worlds
@@ -220,20 +219,36 @@ ExternalProject_Add(libcmph
     INSTALL_COMMAND make install
 )
 
-message("Build system will fetch and build Jellyfish")
+#message("Build system will fetch and build Jellyfish")
+#message("==================================================================")
+#ExternalProject_Add(libjellyfish
+	#DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+	#URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
+    #SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3
+    #INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    #CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR>
+    #BUILD_COMMAND ${MAKE}
+    #BUILD_IN_SOURCE 1
+    #INSTALL_COMMAND make install && 
+                    #cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/ && 
+                    #cp jellyfish/noop_dumper.hpp <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish &&
+                    #cp jellyfish/count_main_cmdline.hpp <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish
+#)
+
+message("build system will fetch and build jellyfish")
 message("==================================================================")
-ExternalProject_Add(libjellyfish
-	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-	URL http://www.cbcb.umd.edu/software/jellyfish/jellyfish-1.1.10.tar.gz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-1.1.10
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-1.1.10/configure --prefix=<INSTALL_DIR>
-    BUILD_COMMAND ${MAKE}
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install && 
-                    cp config.h <INSTALL_DIR>/include/jellyfish-1.1.10/ && 
-                    cp jellyfish/noop_dumper.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish &&
-                    cp jellyfish/count_main_cmdline.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish
+externalproject_add(libjellyfish
+    download_dir ${cmake_current_source_dir}/external
+    url http://www.cbcb.umd.edu/software/jellyfish/jellyfish-1.1.10.tar.gz
+    source_dir ${cmake_current_source_dir}/external/jellyfish-1.1.10
+    install_dir ${cmake_current_source_dir}/external/install
+    configure_command ${cmake_current_source_dir}/external/jellyfish-1.1.10/configure --prefix=<install_dir>
+    build_command ${make}
+    build_in_source 1
+    install_command make install && 
+                    cp config.h <install_dir>/include/jellyfish-1.1.10/ && 
+                    cp jellyfish/noop_dumper.hpp <install_dir>/include/jellyfish-1.1.10/jellyfish &&
+                    cp jellyfish/count_main_cmdline.hpp <install_dir>/include/jellyfish-1.1.10/jellyfish
 )
 
 find_package(TBB)
