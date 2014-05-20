@@ -37,8 +37,6 @@ int performBiasCorrection(
         bfs::path outputFile,
         size_t numThreads);
 
-void runIterativeOptimizer(int argc, char* argv[]){}
-
 int main(int argc, char* argv[]) {
         bfs::path featureFile(argv[1]);
         bfs::path expressionFile(argv[2]);

@@ -2,6 +2,12 @@ set ( SAILFISH_MAIN_SRCS
 Sailfish.cpp
 )
 
+set ( SALMON_MAIN_SRCS
+Salmon.cpp
+BuildSalmonIndex.cpp
+SalmonQuantify.cpp
+)
+
 set (BUILD_TRANSCRIPT_MAP_SRCS
 BuildTranscriptMap.cpp
 )
@@ -21,18 +27,21 @@ GenomicFeature.cpp
 JellyfishMerCounter.cpp
 VersionChecker.cpp
 SailfishUtils.cpp
+SailfishStringUtils.cpp
 ComputeBiasFeatures.cpp
 PerformBiasCorrection.cpp
 PartitionRefiner.cpp
 StreamingSequenceParser.cpp
 cokus.cpp
+merge_files.cc
 )
 
 include_directories( 
 ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
+${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include
-${GAT_SOURCE_DIR}/external/install/include/jellyfish-1.1.10
+${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.1.3
 ${ZLIB_INCLUDE_DIR}
 ${TBB_INCLUDE_DIRS}
 ${Boost_INCLUDE_DIRS}
@@ -62,29 +71,33 @@ add_library(sailfish_core SHARED ${SAILFISH_LIB_SRCS} )
 # Build the Sailfish executable
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
-add_executable(build_transcript_map ${BUILD_TRANSCRIPT_MAP_SRCS})
+# Build the salmon executable
+add_executable(salmon ${SALMON_MAIN_SRCS})
 
-target_link_libraries(build_transcript_map
-  sailfish_core
-  ${Boost_LIBRARIES}
-  ${ZLIB_LIBRARY}
-  cmph
-  jellyfish-1.1
-  pthread
-  gomp
-  m
-  ${TBB_LIBRARIES}
-  ${LOGGING_LIBS}
-  ${LIBSAILFISH_LINKER_FLAGS} shark
-)
+#add_executable(build_transcript_map ${BUILD_TRANSCRIPT_MAP_SRCS})
+
+#target_link_libraries(build_transcript_map
+  #sailfish_core
+  #${Boost_LIBRARIES}
+  #${ZLIB_LIBRARY}
+  #cmph
+  #jellyfish-2.0
+  #pthread
+  #gomp
+  #m
+  #${TBB_LIBRARIES}
+  #${LOGGING_LIBS}
+  #${LIBSAILFISH_LINKER_FLAGS} shark
+#)
    
 # Link the executable
 target_link_libraries(sailfish 
     sailfish_core 
+    gff
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     cmph # perfect hashing library
-    jellyfish-1.1 
+    jellyfish-2.0 
     pthread 
     gomp 
     m
@@ -93,6 +106,56 @@ target_link_libraries(sailfish
     ${LIBSAILFISH_LINKER_FLAGS} shark
 )
 
+# Link the executable
+target_link_libraries(salmon
+    sailfish_core 
+    gff
+    ${Boost_LIBRARIES} 
+    ${ZLIB_LIBRARY} 
+    cmph # perfect hashing library
+    jellyfish-2.0 
+    pthread 
+    gomp 
+    m
+    ${TBB_LIBRARIES}
+    ${LOGGING_LIBS}
+    ${LIBSAILFISH_LINKER_FLAGS} shark
+)
+
+
+#add_executable(read_hit_tester ReadHitTester.cpp)
+#target_link_libraries(read_hit_tester
+    #sailfish_core 
+    #gff
+    #${Boost_LIBRARIES} 
+    #${ZLIB_LIBRARY} 
+    #cmph # perfect hashing library
+    #jellyfish-2.0 
+    #pthread 
+    #gomp 
+    #m
+    #${TBB_LIBRARIES}
+    #${LOGGING_LIBS}
+    #${LIBSAILFISH_LINKER_FLAGS} shark
+#)
+
+#add_executable(BuildKmerLocationIndex BuildKmerLocationIndex.cpp)
+#target_link_libraries(BuildKmerLocationIndex
+    #sailfish_core 
+    #gff
+    #${Boost_LIBRARIES} 
+    #${ZLIB_LIBRARY} 
+    #cmph # perfect hashing library
+    #jellyfish-2.0 
+    #pthread 
+    #gomp 
+    #m
+    #${TBB_LIBRARIES}
+    #${LOGGING_LIBS}
+    #${LIBSAILFISH_LINKER_FLAGS} shark
+#)
+
+
 #
 #add_executable(performBiasCorrection BiasCorrectionDriver.cpp)
 #target_link_libraries(performBiasCorrection
@@ -100,7 +163,7 @@ target_link_libraries(sailfish
 #${Boost_LIBRARIES}
 #${ZLIB_LIBRARY}
 #cmph
-#jellyfish-1.1
+#jellyfish-2.0
 #pthread
 #gomp
 #m
@@ -108,26 +171,27 @@ target_link_libraries(sailfish
 #shark
 #)
 
-add_executable(analyze_kmer_tradeoff AnalyzeKmerTradeoff.cpp)
-target_link_libraries(analyze_kmer_tradeoff 
-    sailfish_core 
-    ${Boost_LIBRARIES} 
-    ${ZLIB_LIBRARY} 
-    cmph # perfect hashing library
-    jellyfish-1.1 
-    pthread 
-    gomp 
-    m
-    ${LOGGING_LIBS}
-    ${TBB_LIBRARIES}
-    shark
-)
+
+#add_executable(analyze_kmer_tradeoff AnalyzeKmerTradeoff.cpp)
+#target_link_libraries(analyze_kmer_tradeoff 
+    #sailfish_core 
+    #${Boost_LIBRARIES} 
+    #${ZLIB_LIBRARY} 
+    #cmph # perfect hashing library
+    #jellyfish-2.0 
+    #pthread 
+    #gomp 
+    #m
+    #${LOGGING_LIBS}
+    #${TBB_LIBRARIES}
+    #shark
+#)
 
 # add_executable(compute_transcript_features ComputeBiasFeatures.cpp)
 # target_link_libraries(compute_transcript_features
 # ${Boost_LIBRARIES}
 # ${ZLIB_LIBRARY}
-# jellyfish-1.1
+# jellyfish-2.0
 # pthread
 # gomp
 # m
@@ -143,7 +207,6 @@ target_link_libraries(analyze_kmer_tradeoff
 # m
 # shark # The machine learning library
 # )
-
 
 IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   SET(CMAKE_INSTALL_PREFIX
@@ -225,7 +288,7 @@ add_test( NAME simple_test COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${GAT_SOURCE_
 # target_link_libraries( BuildLUT 
 # 	${Boost_LIBRARIES} ${ZLIB_LIBRARY} 
 # 	cmph # perfect hashing library
-# 	jellyfish-1.1 pthread 
+# 	jellyfish-2.0 pthread 
 #     gomp lib_activeobject lib_g2logger m tbb)
 
 # INSTALL(TARGETS BuildLUT DESTINATION ${PROJECT_SOURCE_DIR}/bin COMPONENT comp_buildlut)

@@ -21,22 +21,24 @@
 
 
 #include <boost/thread/thread.hpp>
+#include <boost/filesystem.hpp>
 #include <algorithm>
 #include <iostream>
 #include <tuple>
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
+#include <boost/filesystem.hpp>
 
-#include <jellyfish/sequence_parser.hpp>
-#include <jellyfish/parse_read.hpp>
-#include <jellyfish/parse_dna.hpp>
+#include "gff.h"
 
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+
+#include "jellyfish/mer_dna.hpp"
 #include "TranscriptGeneMap.hpp"
 #include "GenomicFeature.hpp"
 #include "SailfishUtils.hpp"
-#include "ReadProducer.hpp"
-#include "StreamingSequenceParser.hpp"
 
 namespace sailfish {
 namespace utils {
@@ -44,6 +46,101 @@ using std::string;
 using NameVector = std::vector<string>;
 using IndexVector = std::vector<size_t>;
 using KmerVector = std::vector<uint64_t>;
+
+/**
+ * This function parses the library format string that specifies the format in which
+ * the reads are to be expected.
+ */
+LibraryFormat parseLibraryFormatString(std::string& fmt) {
+    using std::vector;
+    using std::string;
+    using std::map;
+    using std::stringstream;
+
+    // inspired by http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
+
+    // first convert the string to upper-case
+    for (auto& c : fmt) { c = std::toupper(c); }
+    // split on the delimiter ':', and put the key, value (k=v) pairs into a map
+    stringstream ss(fmt);
+    string item;
+    map<string, string> kvmap;
+    while (std::getline(ss, item, ':')) {
+        auto splitPos = item.find('=', 0);
+        string key{item.substr(0, splitPos)};
+        string value{item.substr(splitPos+1)};
+        kvmap[key] = value;
+    }
+
+    map<string, ReadType> readType = {{"SE", ReadType::SINGLE_END}, {"PE", ReadType::PAIRED_END}};
+    map<string, ReadOrientation> orientationType = {{">>", ReadOrientation::SAME},
+                                           {"<>", ReadOrientation::AWAY},
+                                           {"><", ReadOrientation::TOWARD},
+                                           {"*", ReadOrientation::NONE}};
+    map<string, ReadStrandedness> strandType = {{"SA", ReadStrandedness::SA},
+                                    {"AS", ReadStrandedness::AS},
+                                    {"A", ReadStrandedness::A},
+                                    {"S", ReadStrandedness::S},
+                                    {"U", ReadStrandedness::U}};
+    auto it = kvmap.find("T");
+    string typeStr = "";
+    if (it != kvmap.end()) {
+        typeStr = it->second;
+    } else {
+        it = kvmap.find("TYPE");
+        if (it != kvmap.end()) {
+            typeStr = it->second;
+        }
+    }
+
+    if (typeStr != "SE" and typeStr != "PE") {
+        string e = typeStr + " is not a valid read type; must be one of {SE, PE}";
+        throw std::invalid_argument(e);
+    }
+
+    ReadType type = (typeStr == "SE") ? ReadType::SINGLE_END : ReadType::PAIRED_END;
+    ReadOrientation orientation = (type == ReadType::SINGLE_END) ? ReadOrientation::NONE : ReadOrientation::TOWARD;
+    ReadStrandedness strandedness{ReadStrandedness::U};
+    // Construct the LibraryFormat class from the key, value map
+    for (auto& kv : kvmap) {
+        auto& k = kv.first; auto& v = kv.second;
+        if (k == "O" or k == "ORIENTATION") {
+            auto it = orientationType.find(v);
+            if (it != orientationType.end()) { orientation = orientationType[it->first]; } else {
+                string e = v + " is not a valid orientation type; must be one of {>>, <>, ><}";
+                throw std::invalid_argument(e);
+            }
+
+        }
+        if (k == "S" or k == "STRAND") {
+            auto it = strandType.find(v);
+            if (it != strandType.end()) { strandedness = strandType[it->first]; } else {
+                string e = v + " is not a valid strand type; must be one of {SA, AS, S, A, U}";
+                throw std::invalid_argument(e);
+            }
+        }
+
+    }
+    LibraryFormat lf(type, orientation, strandedness);
+    return lf;
+}
+
+
+
+uint64_t encode(uint64_t tid, uint64_t offset) {
+    uint64_t res = (((tid & 0xFFFFFFFF) << 32) | (offset & 0xFFFFFFFF));
+    return res;
+}
+
+uint32_t transcript(uint64_t enc) {
+    uint32_t t = (enc & 0xFFFFFFFF00000000) >> 32;
+    return t;
+}
+
+uint32_t offset(uint64_t enc) {
+    uint32_t o = enc & 0xFFFFFFFF;
+    return o;
+}
 
 size_t numberOfReadsInFastaFile(const std::string& fname) {
     constexpr size_t bufferSize = 16184;
@@ -95,6 +192,123 @@ bool overlap( const S<T> &a, const S<T> &b ) {
     // If nothing from the smaller set is in the larger set, then they don't overlap
     return false;
 }
+
+
+TranscriptGeneMap transcriptGeneMapFromGTF(const std::string& fname, std::string key) {
+
+    using std::unordered_set;
+    using std::unordered_map;
+    using std::vector;
+    using std::tuple;
+    using std::string;
+    using std::get;
+
+    // Use GffReader to read the file
+    GffReader reader(const_cast<char*>(fname.c_str()));
+    // Remember the optional attributes
+    reader.readAll(true);
+
+    struct TranscriptKeyPair {
+        const char* transcript_id;
+        const char* key;
+        TranscriptKeyPair(const char* t, const char* k) :
+            transcript_id(t), key(k) {}
+    };
+
+    // The user can group transcripts by gene_id, gene_name, or
+    // an optinal attribute that they provide as a string.
+    enum class TranscriptKey { GENE_ID, GENE_NAME, DYNAMIC };
+
+    // Select the proper attribute by which to group
+    TranscriptKey tkey = TranscriptKey::GENE_ID;
+
+    if (key == "gene_id") {
+    } else if (key == "gene_name") {
+        tkey = TranscriptKey::GENE_NAME;
+    } else {
+        tkey = TranscriptKey::DYNAMIC;
+    }
+
+    // Iterate over all transcript features and build the
+    // transcript <-> key vector.
+    auto nfeat = reader.gflst.Count();
+    std::vector<TranscriptKeyPair> feats;
+    for (int i=0; i < nfeat; ++i) {
+        auto f = reader.gflst[i];
+        if (f->isTranscript()) {
+            const char* keyStr;
+            switch (tkey) {
+                case TranscriptKey::GENE_ID:
+                    keyStr = f->getGeneID();
+                    break;
+                case TranscriptKey::GENE_NAME:
+                    keyStr = f->getGeneName();
+                    break;
+                case TranscriptKey::DYNAMIC:
+                    keyStr = f->getAttr(key.c_str());
+                    break;
+            }
+            feats.emplace_back(f->getID(), keyStr);
+        }
+    }
+
+    // Given the transcript <-> key vector, build the
+    // TranscriptGeneMap.
+
+    IndexVector t2g;
+    NameVector transcriptNames;
+    NameVector geneNames;
+
+    // holds the mapping from transcript ID to gene ID
+    IndexVector t2gUnordered;
+    // holds the set of gene IDs
+    unordered_map<string, size_t> geneNameToID;
+
+    // To read the input and assign ids
+    size_t transcriptCounter = 0;
+    size_t geneCounter = 0;
+    string transcript;
+    string gene;
+
+    std::sort( feats.begin(), feats.end(),
+    []( const TranscriptKeyPair & a, const TranscriptKeyPair & b) -> bool {
+        return std::strcmp(a.transcript_id, b.transcript_id) < 0;
+    } );
+
+    std::string currentTranscript = "";
+    for ( auto & feat : feats ) {
+
+        std::string gene(feat.key);
+        std::string transcript(feat.transcript_id);
+
+        if ( transcript != currentTranscript ) {
+            auto geneIt = geneNameToID.find(gene);
+            size_t geneID = 0;
+
+            if ( geneIt == geneNameToID.end() ) {
+                // If we haven't seen this gene yet, give it a new ID
+                geneNameToID[gene] = geneCounter;
+                geneID = geneCounter;
+                geneNames.push_back(gene);
+                ++geneCounter;
+            } else {
+                // Otherwise lookup the ID
+                geneID = geneIt->second;
+            }
+
+            transcriptNames.push_back(transcript);
+            t2g.push_back(geneID);
+
+            //++transcriptID;
+            currentTranscript = transcript;
+        }
+
+    }
+
+    return TranscriptGeneMap(transcriptNames, geneNames, t2g);
+
+}
+
 
 TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile ) {
 
@@ -168,25 +382,37 @@ TranscriptGeneMap readTranscriptToGeneMap( std::ifstream &ifile ) {
 
 
 TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFile ) {
-
     using std::vector;
+    using stream_manager = jellyfish::stream_manager<char**>;
+    using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
+    namespace bfs = boost::filesystem;
+
     NameVector transcriptNames;
     NameVector geneNames {"gene"};
 
     vector<bfs::path> paths{transcriptsFile};
-    StreamingReadParser parser(paths);
-    parser.start();
 
-    ReadProducer<StreamingReadParser> producer(parser);
+    // Create a jellyfish parser
+    const int concurrentFile{1};
+    char** fnames = new char*[1];
+    fnames[0] = const_cast<char*>(transcriptsFile.c_str());
+    stream_manager streams(fnames, fnames + 1, concurrentFile);
 
-    ReadSeq* s;
+    size_t maxReadGroupSize{100};
+    sequence_parser parser(4, maxReadGroupSize, concurrentFile, streams);
+
     // while there are transcripts left to process
-    while (producer.nextRead(s)) {
-      // The transcript name
-      std::string fullHeader(s->name, s->nlen);
-      std::string header = fullHeader.substr(0, fullHeader.find(' '));
-      transcriptNames.emplace_back(header);
-      producer.finishedWithRead(s);
+    while (true) {
+        sequence_parser::job j(parser);
+        // If this job is empty, then we're done
+        if (j.is_empty()) { break; }
+
+        for (size_t i=0; i < j->nb_filled; ++i) {
+            // The transcript name
+            std::string fullHeader(j->data[i].header);
+            std::string header = fullHeader.substr(0, fullHeader.find(' '));
+            transcriptNames.emplace_back(header);
+        }
     }
 
     // Sort the transcript names
@@ -199,7 +425,95 @@ TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFi
     return TranscriptGeneMap(transcriptNames, geneNames, t2g);
 }
 
+class ExpressionRecord {
+    public:
+        ExpressionRecord() : name(""), length(0), quants(std::vector<double>()) {}
+        std::string name;
+        unsigned long length;
+        std::vector<double> quants;
+};
 
+ExpressionRecord parseExpressionRecord(std::string& l) {
+    // name
+    // length
+    // estimates
+    ExpressionRecord rec;
+    boost::char_separator<char> sep(" \t");
+    boost::tokenizer<boost::char_separator<char>> tokens(l, sep);
+
+    size_t idx{0};
+    for (auto& tok : tokens) {
+        switch (idx) {
+            case 0:
+                rec.name = tok;
+                break;
+            case 1:
+                rec.length = stoul(tok);
+                break;
+            default:
+                rec.quants.push_back(stod(tok));
+        }
+        ++idx;
+    }
+
+    return rec;
+}
+
+void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::path& inputPath) {
+
+    std::ifstream inputFile(inputPath.string());
+    std::string l;
+
+    if (!inputFile.is_open()) {
+        perror("Error reading file");
+    }
+
+    std::vector<std::string> comments;
+    std::vector<ExpressionRecord> geneExpressions;
+    geneExpressions.resize(tgm.numGenes());
+    size_t numExpressionColumns{0};
+    while (std::getline(inputFile, l)) {
+        // If this is a comment line
+        if (l.front() == '#') {
+            comments.emplace_back(l);
+        } else {
+            auto expRec = parseExpressionRecord(l);
+            numExpressionColumns = expRec.quants.size();
+            auto tid = tgm.findTranscriptID(expRec.name);
+            auto& geneExpressionRecord = geneExpressions[tgm.gene(tid)];
+            size_t currLen = geneExpressionRecord.length;
+            geneExpressionRecord.length = std::max(currLen, expRec.length);
+
+            if (numExpressionColumns > geneExpressionRecord.quants.size()) {
+                geneExpressionRecord.quants.resize(numExpressionColumns);
+            }
+
+            for (size_t ce = 0; ce < numExpressionColumns; ++ce) {
+                geneExpressionRecord.quants[ce] += expRec.quants[ce];
+            }
+        }
+    }
+    inputFile.close();
+
+
+    boost::filesystem::path outputFilePath(inputPath);
+    outputFilePath.replace_extension(".genes.sf");
+    std::ofstream outputFile(outputFilePath.string());
+    for (auto& c : comments) {
+        outputFile << c << "\n";
+    }
+
+    for (size_t gid = 0; gid < tgm.numGenes(); ++gid) {
+        std::string geneName = tgm.nameFromGeneID(gid);
+        auto& expRec = geneExpressions[gid];
+        outputFile << geneName << '\t' << expRec.length;
+        for (size_t ec = 0; ec < numExpressionColumns; ++ec) {
+            outputFile << '\t' << expRec.quants[ec];
+        }
+        outputFile << '\n';
+    }
+    outputFile.close();
+}
 
 }
 }

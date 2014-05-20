@@ -41,363 +41,338 @@
     transcriptome, but which is callable directly (as a function) from Sailfish.
  */
 
-#include <config.h>
-#include <pthread.h>
-#include <fstream>
-#include <exception>
-#include <memory>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#include <cstdlib>
 #include <unistd.h>
-#include <sys/mman.h>
-#include <stdint.h>
-#include <inttypes.h>
+#include <assert.h>
+#include <signal.h>
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <map>
+#include <sstream>
+#include <memory>
+#include <chrono>
 
 #include <jellyfish/err.hpp>
-#include <jellyfish/dbg.hpp>
-#include <jellyfish/backtrace.hpp>
-#include <jellyfish/misc.hpp>
-#include <jellyfish/time.hpp>
-#include <jellyfish/mer_counting.hpp>
-#include <jellyfish/locks_pthread.hpp>
 #include <jellyfish/thread_exec.hpp>
-#include <jellyfish/square_binary_matrix.hpp>
-#include <jellyfish/count_main_cmdline.hpp>
-#include <jellyfish/noop_dumper.hpp>
+#include <jellyfish/hash_counter.hpp>
+#include <jellyfish/locks_pthread.hpp>
+#include <jellyfish/stream_manager.hpp>
+#include <jellyfish/mer_overlap_sequence_parser.hpp>
+#include <jellyfish/whole_sequence_parser.hpp>
+#include <jellyfish/mer_iterator.hpp>
+#include <jellyfish/mer_qual_iterator.hpp>
+#include <jellyfish/jellyfish.hpp>
+#include <jellyfish/mer_dna_bloom_counter.hpp>
+#include <jellyfish/generator_manager.hpp>
+#include "merge_files.hpp"
+#include "count_main_cmdline.hpp"
 
-void die_on_error(std::string& err) {
-  std::cerr << "Error: " << err << std::endl;
-  exit(1);
+static count_main_cmdline args; // Command line switches and arguments
+
+using std::chrono::system_clock;
+using std::chrono::duration;
+using std::chrono::duration_cast;
+
+template<typename DtnType>
+inline double as_seconds(DtnType dtn) { return duration_cast<duration<double>>(dtn).count(); }
+
+using jellyfish::mer_dna;
+using jellyfish::mer_dna_bloom_counter;
+using jellyfish::mer_dna_bloom_filter;
+typedef std::vector<const char*> file_vector;
+
+// Types for parsing arbitrary sequence ignoring quality scores
+typedef jellyfish::mer_overlap_sequence_parser<jellyfish::stream_manager<file_vector::const_iterator> > sequence_parser;
+typedef jellyfish::mer_iterator<sequence_parser, mer_dna> mer_iterator;
+
+// Types for parsing reads with quality score. Interface match type
+// above.
+class sequence_qual_parser :
+  public jellyfish::whole_sequence_parser<jellyfish::stream_manager<file_vector::const_iterator> >
+{
+  typedef jellyfish::stream_manager<file_vector::const_iterator> StreamIterator;
+  typedef jellyfish::whole_sequence_parser<StreamIterator> super;
+public:
+  sequence_qual_parser(uint16_t mer_len, uint32_t max_producers, uint32_t size, size_t buf_size,
+                       StreamIterator& streams) :
+    super(size, 100, max_producers, streams)
+  { }
+};
+
+class mer_qual_iterator : public jellyfish::mer_qual_iterator<sequence_qual_parser, mer_dna> {
+  typedef jellyfish::mer_qual_iterator<sequence_qual_parser, mer_dna> super;
+public:
+  mer_qual_iterator(sequence_qual_parser& parser, bool canonical = false) :
+    super(parser, args.min_qual_char_arg[0], canonical)
+  { }
+};
+
+// k-mer filters. Organized in a linked list, interpreted as a &&
+// (logical and). I.e. all filter must return true for the result to
+// be true. By default, filter returns true.
+struct filter {
+  filter* prev_;
+  filter(filter* prev = 0) : prev_(prev) { }
+  virtual ~filter() { }
+  virtual bool operator()(const mer_dna& x) { return and_res(true, x); }
+  bool and_res(bool r, const mer_dna& x) const {
+    return r ? (prev_ ? (*prev_)(x) : true) : false;
+  }
+};
+
+struct filter_bc : public filter {
+  const mer_dna_bloom_counter& counter_;
+  filter_bc(const mer_dna_bloom_counter& counter, filter* prev = 0) :
+    filter(prev),
+    counter_(counter)
+  { }
+  bool operator()(const mer_dna& m) {
+    unsigned int c = counter_.check(m);
+    return and_res(c > 1, m);
+  }
+};
+
+struct filter_bf : public filter {
+  mer_dna_bloom_filter& bf_;
+  filter_bf(mer_dna_bloom_filter& bf, filter* prev = 0) :
+    filter(prev),
+    bf_(bf)
+  { }
+  bool operator()(const mer_dna& m) {
+    unsigned int c = bf_.insert(m);
+    return and_res(c > 0, m);
+  }
+};
+
+enum OPERATION { COUNT, PRIME, UPDATE };
+template<typename PathIterator, typename MerIteratorType, typename ParserType>
+class mer_counter_base : public jellyfish::thread_exec {
+  int                                     nb_threads_;
+  mer_hash&                               ary_;
+  jellyfish::stream_manager<PathIterator> streams_;
+  ParserType                              parser_;
+  filter*                                 filter_;
+  OPERATION                               op_;
+
+public:
+  mer_counter_base(int nb_threads, mer_hash& ary,
+                   PathIterator file_begin, PathIterator file_end,
+                   PathIterator pipe_begin, PathIterator pipe_end,
+                   uint32_t concurent_files,
+                   OPERATION op, filter* filter = new struct filter) :
+    ary_(ary),
+    streams_(file_begin, file_end, pipe_begin, pipe_end, concurent_files),
+    parser_(mer_dna::k(), streams_.nb_streams(), 3 * nb_threads, 4096, streams_),
+    filter_(filter),
+    op_(op)
+  { }
+
+  virtual void start(int thid) {
+    size_t count = 0;
+    MerIteratorType mers(parser_, args.canonical_flag);
+
+    switch(op_) {
+     case COUNT:
+      for( ; mers; ++mers) {
+        if((*filter_)(*mers))
+          ary_.add(*mers, 1);
+        ++count;
+      }
+      break;
+
+    case PRIME:
+      for( ; mers; ++mers) {
+        if((*filter_)(*mers))
+          ary_.set(*mers);
+        ++count;
+      }
+      break;
+
+    case UPDATE:
+      mer_dna tmp;
+      for( ; mers; ++mers) {
+        if((*filter_)(*mers))
+          ary_.update_add(*mers, 1, tmp);
+        ++count;
+      }
+      break;
+    }
+
+    ary_.done();
+  }
+};
+
+// Counter with and without quality value
+typedef mer_counter_base<file_vector::const_iterator, mer_iterator, sequence_parser> mer_counter;
+typedef mer_counter_base<file_vector::const_iterator, mer_qual_iterator, sequence_qual_parser> mer_qual_counter;
+
+mer_dna_bloom_counter* load_bloom_filter(const char* path) {
+  std::ifstream in(path, std::ios::in|std::ios::binary);
+  jellyfish::file_header header(in);
+  if(!in.good())
+    die << "Failed to parse bloom filter file '" << path << "'";
+  if(header.format() != "bloomcounter")
+    die << "Invalid format '" << header.format() << "'. Expected 'bloomcounter'";
+  if(header.key_len() != mer_dna::k() * 2)
+    die << "Invalid mer length in bloom filter";
+  jellyfish::hash_pair<mer_dna> fns(header.matrix(1), header.matrix(2));
+  auto res = new mer_dna_bloom_counter(header.size(), header.nb_hashes(), in, fns);
+  if(!in.good())
+    die << "Bloom filter file is truncated";
+  in.close();
+  return res;
 }
 
-void warn_on_error(std::string& err) {
-  std::cerr << "Warn: " << err << std::endl;
+// If get a termination signal, kill the manager and then kill myself.
+static pid_t manager_pid = 0;
+static void signal_handler(int sig) {
+  if(manager_pid)
+    kill(manager_pid, SIGTERM);
+  signal(sig, SIG_DFL);
+  kill(getpid(), sig);
+  _exit(EXIT_FAILURE); // Should not be reached
 }
-
-
-// TODO: This mer_counting_base stuff has become wild. Lots of code
-// duplication and slightly different behavior for each (e.g. setup of
-// the hashing matrix). Refactor!
-class mer_counting_base {
-public:
-  virtual ~mer_counting_base() {}
-  virtual void count() = 0;
-  virtual Time get_writing_time() const = 0;
-  virtual uint64_t get_distinct() const = 0;
-  virtual uint64_t get_total() const = 0;
-};
-
-template <typename parser_t, typename hash_t>
-class mer_counting : public mer_counting_base, public thread_exec {
-protected:
-  count_args                 *args;
-  locks::pthread::barrier     sync_barrier;
-  parser_t                   *parser;
-  typename hash_t::storage_t *ary;
-  hash_t                     *hash;
-  jellyfish::dumper_t        *dumper;
-  uint64_t                    distinct, total;
-
-public:
-  explicit mer_counting(count_args &_args) :
-    args(&_args), sync_barrier(args->threads_arg),
-    distinct(0), total(0) {}
-
-  ~mer_counting() { 
-    if(dumper)
-      delete dumper;
-    if(hash)
-      delete hash;
-    if(ary)
-      delete ary;
-    if(parser)
-      delete parser;
-  }
-  
-  void start(int id) {
-    sync_barrier.wait();
-
-    typename parser_t::thread     mer_stream(parser->new_thread());
-    typename hash_t::thread_ptr_t counter(hash->new_thread());
-
-    if(args->invalid_char_arg != count_args::invalid_char::ignore) {
-      if(args->invalid_char_arg == count_args::invalid_char::warn)
-        mer_stream.set_error_reporter(warn_on_error);
-      else
-        mer_stream.set_error_reporter(die_on_error);
-    }
-
-    mer_stream.parse(counter);
-
-    bool is_serial = sync_barrier.wait() == PTHREAD_BARRIER_SERIAL_THREAD;
-    if(is_serial) {
-      hash->dump();
-    }
-
-    atomic::gcc::fetch_add(&distinct, mer_stream.get_distinct());
-    atomic::gcc::fetch_add(&total, mer_stream.get_total());
-  }
-  
-  void count() {
-    exec_join(args->threads_arg);
-  }
-
-  virtual Time get_writing_time() const { return hash->get_writing_time(); }
-  virtual uint64_t get_distinct() const { return distinct; }
-  virtual uint64_t get_total() const { return total; }
-//  virtual hash_t* get_hash() const { return hash; }
-};
-
-class mer_counting_fasta_hash : public mer_counting<jellyfish::parse_dna, inv_hash_t> {
-public:
-  mer_counting_fasta_hash(const std::vector<const char *> &files,
-                          count_args &_args) :
-    mer_counting<jellyfish::parse_dna, inv_hash_t>(_args)
-  {
-    parser = new jellyfish::parse_dna(files.begin(), files.end(),
-                                      args->mer_len_arg, args->buffers_arg,
-                                      args->buffer_size_arg);
-    ary = new inv_hash_t::storage_t(args->size_arg, 2*args->mer_len_arg,
-                                    args->counter_len_arg, 
-                                    args->reprobes_arg, 
-                                    jellyfish::quadratic_reprobes);
-    if(args->matrix_given) {
-      std::ifstream fd;
-      fd.exceptions(std::ifstream::eofbit|std::ifstream::failbit|std::ifstream::badbit);
-      fd.open(args->matrix_arg.c_str());
-      SquareBinaryMatrix m(&fd);
-      fd.close();
-      ary->set_matrix(m);
-    }
-    hash = new inv_hash_t(ary);
-
-    if(args->no_write_flag) {
-      dumper = new jellyfish::noop_dumper();
-    } else {
-      // if(args->measure) {
-      //   dumper = new jellyfish::measure_dumper<inv_hash_t::storage_t>(ary);
-      // } else
-      if(args->raw_flag) {
-        dumper = new raw_inv_hash_dumper_t((uint_t)4, args->output_arg.c_str(),
-                                           args->out_buffer_size_arg, ary);
-      } else {
-        inv_hash_dumper_t *_dumper =
-          new inv_hash_dumper_t(args->threads_arg, args->output_arg.c_str(),
-                                args->out_buffer_size_arg, 
-                                8*args->out_counter_len_arg, ary);
-        _dumper->set_one_file(args->O_flag);
-        if(args->lower_count_given)
-          _dumper->set_lower_count(args->lower_count_arg);
-        if(args->upper_count_given)
-          _dumper->set_upper_count(args->upper_count_arg);
-        dumper = _dumper;
-      }
-    }
-    hash->set_dumper(dumper);
-    parser->set_canonical(args->both_strands_flag);
-  }
-};
-
-class mer_counting_qual_fasta_hash : public mer_counting<jellyfish::parse_qual_dna, inv_hash_t> {
-public:
-  mer_counting_qual_fasta_hash(const std::vector<const char *> &files,
-                               count_args &_args) :
-    mer_counting<jellyfish::parse_qual_dna, inv_hash_t>(_args)
-  {
-    parser = new jellyfish::parse_qual_dna(files,
-                                           args->mer_len_arg, args->buffers_arg,
-                                           args->buffer_size_arg, args->quality_start_arg,
-                                           args->min_quality_arg);
-    ary = new inv_hash_t::storage_t(args->size_arg, 2*args->mer_len_arg,
-                                    args->counter_len_arg, 
-                                    args->reprobes_arg, 
-                                    jellyfish::quadratic_reprobes);
-    if(args->matrix_given) {
-      std::ifstream fd;
-      fd.exceptions(std::ifstream::eofbit|std::ifstream::failbit|std::ifstream::badbit);
-      fd.open(args->matrix_arg.c_str());
-      SquareBinaryMatrix m(&fd);
-      fd.close();
-      ary->set_matrix(m);
-    }
-    hash = new inv_hash_t(ary);
-
-    if(args->no_write_flag) {
-      dumper = new jellyfish::noop_dumper();
-    } else {
-      if(args->raw_flag) {
-        dumper = new raw_inv_hash_dumper_t((uint_t)4, args->output_arg.c_str(),
-                                           args->out_buffer_size_arg, ary);
-      } else {
-        inv_hash_dumper_t *_dumper =
-          new inv_hash_dumper_t(args->threads_arg, args->output_arg.c_str(),
-                                args->out_buffer_size_arg, 
-                                8*args->out_counter_len_arg, ary);
-        _dumper->set_one_file(args->O_flag);
-        if(args->lower_count_given)
-          _dumper->set_lower_count(args->lower_count_arg);
-        if(args->upper_count_given)
-          _dumper->set_upper_count(args->upper_count_arg);
-        dumper = _dumper;
-      }
-    }
-    hash->set_dumper(dumper);
-    parser->set_canonical(args->both_strands_flag);
-  }
-};
-
-
-class mer_counting_fasta_direct : public mer_counting<jellyfish::parse_dna, direct_index_t> {
-public:
-  mer_counting_fasta_direct(const std::vector<const char *> &files,
-                            count_args &_args) :
-    mer_counting<jellyfish::parse_dna, direct_index_t>(_args)
-  {
-    parser = new jellyfish::parse_dna(files.begin(), files.end(),
-                                      args->mer_len_arg, args->buffers_arg,
-                                      args->buffer_size_arg);
-    ary = new direct_index_t::storage_t(2 * args->mer_len_arg);
-    hash = new direct_index_t(ary);
-    if(args->no_write_flag) {
-      dumper = new jellyfish::noop_dumper();
-    } else {
-      if(args->raw_flag)
-        std::cerr << "Switch --raw not (yet) supported with direct indexing. Ignoring." << std::endl;
-      direct_index_dumper_t *_dumper =
-        new direct_index_dumper_t(args->threads_arg, args->output_arg.c_str(),
-                                  args->out_buffer_size_arg,
-                                  8*args->out_counter_len_arg,
-                                  ary);
-      _dumper->set_one_file(args->O_flag);
-      if(args->lower_count_given)
-        _dumper->set_lower_count(args->lower_count_arg);
-      if(args->upper_count_given)
-        _dumper->set_upper_count(args->upper_count_arg);
-      dumper = _dumper;
-    }
-    hash->set_dumper(dumper);
-    parser->set_canonical(args->both_strands_flag);
-  }
-};
-
-class mer_counting_qual_fasta_direct : public mer_counting<jellyfish::parse_qual_dna, direct_index_t> {
-public:
-  mer_counting_qual_fasta_direct(const std::vector<const char *> &files,
-                                 count_args &_args) :
-    mer_counting<jellyfish::parse_qual_dna, direct_index_t>(_args)
-  {
-    parser = new jellyfish::parse_qual_dna(files,
-                                           args->mer_len_arg, args->buffers_arg,
-                                           args->buffer_size_arg, args->quality_start_arg,
-                                           args->min_quality_arg);
-    ary = new direct_index_t::storage_t(2 * args->mer_len_arg);
-    hash = new direct_index_t(ary);
-    if(args->no_write_flag) {
-      dumper = new jellyfish::noop_dumper();
-    } else {
-      if(args->raw_flag)
-        std::cerr << "Switch --raw not (yet) supported with direct indexing. Ignoring." << std::endl;
-      direct_index_dumper_t *_dumper =
-        new direct_index_dumper_t(args->threads_arg, args->output_arg.c_str(),
-                                  args->out_buffer_size_arg,
-                                  8*args->out_counter_len_arg,
-                                  ary);
-      _dumper->set_one_file(args->O_flag);
-      if(args->lower_count_given)
-        _dumper->set_lower_count(args->lower_count_arg);
-      if(args->upper_count_given)
-        _dumper->set_upper_count(args->upper_count_arg);
-      dumper = _dumper;
-    }
-    hash->set_dumper(dumper);
-    parser->set_canonical(args->both_strands_flag);
-  }
-};
-
-class mer_counting_quake : public mer_counting<jellyfish::parse_quake, fastq_hash_t> {
-public:
-  mer_counting_quake(std::vector<const char *>,
-                     count_args &_args) :
-    mer_counting<jellyfish::parse_quake, fastq_hash_t>(_args)
-  {
-    parser = new jellyfish::parse_quake(args->file_arg,
-                                        args->mer_len_arg, args->buffers_arg, 
-                                        args->buffer_size_arg, 
-                                        args->quality_start_arg);
-    ary = new fastq_hash_t::storage_t(args->size_arg, 2*args->mer_len_arg,
-                                      args->reprobes_arg, 
-                                      jellyfish::quadratic_reprobes);
-    hash = new fastq_hash_t(ary);
-    if(args->no_write_flag) {
-      dumper = new jellyfish::noop_dumper();
-    } else {
-      dumper = new raw_fastq_dumper_t(args->threads_arg, args->output_arg.c_str(),
-                                      args->out_buffer_size_arg,
-                                      ary);
-    }
-    hash->set_dumper(dumper);
-    parser->set_canonical(args->both_strands_flag);
-  }
-};
 
 int jellyfish_count_main(int argc, char *argv[])
 {
-  count_args args(argc, argv);
+  auto start_time = system_clock::now();
 
-  if(args.mer_len_arg < 2 || args.mer_len_arg > 31)
-    die << "Invalid mer length '" << args.mer_len_arg
-        << "'. It must be in [2, 31].";
+  jellyfish::file_header header;
+  header.fill_standard();
+  header.set_cmdline(argc, argv);
 
-  Time start;
-  mer_counting_base *counter;
-  if(!args.buffers_given)
-    args.buffers_arg = 20 * args.threads_arg;
+  args.parse(argc, argv);
 
-  if(args.quake_flag) {
-    counter = new mer_counting_quake(args.file_arg, args);
-  } else if(ceilLog2((unsigned long)args.size_arg) > 2 * (unsigned long)args.mer_len_arg) {
-    if(args.min_quality_given)
-      counter = new mer_counting_qual_fasta_direct(args.file_arg, args);
-    else
-      counter = new mer_counting_fasta_direct(args.file_arg, args);
-  } else if(args.min_quality_given) {
-    counter = new mer_counting_qual_fasta_hash(args.file_arg, args);
-  } else {
-    counter = new mer_counting_fasta_hash(args.file_arg, args);
+  if(args.min_qual_char_given && args.min_qual_char_arg.size() != 1)
+    count_main_cmdline::error("[-Q, --min-qual-char] must be one character.");
+
+  mer_dna::k(args.mer_len_arg);
+
+  std::unique_ptr<jellyfish::generator_manager> generator_manager;
+  if(args.generator_given) {
+    auto gm =
+      new jellyfish::generator_manager(args.generator_arg, args.Generators_arg,
+                                       args.shell_given ? args.shell_arg : (const char*)0);
+    generator_manager.reset(gm);
+    generator_manager->start();
+    manager_pid = generator_manager->pid();
+    struct sigaction act;
+    memset(&act, '\0', sizeof(act));
+    act.sa_handler = signal_handler;
+    assert(sigaction(SIGTERM, &act, 0) == 0);
   }
-  Time after_init;
-  counter->count();
-  Time all_done;
+
+  header.canonical(args.canonical_flag);
+  mer_hash ary(args.size_arg, args.mer_len_arg * 2, args.counter_len_arg, args.threads_arg, args.reprobes_arg);
+  if(args.disk_flag)
+    ary.do_size_doubling(false);
+
+  std::auto_ptr<jellyfish::dumper_t<mer_array> > dumper;
+  if(args.text_flag)
+    dumper.reset(new text_dumper(args.threads_arg, args.output_arg, &header));
+  else
+    dumper.reset(new binary_dumper(args.out_counter_len_arg, ary.key_len(), args.threads_arg, args.output_arg, &header));
+  ary.dumper(dumper.get());
+
+  auto after_init_time = system_clock::now();
+
+  OPERATION do_op = COUNT;
+  if(args.if_given) {
+    mer_counter counter(args.threads_arg, ary,
+                        args.if_arg.begin(), args.if_arg.end(),
+                        args.if_arg.end(), args.if_arg.end(), // no multi pipes
+                        args.Files_arg, PRIME);
+    counter.exec_join(args.threads_arg);
+    do_op = UPDATE;
+  }
+
+  // Iterators to the multi pipe paths. If no generator manager,
+  // generate an empty range.
+  auto pipes_begin = generator_manager.get() ? generator_manager->pipes().begin() : args.file_arg.end();
+  auto pipes_end = (bool)generator_manager ? generator_manager->pipes().end() : args.file_arg.end();
+
+  // Bloom counter read from file to filter out low frequency
+  // k-mers. Two pass algorithm.
+  std::unique_ptr<filter> mer_filter(new filter);
+  std::unique_ptr<mer_dna_bloom_counter> bc;
+  if(args.bc_given) {
+    bc.reset(load_bloom_filter(args.bc_arg));
+    mer_filter.reset(new filter_bc(*bc));
+  }
+
+  // Bloom filter to filter out low frequency k-mers. One pass
+  // algorithm.
+  std::unique_ptr<mer_dna_bloom_filter> bf;
+  if(args.bf_size_given) {
+    bf.reset(new mer_dna_bloom_filter(args.bf_fp_arg, args.bf_size_arg));
+    mer_filter.reset(new filter_bf(*bf));
+  }
+
+  if(args.min_qual_char_given) {
+    mer_qual_counter counter(args.threads_arg, ary,
+                             args.file_arg.begin(), args.file_arg.end(),
+                             pipes_begin, pipes_end,
+                             args.Files_arg,
+                             do_op, mer_filter.get());
+    counter.exec_join(args.threads_arg);
+  } else {
+    mer_counter counter(args.threads_arg, ary,
+                        args.file_arg.begin(), args.file_arg.end(),
+                        pipes_begin, pipes_end,
+                        args.Files_arg,
+                        do_op, mer_filter.get());
+    counter.exec_join(args.threads_arg);
+  }
+
+  // If we have a manager, wait for it
+  if(generator_manager) {
+    signal(SIGTERM, SIG_DFL);
+    manager_pid = 0;
+    if(!generator_manager->wait())
+      die << "Some generator commands failed";
+    generator_manager.reset();
+  }
+
+  auto after_count_time = system_clock::now();
+
+  // If no intermediate files, dump directly into output file. If not, will do a round of merging
+  if(!args.no_write_flag) {
+    if(dumper->nb_files() == 0) {
+      dumper->one_file(true);
+      if(args.lower_count_given)
+        dumper->min(args.lower_count_arg);
+      if(args.upper_count_given)
+        dumper->max(args.upper_count_arg);
+      dumper->dump(ary.ary());
+    } else {
+      dumper->dump(ary.ary());
+      if(!args.no_merge_flag) {
+        std::vector<const char*> files = dumper->file_names_cstr();
+        uint64_t min = args.lower_count_given ? args.lower_count_arg : 0;
+        uint64_t max = args.upper_count_given ? args.upper_count_arg : std::numeric_limits<uint64_t>::max();
+        try {
+          merge_files(files, args.output_arg, header, min, max);
+        } catch(MergeError e) {
+          die << e.what();
+        }
+        if(!args.no_unlink_flag) {
+          for(int i =0; i < dumper->nb_files(); ++i)
+            unlink(files[i]);
+        }
+      } // if(!args.no_merge_flag
+    } // if(!args.no_merge_flag
+  }
+
+  auto after_dump_time = system_clock::now();
 
   if(args.timing_given) {
-    std::ofstream timing_fd(args.timing_arg);
-    if(!timing_fd.good()) {
-      std::cerr << "Can't open timing file '" << args.timing_arg << err::no
-                << std::endl;
-    } else {
-      Time writing = counter->get_writing_time();
-      Time counting = (all_done - after_init) - writing;
-      timing_fd << "Init     " << (after_init - start).str() << "\n"
-                << "Counting " << counting.str() << "\n"
-                << "Writing  " << writing.str() << "\n";
-      timing_fd.close();
-    }
-  }
-
-  if(args.stats_given) {
-    std::ofstream stats_fd(args.stats_arg);
-    if(!stats_fd.good()) {
-      std::cerr << "Can't open stats file '" << args.stats_arg << err::no
-                << std::endl;
-    } else {
-      stats_fd << "Distinct: " << counter->get_distinct() << "\n"
-               << "Total:    " << counter->get_total() << std::endl;
-      stats_fd.close();
-    }
+    std::ofstream timing_file(args.timing_arg);
+    timing_file << "Init     " << as_seconds(after_init_time - start_time) << "\n"
+                << "Counting " << as_seconds(after_count_time - after_init_time) << "\n"
+                << "Writing  " << as_seconds(after_dump_time - after_count_time) << "\n";
   }
 
   return 0;

@@ -59,11 +59,6 @@
 
 
 //#include <Eigen/Core>
-#include <jellyfish/sequence_parser.hpp>
-#include <jellyfish/parse_read.hpp>
-#include <jellyfish/mer_counting.hpp>
-#include <jellyfish/misc.hpp>
-#include <jellyfish/compacted_hash.hpp>
 
 #include "tbb/concurrent_unordered_set.h"
 #include "tbb/concurrent_vector.h"
@@ -103,7 +98,7 @@ private:
     using TranscriptKmerSet = std::tuple<TranscriptID, std::vector<KmerID>>;
     using StringPtr = std::string*;
     using TranscriptScore = uint64_t;
-    using HashArray = jellyfish::invertible_hash::array<uint64_t, atomic::gcc, allocators::mmap>;
+   // using HashArray = jellyfish::invertible_hash::array<uint64_t, atomic::gcc, allocators::mmap>;
     using ReadLength = size_t;
 
     // Necessary forward declaration
@@ -165,7 +160,7 @@ private:
                 } while (retMass != 0.0);
             }
         }
-        
+
         void addMass(KmerQuantity mass) {
             double origMass, returnedMass, newMass;
             size_t tries{0};
@@ -185,20 +180,20 @@ private:
                 returnedMass = totalMass;
                 newMass = sailfish::math::LOG_0;
                 do {
-                    if (tries > 10) { 
-                      boost::this_thread::sleep_for(boost::chrono::microseconds(10)); 
+                    if (tries > 10) {
+                      boost::this_thread::sleep_for(boost::chrono::microseconds(10));
                       std::cerr << "trying; expected: " << origMass << ", returned: " << returnedMass << "\n";
-                      tries = 0;  
-                      std::cerr << "trying\n"; 
+                      tries = 0;
+                      std::cerr << "trying\n";
                     }
                     origMass = returnedMass;
-                    newMass = origMass + mass; 
+                    newMass = origMass + mass;
                     returnedMass = totalMass.compare_and_swap(newMass, origMass);
                     ++tries;
                 } while (returnedMass != origMass);
             }
         }
-        
+
         //std::atomic<double> totalWeight;
         //btree::btree_map<KmerID, KmerQuantity> binMers;
         //std::vector<KmerQuantity> weights;
@@ -259,17 +254,17 @@ private:
     std::vector<KmerQuantity> kmerGroupCounts_;
     std::vector<KmerQuantity> logKmerGroupCounts_;
     std::vector<Count> kmerGroupSizes_;
-    
+
 
     /**
-     * logs all counts in the kmerGroupCounts_ variable.  Groups with a 
+     * logs all counts in the kmerGroupCounts_ variable.  Groups with a
      * count of zero are assigned the special value LOG_0.
      */
     /*
     inline void logKmerGroupCounts_() {
         std::for_each(kmerGroupCounts_.begin(), kmerGroupCounts_.end(),
                       [](KmerQuantity& count) {
-                          if (count > 0) { 
+                          if (count > 0) {
                               count = std::log(count);
                           } else {
                               count = sailfish::math::LOG_0;
@@ -533,7 +528,7 @@ private:
     }
 
     template <typename T>
-    T psum_(std::vector<T>& v) { 
+    T psum_(std::vector<T>& v) {
       auto func = std::bind( std::mem_fn(&CollapsedIterativeOptimizer<ReadHash>::psumAccumulate<T>),
                              this, std::placeholders::_1, std::placeholders::_2 );
       auto sum = tbb::parallel_reduce(
@@ -747,26 +742,26 @@ private:
               double kmerLikelihood = 0.0;
               KmerQuantity totalKmerMass = kmerGroupCounts_[kid];
               for (auto& tid : this->transcriptsForKmer_[kid]) {
-                  // double logProbSampleTID = (sampProbs[tid] > sailfish::math::EPSILON) ? 
+                  // double logProbSampleTID = (sampProbs[tid] > sailfish::math::EPSILON) ?
                   //     std::log(sampProbs[tid]) : sailfish::math::LOG_0;
-                  
-                  double logProbSampleTID = (sampProbs[tid] > sailfish::math::EPSILON) ? 
+
+                  double logProbSampleTID = (sampProbs[tid] > sailfish::math::EPSILON) ?
                       //std::log(sampProbs[tid]) : sailfish::math::LOG_0;
                   std::log(sampProbs[tid] / this->transcripts_[tid].effectiveLength) : sailfish::math::LOG_0;
-                  
-                  if (logProbSampleTID != sailfish::math::LOG_0) { 
+
+                  if (logProbSampleTID != sailfish::math::LOG_0) {
                       kmerLikelihood += kmerGroupCounts_[kid] * logProbSampleTID;
                   }
               }
               // If this k-mer is present
               if (totalKmerMass > 0) {
-                  
+
                   if (kmerLikelihood == sailfish::math::LOG_0) {
                       std::cerr << "kmer group: " << kid << " has probability (" << kmerLikelihood << "); too low\n";
                   } else {
-                      likelihoods[kid] = kmerLikelihood; 
+                      likelihoods[kid] = kmerLikelihood;
                   }
-                  
+
               }
             }
           });
@@ -774,7 +769,7 @@ private:
       return psum_(likelihoods);
 
     }
-    
+
     double logLikelihood2_(std::vector<double>& sampProbs) {
 
       std::vector<double> likelihoods(transcriptsForKmer_.size(), 0.0);
@@ -1291,10 +1286,10 @@ private:
         });
 
       std::vector<double> rho(transcripts_.size(), 0.0);
-    
+
       size_t numTranscripts = transcripts_.size();
       double priorAlpha = 0.01;
-      double totalKmerCount = (priorAlpha * numTranscripts) + psum_(kmerGroupCounts_); 
+      double totalKmerCount = (priorAlpha * numTranscripts) + psum_(kmerGroupCounts_);
       double logAlpha0 = boost::math::digamma(totalKmerCount);
       tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts_.size())),
           // for each kmer group
@@ -1303,7 +1298,7 @@ private:
                 auto& t = this->transcripts_[tid];
                 double tMass = t.totalMass;
                 double currCount = (accel) ? meansIn[tid] * totalKmerCount : tMass;
-                if (currCount >= 1.0 and t.effectiveLength > 0) { 
+                if (currCount >= 1.0 and t.effectiveLength > 0) {
                     rho[tid] = boost::math::digamma(currCount) - logAlpha0 + t.logInvEffectiveLength;
                 } else {
                     rho[tid] = sailfish::math::LOG_0;
@@ -1313,7 +1308,7 @@ private:
 
       tbb::parallel_for(BlockedIndexRange(size_t{0}, transcripts_.size()), [this](const BlockedIndexRange& range) -> void {
               for (auto tid : boost::irange(range.begin(), range.end())) { this->transcripts_[tid].resetMass();}}
-      ); 
+      );
 
       //  E-Step : reassign the kmer group counts proportionally to each transcript
       tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcriptsForKmer_.size())),
@@ -1338,11 +1333,14 @@ private:
                     }
                 }
 
+                //double localEpsilon = 1e-15;
+                //double norm = (totalMass >  localEpsilon) ? 1.0 / totalMass : 0.0;
                 double norm = (totalMass >  sailfish::math::EPSILON) ? 1.0 / totalMass : 0.0;
+
                 for ( auto tid : transcripts ) {
                   auto& trans = this->transcripts_[tid];
                   auto lastIndex = trans.binMers.size()  - 1;
-                 
+
                   if (trans.effectiveLength > 0) {
                       if (rho[tid] != sailfish::math::LOG_0) {
                           auto newMass = std::exp(rho[tid]) * norm * this->kmerGroupCounts_[kmer];
@@ -1350,9 +1348,10 @@ private:
                       }  else {
                           trans.binMers[kmer] = 0;
                       }
-                          
+
                   }
 
+                  /*
                   // M-Step
                   // If we've seen all of the k-mers that appear in this transcript,
                   // then we can compute it's new estimated abundance
@@ -1362,14 +1361,25 @@ private:
                       meansOut[tid] = priorAlpha + trans.totalMass;
                       trans.updated.store(0);
                   }
+                  */
                 }
 
               ++completedJobs;
             } // for kid in range
           });
-           
+
           // wait for all kmer groups to be processed
           pbthread.join();
+
+          tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(meansIn.size())),
+                  // for each kmer group
+                  [&completedJobs, &meansIn, &rho, &meansOut, priorAlpha, reqNumJobs, this](const BlockedIndexRange& range) -> void {
+                      // M-Step
+                      for (auto tid : boost::irange(range.begin(), range.end())) {
+                            auto& trans = transcripts_[tid];
+                            meansOut[tid] = priorAlpha + trans.totalMass;
+                       }
+                  });
 
           // Make the output a proper probability vector
           normalize_(meansOut);
@@ -1393,13 +1403,13 @@ public:
                           size_t numIt,
                           double minMean,
                           double maxDelta) {
-        
-        
+
+
         using sailfish::math::LOG_1;
         using sailfish::math::LOG_0;
         using sailfish::math::logAdd;
         using sailfish::math::logSub;
-        
+
         kmerEquivClassFname_ = kmerEquivClassFname;
         const bool discardZeroCountKmers = true;
         initialize_(klutfname, tlutfname, kmerEquivClassFname, discardZeroCountKmers);
@@ -1425,7 +1435,7 @@ public:
         std::vector<double> v(transcripts_.size(), 0.0);
         std::atomic<size_t> uniquelyAnchoredTranscripts{0};
         std::atomic<size_t> nonZeroTranscripts{0};
-        
+
         loggedCounts_ = false;
         //logKmerGroupCounts_();
 
@@ -1437,7 +1447,7 @@ public:
               KmerQuantity total = 0.0;
               bool notTotallyPromiscuous{false};
               bool nonZero{false};
-              
+
               transcriptData.countSpace = CountSpace::NonLogSpace;
               transcriptData.resetMass();
 
@@ -1448,8 +1458,8 @@ public:
                     auto count = kv.second;
                     kv.second = count * this->kmerGroupCounts_[kmer] * this->weight_(kmer);
                     transcriptData.addMass(kv.second);
-                    if (kv.second > 0 and kmerGroupPromiscuities_[kmer] == 1) { 
-                        notTotallyPromiscuous = true; 
+                    if (kv.second > 0 and kmerGroupPromiscuities_[kmer] == 1) {
+                        notTotallyPromiscuous = true;
                         transcriptData.isAnchored = true;
                     }
                     if (kv.second > 0) { nonZero = true; }
@@ -1490,6 +1500,7 @@ public:
                 double maxRelativeChange = *std::max_element( relDiff.begin(), relDiff.end() );
                 std::cerr << "max relative change: " << maxRelativeChange << "\n";
                 if (maxRelativeChange < 10.0*maxDelta) { accel = true; }// else { accel = true; }
+                accel = false;
                 return maxRelativeChange < maxDelta;
             };
         } else {
@@ -1513,13 +1524,13 @@ public:
           std::cerr << clearline << "1/3\n";
           EMUpdate_(means0, means1, accel);
           jumpBack += "\x1b[A\x1b[A";
-          
+
           // Check for data-driven convergence criteria
           if (hasConverged(means0, means1)) {
               std::cerr << "convergence criteria met; terminating SQUAREM\n";
               break;
           }
-          
+
           if (!std::isfinite(negLogLikelihoodOld)) {
             negLogLikelihoodOld = -expectedLogLikelihood_(means0);
           }
@@ -1553,7 +1564,9 @@ public:
           tbb::parallel_for(BlockedIndexRange(size_t(0), transcripts_.size()),
             [&r, &v, alphaS, &means0, &meansPrime](const BlockedIndexRange& range) -> void {
               for (auto tid = range.begin(); tid != range.end(); ++tid) {
-                meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+               // Looking into Nick Bray's problem
+                 meansPrime[tid] = std::max(means0[tid] * 0.1, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+               // meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
               }
             }
           );
@@ -1566,7 +1579,7 @@ public:
             jumpBack += "\x1b[A\x1b[A";
           }
 
-          
+
           /** Check for an error in meansPrime **/
           /*if (hasNan_(meansPrime)) {
               std::swap(meansPrime, means2);
@@ -1601,7 +1614,7 @@ public:
             negLogLikelihoodOld = negLogLikelihoodNew;
 
           }
-        
+
           // If it's not the final iteration, then jump back and clear the console.
           if (iter < numIt - 1) { std::cerr << jumpBack; }
 
@@ -1638,11 +1651,11 @@ public:
 
               // EM
               //numKmersFromTranscript[tid] = this->_computeSum(ts);
-              if (ts.totalMass == sailfish::math::LOG_0) { 
+              if (ts.totalMass == sailfish::math::LOG_0) {
                   ts.totalMass = 0.0;
               }
               numKmersFromTranscript[tid] = ts.totalMass;
-              
+
               // VB
               //numKmersFromTranscript[tid] = ts.mean * estimatedGroupTotal;//this->_computeSum(ts);
               //fracTran[tid] = this->_computeClampedMean( ts );
@@ -1662,7 +1675,7 @@ public:
               auto& ts = transcripts_[i];
 
               //fracTran[i] = this->_computeMean(ts);
-              fracTran[i] = (ts.effectiveLength > 0.0) ? fracNuc[i] / ts.effectiveLength : 0.0; 
+              fracTran[i] = (ts.effectiveLength > 0.0) ? fracNuc[i] / ts.effectiveLength : 0.0;
               if (!std::isfinite(fracTran[i])) {
                   std::cerr << "Transcript had non-finite transcript fraction " << fracTran[i] << ",";
                   std::cerr << " fracNuc = " << fracNuc[i] << ", effLength = " << ts.effectiveLength << "\n";
@@ -1714,7 +1727,7 @@ public:
             "TPM" << '\t' <<
             "RPKM" << '\t' <<
             "KPKM" << '\t' <<
-            "EstimatedNumKmers" << '\t' << 
+            "EstimatedNumKmers" << '\t' <<
             "EstimatedNumReads";
 
         if (haveCI) {
@@ -2021,13 +2034,13 @@ public:
         });
 
     }
-    void applyCoverageFilter_(const boost::filesystem::path& estIn, 
-                              const boost::filesystem::path& transcriptKmerMap, 
+    void applyCoverageFilter_(const boost::filesystem::path& estIn,
+                              const boost::filesystem::path& transcriptKmerMap,
                               const boost::filesystem::path& filteredEstOut,
                               double minAbundance) {
 
         using boost::tokenizer;
-        
+
         auto memberships = LUTTools::readKmerEquivClasses(kmerEquivClassFname_);
         size_t numTrans = transcripts_.size();
         size_t numProc = 0;
@@ -2051,21 +2064,21 @@ public:
         // Make a map of names to indices
         std::unordered_map<std::string, size_t> nameToID;
         auto indices = boost::irange({0}, transcripts_.size());
-        std::for_each(indices.begin(), indices.end(), 
-                      [this, &nameToID](size_t index) -> void { 
+        std::for_each(indices.begin(), indices.end(),
+                      [this, &nameToID](size_t index) -> void {
                           const auto& name = this->transcriptGeneMap_.transcriptName(index);
                           nameToID[name] = index;
                       });
         /*
         std::unordered_map<size_t, size_t> uniqueMap;
-        for (auto& kv : kstruct) { 
+        for (auto& kv : kstruct) {
             auto& name = kv.first;
             auto id = nameToID[name];
             auto& kmers = kv.second;
             for (auto k : kmers) {
                 auto r = uniqueMap.find(k);
                 if (r == uniqueMap.end()) {
-                    uniqueMap[k] = id; 
+                    uniqueMap[k] = id;
                 } else {
                     if (r->second != id) {
                         r->second = std::numeric_limits<size_t>::max();
@@ -2083,14 +2096,14 @@ public:
         auto readLength = readHash_.averageLength();
         auto kmerLength = readHash_.kmerLength();
         double kmersPerRead = static_cast<double>(readLength - kmerLength) + 1;
-        
+
         double numMappedKmers = psum_(kmerGroupCounts_);
         double mappingRate = numMappedKmers / static_cast<double>(kmersPerRead * numReads);
         double numMillionReads = numReads / 1000000.0;
         double perKilobase = 1.0 / 1000.0;
-        //double thresh = (kmersPerRead * mappingRate * numMillionReads) * 0.1 * perKilobase; 
+        //double thresh = (kmersPerRead * mappingRate * numMillionReads) * 0.1 * perKilobase;
         double numMillionKmers = kmersPerRead * numReads / 1000000.0;
-        double thresh = (mappingRate * numMillionKmers) * 10.0 * minAbundance * perKilobase; 
+        double thresh = (mappingRate * numMillionKmers) * 10.0 * minAbundance * perKilobase;
 
         std::cerr << "Mapping rate = " << mappingRate << "\n";
         std::cerr << "Threshold = " << thresh << "\n";
@@ -2099,7 +2112,7 @@ public:
             size_t numProperlyCovered{0};
             size_t index = nameToID[transcriptName];
             auto& td = this->transcripts_[index];
-            
+
             td.isAnchored = false;
             /*
             size_t trivCount = 9;
@@ -2115,12 +2128,12 @@ public:
                 }
                 auto count = readHash_.atIndex(bm);
                 auto relMass = (totalMass > 0.0) ? td.totalMass / totalMass : 0.0;
-                 
+
                 // if (uniqueMap[bm] == index and count > 0) { //}and this->kmerGroupCounts_[kclass] > trivCount ) {
                 //     //if (this->kmerGroupPromiscuities_[kclass] == 1 and count > 1000 ) { //}and this->kmerGroupCounts_[kclass] > trivCount ) {
                 //     //std::cerr << "Anchored: " << transcriptName << ", expression =" << expression << ", count = " << count << "\n";
                 //     td.isAnchored = true;
-                // } 
+                // }
                 // if (this->kmerGroupPromiscuities_[kclass] == 1 and count > 0)  {
                 //     if (uniqueMap[bm] != index) { //}and this->kmerGroupCounts_[kclass] > trivCount ) {
                 //         std::cerr << "unique map says that kmer is not unique to " << transcriptName << " but kmerGroupPromiscuities says it is!\n";
@@ -2136,7 +2149,7 @@ public:
             size_t n = (masses.size() / 2);
             std::nth_element(masses.begin(), masses.begin()+n, masses.end());
             double rmedian = (masses.size() % 2 == 0) ? (masses[n-1] + masses[n]) * 0.5 : masses[n];
-            return rmedian > threshold; 
+            return rmedian > threshold;
             //return (numProperlyCovered > (mappingRate * masses.size()));
         };
 
@@ -2153,7 +2166,7 @@ public:
             std::vector<std::string> toks;
             tokenizer<boost::char_separator<char>> tok(line, sep);
             std::for_each(tok.begin(), tok.end(), [&toks](const std::string& s) -> void { toks.push_back(s); });
-            // VERSION DEPENDENT 
+            // VERSION DEPENDENT
             double expression = boost::lexical_cast<double>(toks[4]);
             if (expression <= minAbundance or sufficientCoverage(toks[0], expression, thresh)) {
                 ofile << line << "\n";
@@ -2162,7 +2175,7 @@ public:
                 for (auto i : boost::irange({2}, toks.size())) { ofile << "\t0.0"; }
                 ofile << '\n';
            }
-           if (lineNum % 10000 == 0) { 
+           if (lineNum % 10000 == 0) {
                std::cerr << "Applied coverage filter to: " << lineNum << " transcripts\r\r";
            }
            ++lineNum;

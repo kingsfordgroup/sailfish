@@ -49,12 +49,9 @@
 #include "tbb/parallel_for_each.h"
 #include "tbb/task_scheduler_init.h"
 
-#include <jellyfish/sequence_parser.hpp>
-#include <jellyfish/parse_read.hpp>
-#include <jellyfish/mer_counting.hpp>
-#include <jellyfish/misc.hpp>
-#include <jellyfish/compacted_hash.hpp>
-#include <jellyfish/parse_dna.hpp>
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+#include "jellyfish/mer_dna.hpp"
 
 #if HAVE_LOGGER
 #include "g2logworker.h"
@@ -67,8 +64,6 @@
 #include "CountDBNew.hpp"
 #include "ezETAProgressBar.hpp"
 #include "PartitionRefiner.hpp"
-#include "StreamingSequenceParser.hpp"
-#include "ReadProducer.hpp"
 
 using TranscriptID = uint32_t;
 using KmerID = uint64_t;
@@ -99,10 +94,9 @@ int buildLUTs(
   using std::vector;
   using std::atomic;
   using std::max_element;
-
+  namespace bfs = boost::filesystem;
   using tbb::blocked_range;
 
-  /*
   char** fnames = new char*[transcriptFiles.size()];
   size_t z{0};
   size_t numFnames{0};
@@ -114,12 +108,12 @@ int buildLUTs(
     ++numFnames;
   }
   // Create a jellyfish parser
-  jellyfish::parse_read parser( fnames, fnames+numFnames, 1000);
-  */
+  const int concurrentFile{1};
+  using stream_manager = jellyfish::stream_manager<char**>;
+  using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
+  stream_manager streams(fnames, fnames + numFnames, concurrentFile);
 
   vector<bfs::path> paths{transcriptFiles[0]};
-  StreamingReadParser parser(paths);
-  parser.start();
 
   vector<std::thread> threads;
   vector<TranscriptList> transcriptsForKmer;
@@ -132,6 +126,9 @@ int buildLUTs(
   bool done {false};
   atomic<size_t> numRes {0};
   atomic<size_t> nworking{(numThreads > 1) ? (numThreads - 1) : 1};
+
+  size_t maxReadGroupSize{100};
+  sequence_parser parser(4*nworking, maxReadGroupSize, concurrentFile, streams);
 
   // Start the thread that will print the progress bar
   std::cerr << "Number of kmers : " << transcriptHash.size() << "\n";
@@ -170,25 +167,28 @@ int buildLUTs(
         // Each thread gets it's own stream
         //jellyfish::parse_read::thread stream = parser.new_thread();
         //jellyfish::parse_read::read_t* read;
-        ReadProducer<StreamingReadParser> producer(parser);
-        ReadSeq* s;
 
         auto INVALID = transcriptHash.INVALID;
         bool useCanonical{transcriptIndex.canonical()};
 
         // while there are transcripts left to process
-        while (producer.nextRead(s)) {
-          // The transcript name
-          std::string fullHeader(s->name, s->nlen);
-          std::string header = fullHeader.substr(0, fullHeader.find(' '));
+        while (true) { //producer.nextRead(s)) {
+          sequence_parser::job j(parser);
+          // If this job is empty, then we're done
+          if (j.is_empty()) { --nworking; return; }
 
-          // The transcript sequence; strip the newlines from the
-          // sequence and put it into a string (newSeq)
-          //std::string seq(s->seq_s, std::distance(read->seq_s, read->seq_e) - 1);
-          //auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
-          //auto readLen = std::distance( seq.begin(), newEnd );
-          auto readLen = s->len;
-          std::string newSeq(s->seq, s->len);//seq.begin(), seq.begin() + readLen);
+          for (size_t i=0; i < j->nb_filled; ++i) {
+            // The transcript name
+            std::string fullHeader(j->data[i].header);
+            std::string header = fullHeader.substr(0, fullHeader.find(' '));
+
+            // The transcript sequence; strip the newlines from the
+            // sequence and put it into a string (newSeq)
+            //std::string seq(s->seq_s, std::distance(read->seq_s, read->seq_e) - 1);
+            //auto newEnd  = std::remove( seq.begin(), seq.end(), '\n' );
+            //auto readLen = std::distance( seq.begin(), newEnd );
+            auto readLen = j->data[i].seq.size();
+            std::string newSeq(j->data[i].seq);
 
           // Lookup the ID of this transcript in our transcript -> gene map
           auto transcriptIndex = tgmap.findTranscriptID(header);
@@ -211,26 +211,37 @@ int buildLUTs(
           ReadLength effectiveLength(0);
           size_t nextKmerID{0};
           size_t locallyInvalidKmers{0};
-          for ( auto offset : boost::irange( size_t(0), numKmers) ) {
-            // the kmer and it's uint64_t representation
-            auto mer = newSeq.substr(offset, merLen);
-            auto binMer = jellyfish::parse_dna::mer_string_to_binary(mer.c_str(), merLen);
 
-            if (useCanonical) {
-              auto rcMer = jellyfish::parse_dna::reverse_complement(binMer, merLen);
-              binMer = std::min(binMer, rcMer);
-            }
+          jellyfish::mer_dna_ns::mer_base_dynamic<uint64_t> kmer(merLen);
 
-            auto binMerId = transcriptHash.id(binMer);
-            // For now, we "handle" k-mers with Ns by skipping them
-            if (binMerId != INVALID) {
-                tinfo->kmers[nextKmerID++] = binMerId;
-            } else {
-                ++locallyInvalidKmers;
-            }
+          size_t cmlen{0};
+          size_t offset{0};
+          size_t numChars{newSeq.size()};
+          while (offset < numChars) {
+              int c = jellyfish::mer_dna::code(newSeq[offset]);
+              kmer.shift_left(c);
+              if (jellyfish::mer_dna::not_dna(c)) {
+                  cmlen = 0;
+                  ++offset;
+                  ++locallyInvalidKmers;
+                  continue;
+              }
+              if (++cmlen >= merLen) {
+                  if (useCanonical) {
+                      kmer.canonicalize();
+                  }
 
-         }
-         // Discount k-mers containing Ns
+                  auto binMerId = transcriptHash.id(kmer.get_bits(0, 2*merLen));
+                  // For now, we "handle" k-mers with Ns by skipping them
+                  if (binMerId != INVALID) {
+                      tinfo->kmers[nextKmerID++] = binMerId;
+                  } else {
+                      ++locallyInvalidKmers;
+                  }
+              }
+              ++offset;
+          }
+          // Discount k-mers containing Ns
          tinfo->kmers.resize(nextKmerID);
          if (locallyInvalidKmers > 0) {
              numInvalidKmers += locallyInvalidKmers;
@@ -239,19 +250,20 @@ int buildLUTs(
 #endif
          }
 
-         // Partition refinement is not threadsafe.  Thus,
-         // we have to use a mutex here to assure that multiple
-         // threads don't try to refine the partitions at the
-         // same time (there may be a more efficient approach).
-         refinerMutex.lock();
-         refiner.splitWith(tinfo->kmers);
-         refinerMutex.unlock();
+            // Partition refinement is not threadsafe.  Thus,
+            // we have to use a mutex here to assure that multiple
+            // threads don't try to refine the partitions at the
+            // same time (there may be a more efficient approach).
+            refinerMutex.lock();
+            refiner.splitWith(tinfo->kmers);
+            refinerMutex.unlock();
 
-         transcripts[transcriptIndex] = tinfo;
-         producer.finishedWithRead(s);
-       }
+             transcripts[transcriptIndex] = tinfo;
+             //producer.finishedWithRead(s);
 
-       --nworking;
+          } // end of current job
+       } // while (true)
+
      }) );
 
   }

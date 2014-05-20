@@ -52,14 +52,10 @@
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
 
-#include "jellyfish/parse_dna.hpp"
-#include "jellyfish/mapped_file.hpp"
-#include "jellyfish/parse_read.hpp"
-#include "jellyfish/sequence_parser.hpp"
-#include "jellyfish/dna_codes.hpp"
-#include "jellyfish/compacted_hash.hpp"
-#include "jellyfish/mer_counting.hpp"
+#include "jellyfish/config.h"
+#include "jellyfish/err.hpp"
 #include "jellyfish/misc.hpp"
+#include "jellyfish/jellyfish.hpp"
 
 #if HAVE_LOGGER
 #include "g2logworker.h"
@@ -86,7 +82,7 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
                                                               static_cast<cmph_uint32>(sizeof(uint64_t)),
                                                               0, sizeof(uint64_t), nkeys);
 
-    std::cerr << "Building a perfect hash from the Jellyfish hash.\n";
+    std::cerr << "Building a perfect hash with " << nkeys << " keys from the Jellyfish hash.\n";
     cmph_t *hash = nullptr;
     size_t i = 0;
     {
@@ -340,7 +336,7 @@ the Jellyfish database [thash] of the transcripts.
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
-        bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts_0";
+        bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts";
 
         mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
 
@@ -360,27 +356,53 @@ the Jellyfish database [thash] of the transcripts.
             bool recomputePerfectIndex = mustRecompute;
 
             // Read in the Jellyfish hash of the transcripts
-            mapped_file transcriptDB(thashFile.c_str());
-            transcriptDB.random().will_need();
-            char typeTrans[8];
-            memcpy(typeTrans, transcriptDB.base(), sizeof(typeTrans));
+            std::ifstream transcriptDB(thashFile.c_str());
+            if (!transcriptDB.good()) {
+#if HAVE_LOGGER
+                LOG(FATAL) << "Couldn't open the Jellyfish hash [" << thashFile << "] quitting\n";
+#endif
+                std::exit(-1);
+            }
+            jellyfish::file_header header;
+            header.read(transcriptDB);
 
-            hash_query_t transcriptHash(thashFile.c_str());
-            std::cerr << "transcriptHash size is " << transcriptHash.get_distinct() << "\n";
-            size_t nkeys = transcriptHash.get_distinct();
-            size_t merLen = transcriptHash.get_mer_len();
+            std::cerr << "transcript hash size is " << header.size() << "\n";
+            size_t nkeys = header.size();
+            // Since JF2, key_len() is in terms of bits so merLen = keyLen / 2;
+            size_t merLen = header.key_len() / 2;
+            jellyfish::mer_dna::k(merLen);
 
+            std::cerr << "header.key_len = " << merLen << "\n";
             std::vector<uint64_t> keys(nkeys,0);
             std::vector<uint32_t> counts(nkeys,0);
 
             tbb::task_scheduler_init init(numThreads);
-            auto it = transcriptHash.iterator_all();
             size_t i = 0;
-            while ( it.next() ) {
-                keys[i] = it.get_key();
-                counts[i] = it.get_val();
-                ++i;
+
+            if (!header.format().compare(binary_dumper::format)) {
+                binary_reader reader(transcriptDB, &header);
+                while ( reader.next() ) {
+                    keys[i] = reader.key().get_bits(0, 2*merLen);
+                    counts[i] = reader.val();
+                    ++i;
+                }
+
+            } else if (!header.format().compare(text_dumper::format)) {
+                text_reader reader(transcriptDB, &header);
+                while ( reader.next() ) {
+                    keys[i] = reader.key().get_bits(0, 2*merLen);
+                    counts[i] = reader.val();
+                    ++i;
+                }
+            } else {
+#if HAVE_LOGGER
+                LOG(FATAL) << "Unknown Jellyfish hash format. quitting\n";
+#endif
+                std::exit(-1);
             }
+
+            keys.resize(i);
+            counts.resize(i);
 
             bfs::path sfIndexBase(outputPath);
             bfs::path sfIndexFile(sfIndexBase); sfIndexFile /= "transcriptome.sfi";
@@ -401,7 +423,6 @@ the Jellyfish database [thash] of the transcripts.
                 std::cerr << "there are " << tgmap.numTranscripts() << " transcripts . . . ";
                 std::cerr << "done\n";
             }
-
 
             { // save transcript <-> gene map to archive
                 bfs::path tgmOutPath(outputPath); tgmOutPath /= "transcriptome.tgm";

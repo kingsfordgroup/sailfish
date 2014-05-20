@@ -23,6 +23,9 @@
 # ifndef COMMON_TYPES_HPP
 # define COMMON_TYPES_HPP
 
+#include <cstdint>
+#include <array>
+
 namespace Sailfish {
     /*
 	struct Kmer {

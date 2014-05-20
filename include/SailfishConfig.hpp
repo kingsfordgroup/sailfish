@@ -25,7 +25,7 @@
 
 #include <string>
 
-namespace Sailfish {
+namespace sailfish {
 	constexpr char majorVersion[] = "0";
 	constexpr char minorVersion[] = "6";
 	constexpr char patchVersion[] = "3";

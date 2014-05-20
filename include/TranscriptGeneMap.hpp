@@ -90,6 +90,9 @@ public:
         _transcriptsToGenes(transcriptsToGenes), _haveReverseMap(false) {}
 
 
+    TranscriptGeneMap(const TranscriptGeneMap& other) = default;
+    TranscriptGeneMap& operator=(const TranscriptGeneMap& other) = default;
+
 
     Index INVALID { std::numeric_limits<Index>::max() };
 

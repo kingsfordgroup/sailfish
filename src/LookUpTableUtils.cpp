@@ -160,7 +160,8 @@ std::unique_ptr<TranscriptInfo> readTranscriptInfo(std::ifstream &istream) {
     istream.read(reinterpret_cast<char *>(&ti->geneID), sizeof(ti->geneID));
     size_t slen = 0;
     istream.read(reinterpret_cast<char *>(&slen), sizeof(slen));
-    char *name = new char[slen];
+    char *name = new char[slen+1];
+    name[slen] = '\0';
     istream.read(name, slen);
     ti->name = std::string(name);
     // read the transcript's length

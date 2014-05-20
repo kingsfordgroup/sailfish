@@ -51,8 +51,6 @@
 #include "VersionChecker.hpp"
 #include "LookUpTableUtils.hpp"
 
-int runIterativeOptimizer(int argc, char* argv[]) {return 1;}
-
 /**
 * Type aliases
 */
@@ -93,7 +91,7 @@ int main(int argc, char* argv[]) {
 
     po::variables_map vm;
     po::store(po::command_line_parser(argc, argv).options(programOptions).run(), vm);
- 
+
     if (vm.count("help")) {
 	  std::cout << programOptions << std::endl;
       std::exit(0);
@@ -134,7 +132,7 @@ int main(int argc, char* argv[]) {
     auto transcriptHash = CountDBNew::fromFile(sfTrascriptCountFile, sfIndexPtr);
     std::cerr << "done\n";
     */
-   
+
     // the READ hash
     std::cerr << "Reading read counts from [" << hashFile << "] . . .";
     auto hash = CountDBNew::fromFile( hashFile, sfIndexPtr );
@@ -166,7 +164,7 @@ int main(int argc, char* argv[]) {
     	}
     	totalCountedKmers += countInReads;
     }
-    
+
     std::cerr << "There were " << unique << " unique k-mers\n";
     std::cerr << "This is " << 100.0 * (static_cast<double>(unique)/hash.size()) << "% of all kmers\n";
 	std::cerr << "There were " << uniqueAndMappable << " unique & mapped k-mers\n";

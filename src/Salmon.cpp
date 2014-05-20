@@ -58,53 +58,47 @@
 #include "CollapsedIterativeOptimizer.hpp"
 #include "SailfishConfig.hpp"
 #include "VersionChecker.hpp"
-//#include "iterative_optimizer.hpp"
-//#include "tclap/CmdLine.h"
 
 int help(int argc, char* argv[]) {
   auto helpmsg = R"(
   ===============
 
-  Please invoke sailfish with one of the following commands {index, quant, sf}.
+  Please invoke salmon with one of the following commands {index, quant, swim}.
   For more inforation on the options for theses particular methods, use the -h
   flag along with the method name.  For example:
 
-  Sailfish index -h
+  salmon index -h
 
   will give you detailed help information about the index command.
   )";
 
-  std::cerr << "  Sailfish v" << sailfish::version << helpmsg << "\n";
+  std::cerr << "  Salmon v" << sailfish::version << helpmsg << "\n";
   return 1;
 }
 
 /**
  * Bonus!
  */
-int mainSailfish(int argc, char* argv[]) {
+int salmonSwim(int argc, char* argv[]) {
 
   std::cerr << R"(
-   _____       _ _______      __
-  / ___/____ _(_) / __(_)____/ /_
-  \__ \/ __ `/ / / /_/ / ___/ __ \
- ___/ / /_/ / / / __/ (__  ) / / /
-/____/\__,_/_/_/_/ /_/____/_/ /_/
+    _____       __
+   / ___/____ _/ /___ ___  ____  ____
+   \__ \/ __ `/ / __ `__ \/ __ \/ __ \
+  ___/ / /_/ / / / / / / / /_/ / / / /
+ /____/\__,_/_/_/ /_/ /_/\____/_/ /_/
 )";
 
   return 0;
 
 }
 
-//int indexMain( int argc, char* argv[] );
-int mainIndex(int argc, char* argv[]);
-//int mainCount(int argc, char* argv[]);
-int mainQuantify(int argc, char* argv[]);
-int mainBuildLUT(int argc, char* argv[] );
+int salmonIndex(int argc, char* argv[]);
+int salmonQuantify(int argc, char* argv[]);
 
 int main( int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
-
 
   try {
 
@@ -122,9 +116,6 @@ int main( int argc, char* argv[] ) {
     po::options_description all("Allowed Options");
     all.add(sfopts).add(hidden);
 
-    // po::options_description sfopts("Command");
-    // sfopts.add_options()
-
     po::positional_options_description pd;
     pd.add("command", 1);
 
@@ -139,12 +130,6 @@ int main( int argc, char* argv[] ) {
     po::variables_map vm;
     po::parsed_options parsed = po::command_line_parser(topLevelArgc, argv).options(all).positional(pd).allow_unregistered().run();
     po::store(parsed, vm);
-
-/*    std::vector<string> subcommand_options = po::collect_unrecognized(parsed.options, po::include_positional);
-    for (auto& s : subcommand_options) {
-        std::cerr << "option: " << s << "\n";
-    }
-*/
 
     if (vm.count("version")) {
       std::cerr << "version : " << sailfish::version << "\n";
@@ -165,27 +150,13 @@ int main( int argc, char* argv[] ) {
     po::notify(vm);
 
     std::unordered_map<string, std::function<int(int, char*[])>> cmds({
-      //{"estimate", runIterativeOptimizer},
-      {"index", mainIndex},
-      {"buildlut", mainBuildLUT},
-      {"quant", mainQuantify},
-      //{"count", mainCount},
-      {"sf", mainSailfish}
+      {"index", salmonIndex},
+      {"quant", salmonQuantify},
+      {"swim", salmonSwim}
     });
 
-    //string cmd = argv[1];
     string cmd = vm["command"].as<string>();
-/*
-    size_t subcommand_argc = subcommand_options.size();
-    char** argv2 = new char*[subcommand_argc+1];
-    argv2[0] = strdup(argv[0]);
-    for (size_t i : boost::irange(size_t{0}, subcommand_argc)) {
-      std::string& s = subcommand_options[i];
-      argv[i+1] = new char[s.size()+1];
-      std::copy(s.begin(), s.end(), argv[i+1]);
-      argv[i+1][s.size()] = '\0';
-    }
-*/
+
     int subCommandArgc = argc - topLevelArgc + 1;
     char** argv2 = new char*[subCommandArgc];
     argv2[0] = argv[0];

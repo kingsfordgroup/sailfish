@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <limits>
 #include <cmath>
+#include <cstdint>
 
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
@@ -62,7 +63,7 @@
 #define DEFAULT_COMPUTE_IMPORTANCE 0
 
 namespace bfs = boost::filesystem;
-using Kmer = uint64_t;
+using Kmer = ::uint64_t;
 using Sailfish::TranscriptFeatures;
 using mpdec = boost::multiprecision::cpp_dec_float_100;
 
@@ -463,7 +464,7 @@ int performBiasCorrection(
           }
         }
         */
-        
+
         vector<mpdec> rpkms;
         vector<mpdec> kmerCounts;
         vector<mpdec> readCounts;

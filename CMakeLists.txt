@@ -20,7 +20,7 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 ## Set the standard required compile flags
-set (CMAKE_CXX_FLAGS "-fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11")
+set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -219,36 +219,18 @@ ExternalProject_Add(libcmph
     INSTALL_COMMAND make install
 )
 
-#message("Build system will fetch and build Jellyfish")
-#message("==================================================================")
-#ExternalProject_Add(libjellyfish
-	#DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-	#URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
-    #SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3
-    #INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    #CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR>
-    #BUILD_COMMAND ${MAKE}
-    #BUILD_IN_SOURCE 1
-    #INSTALL_COMMAND make install && 
-                    #cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/ && 
-                    #cp jellyfish/noop_dumper.hpp <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish &&
-                    #cp jellyfish/count_main_cmdline.hpp <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish
-#)
-
-message("build system will fetch and build jellyfish")
+message("Build system will fetch and build Jellyfish")
 message("==================================================================")
-externalproject_add(libjellyfish
-    download_dir ${cmake_current_source_dir}/external
-    url http://www.cbcb.umd.edu/software/jellyfish/jellyfish-1.1.10.tar.gz
-    source_dir ${cmake_current_source_dir}/external/jellyfish-1.1.10
-    install_dir ${cmake_current_source_dir}/external/install
-    configure_command ${cmake_current_source_dir}/external/jellyfish-1.1.10/configure --prefix=<install_dir>
-    build_command ${make}
-    build_in_source 1
-    install_command make install && 
-                    cp config.h <install_dir>/include/jellyfish-1.1.10/ && 
-                    cp jellyfish/noop_dumper.hpp <install_dir>/include/jellyfish-1.1.10/jellyfish &&
-                    cp jellyfish/count_main_cmdline.hpp <install_dir>/include/jellyfish-1.1.10/jellyfish
+ExternalProject_Add(libjellyfish
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR>
+    BUILD_COMMAND ${MAKE}
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND make install && 
+                    cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish/
 )
 
 find_package(TBB)
@@ -377,6 +359,18 @@ ExternalProject_Add(libg2log
   INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib/"
 )
 endif()
+
+
+message("Build system will compile libgff")
+message("==================================================================")
+ExternalProject_Add(libgff
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff/build
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_SOURCE_DIR}/external/install
+)
+
+
 
 # ###
 # # Armadillo library
