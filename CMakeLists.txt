@@ -217,7 +217,7 @@ ExternalProject_Add(libcereal
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0/build
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ""
-    INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include/cereal"
+    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include && cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
 
 message("Build system will fetch and build CMPH")
