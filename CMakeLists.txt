@@ -367,7 +367,7 @@ ExternalProject_Add(libgff
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
     URL http://www.cs.cmu.edu/~robp/files/libgff.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff
-    UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SORUCE_DIR}/external/libgff/build"
+    UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff/build
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_SOURCE_DIR}/external/install
