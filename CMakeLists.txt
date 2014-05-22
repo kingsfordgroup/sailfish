@@ -208,17 +208,16 @@ set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 message("Build system will fetch and build the Cereal serialization library")
 message("==================================================================")
 include(ExternalProject)
-ExternalProject_Add(libccereal
+ExternalProject_Add(libcereal
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
     URL http://www.cs.cmu.edu/~robp/files/cereal-v1.0.0.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0/build
-    INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include/cereal"
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ""
-    INSTALL_COMMAND "
+    INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include/cereal"
 )
 
 message("Build system will fetch and build CMPH")
