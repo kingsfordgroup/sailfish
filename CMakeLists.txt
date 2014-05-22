@@ -216,7 +216,8 @@ ExternalProject_Add(libccereal
     UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0/build
     CMAKE_ARGS -DBOOST_ROOT=/junk -DBoost_NO_SYSTEM_PATHS=TRUE ${INSTALL_DIR} -DBoost_FOUND=FALSE
-    INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include <INSTALL_DIR>/include"
+    INSTALL_COMMAND $(MAKE) install
+    #INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
 
 message("Build system will fetch and build CMPH")
