@@ -364,13 +364,26 @@ endif()
 message("Build system will compile libgff")
 message("==================================================================")
 ExternalProject_Add(libgff
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://www.cs.cmu.edu/~robp/files/libgff.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff/build
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_SOURCE_DIR}/external/install
 )
 
-
+message("Build system will compile parallel samtools")
+message("==================================================================")
+ExternalProject_Add(libsamtools
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://www.cs.cmu.edu/~robp/files/samtools.tgz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
+    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND $(MAKE)
+    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include/samtools && mkdir -p <INSTALL_DIR>/include/samtools/pbgzip && mkdir -p <INSTALL_DIR>/include/samtools/bcftools && cp <SOURCE_DIR>/*.h <INSTALL_DIR>/include/samtools/ &&  cp <SOURCE_DIR>/pbgzip/*.h <INSTALL_DIR>/include/samtools/pbgzip/ && cp <SOURCE_DIR>/bcftools/*.h <INSTALL_DIR>/include/samtools/bcftools/ &&  cp <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/"
+)
 
 # ###
 # # Armadillo library

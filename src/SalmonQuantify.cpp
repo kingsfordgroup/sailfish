@@ -81,6 +81,8 @@
 
 #include "PairSequenceParser.hpp"
 
+#include "google/dense_hash_map"
+
 typedef pair_sequence_parser<char**> sequence_parser;
 
 using TranscriptID = uint32_t;
@@ -361,17 +363,18 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
                std::mutex& ffMutex,
                ClusterForest& clusterForest,
                std::vector<uint64_t>& offsets,
-               std::vector<uint64_t>& kmerLocs
+               std::vector<uint64_t>& kmerLocs,
+               google::dense_hash_map<uint64_t, uint64_t>& khash
                //std::vector<std::vector<uint64_t>>& kmerLocMap
                ) {
   uint64_t count_fwd = 0, count_bwd = 0;
   auto INVALID = phi.INVALID;
   auto merLen = phi.kmerLength();
 
-  double forgettingFactor{0.6};
+  double forgettingFactor{0.65};
 
   std::vector<std::vector<Alignment>> hitLists;
-  hitLists.resize(1000);
+  hitLists.resize(5000);
 
   uint64_t leftHitCount{0};
   uint64_t hitListCount{0};
@@ -450,6 +453,9 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
                         if(++cmlen >= merLen) {
                             cmlen = merLen;
                             auto merID = phi.index(kmer.get_bits(0, 2*merLen));
+                            //auto merIt = khash.find(kmer.get_bits(0, 2*merLen));
+                            //auto merID = (merIt == khash.end()) ? INVALID : merIt->second;
+
 
                             if (merID != INVALID) {
                                 // Locations
@@ -468,6 +474,8 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
                             }
 
                             auto rmerID = phi.index(rkmer.get_bits(0, 2*merLen));
+                            //auto rmerIt = khash.find(rkmer.get_bits(0, 2*merLen));
+                            //auto rmerID = (rmerIt == khash.end()) ? INVALID : rmerIt->second;
 
                             if (rmerID != INVALID) {
                                 // Locations
@@ -528,6 +536,8 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
                         if(++cmlen >= merLen) {
                             cmlen = merLen;
                             auto merID = phi.index(kmer.get_bits(0, 2*merLen));
+                            //auto merIt = khash.find(kmer.get_bits(0, 2*merLen));
+                            //auto merID = (merIt == khash.end()) ? INVALID : merIt->second;
 
 
                             if (merID != INVALID) {
@@ -549,6 +559,9 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
 
 
                             auto rmerID = phi.index(rkmer.get_bits(0, 2*merLen));
+                            //auto rmerIt = khash.find(rkmer.get_bits(0, 2*merLen));
+                            //auto rmerID = (rmerIt == khash.end()) ? INVALID : rmerIt->second;
+
                             if (rmerID != INVALID) {
                                 // Locations
                                 auto first = offsets[rmerID];
@@ -636,26 +649,32 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
     auto& rightHits = rightFwdHits;//(totFwdRight >= totBwdRight) ? rightFwdHits : rightBwdHits;
 
     for (auto& tHitList : leftHits) {
+        // Coverage score
         tHitList.second.computeBestHit();
         //leftHitCounts[tHitList.first] = tHitList.second.totalNumHits();
         ++leftHitCount;
     }
 
-    double cutoffLeft{ 0.70 * leftReadLength};
-    double cutoffRight{ 0.70 * rightReadLength};
+    double cutoffLeft{ 0.80 * leftReadLength};
+    double cutoffRight{ 0.80 * rightReadLength};
 
+    double cutoffLeftCount{ 0.80 * leftReadLength - merLen + 1};
+    double cutoffRightCount{ 0.80 * rightReadLength - merLen + 1};
     for (auto& tHitList : rightHits) {
         auto it = leftHits.find(tHitList.first);
-        if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
         // Simple counting score
         /*
-        if (it != leftHits.end() and it->second.totalNumHits() >= 40) {
-            if (tHitList.second.totalNumHits() < 40) { continue; }
+        if (it != leftHits.end() and it->second.totalNumHits() >= cutoffLeftCount) {
+            if (tHitList.second.totalNumHits() < cutoffRightCount) { continue; }
             uint32_t score = it->second.totalNumHits() + tHitList.second.totalNumHits();
         */
+        // Coverage score
+        if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
             tHitList.second.computeBestHit();
             if (tHitList.second.bestHitScore < cutoffRight) { continue; }
             uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
+
+
             hitList.emplace_back(tHitList.first, score);
             readHits += score;
             ++hitListCount;
@@ -758,12 +777,26 @@ transcript abundance from RNA-seq reads
             std::cerr << " }\n";
         }
 
+        bfs::path outputDirectory(vm["output"].as<std::string>());
+        bfs::create_directory(outputDirectory);
+        if (!(bfs::exists(outputDirectory) and bfs::is_directory(outputDirectory))) {
+            std::cerr << "Couldn't create output directory " << outputDirectory << "\n";
+            std::cerr << "exiting\n";
+            std::exit(1);
+        }
+
         bfs::path indexDirectory(vm["index"].as<string>());
-        bfs::path logDir = indexDirectory.parent_path() / "logs";
+        bfs::path logDirectory = outputDirectory.parent_path() / "logs";
 
 #if HAVE_LOGGER
-        std::cerr << "writing logs to " << logDir.string() << "\n";
-        g2LogWorker logger(argv[0], logDir.string());
+        bfs::create_directory(logDirectory);
+        if (!(bfs::exists(logDirectory) and bfs::is_directory(logDirectory))) {
+            std::cerr << "Couldn't create log directory " << logDirectory << "\n";
+            std::cerr << "exiting\n";
+            std::exit(1);
+        }
+        std::cerr << "writing logs to " << logDirectory.string() << "\n";
+        g2LogWorker logger(argv[0], logDirectory.string());
         g2::initializeLogging(&logger);
 #endif
 
@@ -802,8 +835,6 @@ transcript abundance from RNA-seq reads
         sequence_parser parser(4 * nbThreads, maxReadGroup, concurrentFile,
                 readFiles, readFiles + 2);
 
-        bfs::path outputFile(vm["output"].as<std::string>());
-
         bfs::path sfIndexPath = indexDirectory / "transcriptome.sfi";
         std::string sfTrascriptIndexFile(sfIndexPath.string());
         std::cerr << "reading index . . . ";
@@ -813,6 +844,17 @@ transcript abundance from RNA-seq reads
 
         size_t nkeys = phi.numKeys();
         size_t merLen = phi.kmerLength();
+
+
+        google::dense_hash_map<uint64_t, uint64_t> khash;
+        /*
+        khash.set_empty_key(std::numeric_limits<uint64_t>::max());
+        uint64_t i{0};
+        for (auto k : phi.kmers()) {
+            khash[k] = phi.index(k);
+        }
+        */
+
         std::cerr << "kmer length = " << merLen << "\n";
         my_mer::k(merLen);
 
@@ -887,7 +929,8 @@ transcript abundance from RNA-seq reads
                         std::ref(ffmutex),
                         std::ref(clusterForest),
                         std::ref(offsets),
-                        std::ref(kmerLocs)
+                        std::ref(kmerLocs),
+                        std::ref(khash)
                         //std::ref(kmerLocMap)
                         ));
         }
@@ -898,11 +941,13 @@ transcript abundance from RNA-seq reads
         std::cerr << "\n\n";
         std::cerr << "processed " << rn << " total reads\n";
         std::cout << "Total bases: " << total_fwd << " " << total_bwd << "\n";
+        std::cout << "Had a hit for " << totalHits  / static_cast<double>(rn) * 100.0 << "% of the reads\n";
 
         size_t tnum{0};
 
         std::cerr << "writing output \n";
 
+        bfs::path outputFile = outputDirectory / "quant.sf";
         std::ofstream output(outputFile.string());
         output << "# SDAFish v0.01\n";
         output << "# ClusterID\tName\tLength\tFPKM\tNumReads\n";
@@ -940,9 +985,7 @@ transcript abundance from RNA-seq reads
             }
 
             if (clusterSize > 1 and requiresProjection) {
-                std::cerr << "projecting cluter . . .";
                 cptr->projectToPolytope(transcripts_);
-                std::cerr << "done\n";
             }
 
             // Now posterior has the transcript fraction
@@ -965,13 +1008,14 @@ transcript abundance from RNA-seq reads
         output.close();
 
     } catch (po::error &e) {
-        std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
+        std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";
         std::exit(1);
     } catch (std::exception& e) {
         std::cerr << "Exception : [" << e.what() << "]\n";
-        std::cerr << argv[0] << " index was invoked improperly.\n";
-        std::cerr << "For usage information, try " << argv[0] << " index --help\nExiting.\n";
+        std::cerr << argv[0] << " quant was invoked improperly.\n";
+        std::cerr << "For usage information, try " << argv[0] << " quant --help\nExiting.\n";
     }
+
 
     return 0;
 }

@@ -12,6 +12,15 @@ set (BUILD_TRANSCRIPT_MAP_SRCS
 BuildTranscriptMap.cpp
 )
 
+set (SALMON_READ_SRCS
+TestBAMParser.cpp 
+FASTAParser.cpp 
+SailfishStringUtils.cpp 
+LibraryFormat.cpp 
+ErrorModel.cpp 
+FragmentLengthDistribution.cpp 
+)
+
 # Build the specific Sailfish commands as a 
 # shared libraray (for some reason, building
 # them into a single executable was causing 
@@ -41,10 +50,12 @@ ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include
+${GAT_SOURCE_DIR}/external/install/include/samtools
 ${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.1.3
 ${ZLIB_INCLUDE_DIR}
 ${TBB_INCLUDE_DIRS}
 ${Boost_INCLUDE_DIRS}
+${GAT_SOURCE_DIR}/external/ulib-svn/include
 )
 
 link_directories( 
@@ -54,6 +65,7 @@ ${Boost_LIBRARY_DIRS}
 ${TBB_LIBRARY_DIRS}
 ${LAPACK_LIBRARY_DIR}
 ${BLAS_LIBRARY_DIR}
+${GAT_SOURCE_DIR}/external/ulib-svn/lib
 )
 
 if(HAVE_LOGGER)
@@ -73,6 +85,11 @@ add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
 # Build the salmon executable
 add_executable(salmon ${SALMON_MAIN_SRCS})
+
+add_executable(salmon-read ${SALMON_READ_SRCS})
+
+set_target_properties(salmon-read PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp"
+    LINK_FLAGS "-DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp")
 
 #add_executable(build_transcript_map ${BUILD_TRANSCRIPT_MAP_SRCS})
 
@@ -117,6 +134,22 @@ target_link_libraries(salmon
     pthread 
     gomp 
     m
+    ${TBB_LIBRARIES}
+    ${LOGGING_LIBS}
+    ${LIBSAILFISH_LINKER_FLAGS} shark
+)
+
+# Link the executable
+target_link_libraries(salmon-read
+    gff
+    ${Boost_LIBRARIES} 
+    ${ZLIB_LIBRARY} 
+    cmph # perfect hashing library
+    jellyfish-2.0 
+    pthread 
+    gomp 
+    m
+    bam
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
