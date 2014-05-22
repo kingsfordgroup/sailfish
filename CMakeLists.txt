@@ -205,6 +205,18 @@ set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 # )
 # message(status "g2log installed.")
 
+message("Build system will fetch and build the Cereal serialization library")
+message("==================================================================")
+include(ExternalProject)
+ExternalProject_Add(libccereal
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL https://github.com/USCiLab/cereal/archive/v1.0.0.tar.gz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}
+)
+
 message("Build system will fetch and build CMPH")
 message("==================================================================")
 include(ExternalProject)
