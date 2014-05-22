@@ -230,7 +230,8 @@ ExternalProject_Add(libjellyfish
     BUILD_COMMAND ${MAKE}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install && 
-                    cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish/
+                    cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish/ &&
+                    cp config.h <INSTALL_DIR>/include/
 )
 
 find_package(TBB)
