@@ -139,6 +139,8 @@ target_link_libraries(salmon
     ${LIBSAILFISH_LINKER_FLAGS} shark
 )
 
+add_dependencies(salmon libcereal)
+
 # Link the executable
 target_link_libraries(salmon-read
     gff
