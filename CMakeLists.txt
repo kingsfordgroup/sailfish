@@ -210,11 +210,13 @@ message("==================================================================")
 include(ExternalProject)
 ExternalProject_Add(libccereal
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL https://github.com/USCiLab/cereal/archive/v1.0.0.tar.gz
+    URL http://www.cs.cmu.edu/~robp/files/cereal-v1.0.0.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
+    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0/build
     CMAKE_ARGS -DBOOST_ROOT=/junk -DBoost_NO_SYSTEM_PATHS=TRUE ${INSTALL_DIR} -DBoost_FOUND=FALSE
+    INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
 
 message("Build system will fetch and build CMPH")
