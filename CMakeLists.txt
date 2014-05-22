@@ -215,7 +215,8 @@ ExternalProject_Add(libccereal
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0/build
-    CMAKE_ARGS -DBOOST_ROOT=/junk -DBoost_NO_SYSTEM_PATHS=TRUE ${INSTALL_DIR} -DBoost_FOUND=FALSE
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
     INSTALL_COMMAND sh -c "cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
 
