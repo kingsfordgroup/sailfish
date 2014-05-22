@@ -81,7 +81,7 @@
 
 #include "PairSequenceParser.hpp"
 
-#include "google/dense_hash_map"
+//#include "google/dense_hash_map"
 
 typedef pair_sequence_parser<char**> sequence_parser;
 
@@ -363,8 +363,8 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
                std::mutex& ffMutex,
                ClusterForest& clusterForest,
                std::vector<uint64_t>& offsets,
-               std::vector<uint64_t>& kmerLocs,
-               google::dense_hash_map<uint64_t, uint64_t>& khash
+               std::vector<uint64_t>& kmerLocs
+               //google::dense_hash_map<uint64_t, uint64_t>& khash
                //std::vector<std::vector<uint64_t>>& kmerLocMap
                ) {
   uint64_t count_fwd = 0, count_bwd = 0;
@@ -846,8 +846,8 @@ transcript abundance from RNA-seq reads
         size_t merLen = phi.kmerLength();
 
 
-        google::dense_hash_map<uint64_t, uint64_t> khash;
         /*
+        google::dense_hash_map<uint64_t, uint64_t> khash;
         khash.set_empty_key(std::numeric_limits<uint64_t>::max());
         uint64_t i{0};
         for (auto k : phi.kmers()) {
@@ -929,8 +929,8 @@ transcript abundance from RNA-seq reads
                         std::ref(ffmutex),
                         std::ref(clusterForest),
                         std::ref(offsets),
-                        std::ref(kmerLocs),
-                        std::ref(khash)
+                        std::ref(kmerLocs)
+                        //std::ref(khash)
                         //std::ref(kmerLocMap)
                         ));
         }
