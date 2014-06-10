@@ -38,14 +38,28 @@
 #include "btree_set.h"
 
 
+/** BWA Includes */
+#include <cstdio>
+#include <unistd.h>
+#include <cstdlib>
+#include <cstring>
+#include <cctype>
+
+extern "C" {
+#include "bwa.h"
+#include "bwamem.h"
+#include "kvec.h"
+#include "utils.h"
+#include "kseq.h"
+#include "utils.h"
+}
+
 /** Boost Includes */
 #include <boost/filesystem.hpp>
 #include <boost/container/flat_map.hpp>
 #include <boost/dynamic_bitset/dynamic_bitset.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <boost/lockfree/queue.hpp>
 #include <boost/thread/thread.hpp>
 
@@ -69,6 +83,8 @@
 #include "cereal/archives/binary.hpp"
 
 #include "jellyfish/mer_dna.hpp"
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
 
 #include "ClusterForest.hpp"
 #include "PerfectHashIndex.hpp"
@@ -83,7 +99,12 @@
 
 //#include "google/dense_hash_map"
 
-typedef pair_sequence_parser<char**> sequence_parser;
+extern unsigned char nst_nt4_table[256];
+char* bwa_pg = "cha";
+
+using paired_parser = pair_sequence_parser<char**>;
+using stream_manager = jellyfish::stream_manager<std::vector<std::string>::const_iterator>;
+using single_parser = jellyfish::whole_sequence_parser<stream_manager>;
 
 using TranscriptID = uint32_t;
 using TranscriptIDVector = std::vector<TranscriptID>;
@@ -171,8 +192,9 @@ void processMiniBatch(
                         //errLike = errMod.logLikelihood(aln, transcript);
                     }
 
-                    aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
-                    //aln.logProb = (transcriptLogCount - logRefLength);// + qualProb + errLike;
+                    //aln.logProb = std::log(aln.kmerCount) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
+                    //aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
+                    aln.logProb = (transcriptLogCount - logRefLength);// + qualProb + errLike;
 
 
                     sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
@@ -264,9 +286,10 @@ uint32_t basesCovered(std::vector<uint32_t>& posLeft, std::vector<uint32_t>& pos
 
 class KmerVote {
     public:
-        KmerVote(uint32_t vp, uint32_t rp) : votePos(vp), readPos(rp) {}
+        KmerVote(uint32_t vp, uint32_t rp, uint32_t vl) : votePos(vp), readPos(rp), voteLen(vl) {}
         uint32_t votePos{0};
         uint32_t readPos{0};
+        uint32_t voteLen{0};
 };
 
 
@@ -275,19 +298,85 @@ class TranscriptHitList {
         uint32_t bestHitPos{0};
         uint32_t bestHitScore{0};
         std::vector<KmerVote> votes;
+        std::vector<KmerVote> rcVotes;
 
-        void addVote(uint32_t tpos, uint32_t readPos) {
-            uint32_t transcriptPos = (readPos > tpos) ? 0 : tpos - readPos;
-            votes.emplace_back(transcriptPos, readPos);
+        void addVote(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
+            uint32_t votePos = (readPos > tpos) ? 0 : tpos - readPos;
+            votes.emplace_back(votePos, readPos, voteLen);
         }
 
-        void addVoteRC(uint32_t tpos, uint32_t readPos) {
-            uint32_t transcriptPos = (readPos > tpos) ? 0 : tpos + readPos;
-            votes.emplace_back(transcriptPos, readPos);
+        void addVoteRC(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
+            uint32_t votePos = (readPos > tpos) ? 0 : tpos - readPos;
+            rcVotes.emplace_back(votePos, readPos, voteLen);
         }
 
+        uint32_t totalNumHits() { return std::max(votes.size(), rcVotes.size()); }
 
-        uint32_t totalNumHits() { return votes.size(); }
+        void computeBestLoc_(std::vector<KmerVote>& sVotes, uint32_t& maxClusterPos, uint32_t& maxClusterCount) {
+            if (sVotes.size() == 0) { return; }
+            struct VoteInfo {
+                uint32_t coverage;
+                uint32_t rightmostBase;
+            };
+
+            boost::container::flat_map<uint32_t, VoteInfo> hitMap;
+            int32_t currClust{sVotes.front().votePos};
+            for (size_t j = 0; j < sVotes.size(); ++j) {
+
+                uint32_t votePos = sVotes[j].votePos;
+                uint32_t readPos = sVotes[j].readPos;
+                uint32_t voteLen = sVotes[j].voteLen;
+
+                if (votePos >= currClust) {
+                    if (votePos - currClust > 10) {
+                        currClust = votePos;
+                    }
+                    auto& hmEntry = hitMap[currClust];
+
+                    hmEntry.coverage += std::min(voteLen, (votePos + readPos + voteLen) - hmEntry.rightmostBase);
+                    hmEntry.rightmostBase = votePos + readPos + voteLen;
+                } else if (votePos < currClust) {
+                    std::cerr << "Should not have votePos = " << votePos << " <  currClust = " << currClust << "\n";
+                    std::exit(1);
+                }
+
+                if (hitMap[currClust].coverage > maxClusterCount) {
+                    maxClusterCount = hitMap[currClust].coverage;
+                    maxClusterPos = currClust;
+                }
+
+            }
+
+        }
+
+        /*
+
+        void computeBestChain_(std::vector<KmerVote>& sVotes, uint32_t& maxClusterPos, uint32_t& maxClusterCount) {
+            if (sVotes.size() == 0) { return; }
+            std::vector<double> scores(sVotes.size(), -std::numeric_limits<double>::max());
+
+            for (size_t i = 0; i < sVotes.size(); ++i) {
+                auto& fragI = sVotes[i];
+                for (size_t j = 0; j < i; ++j) {
+                    auto& fragJ = sVotes[j];
+                    if (precedes(fragJ, fragI)) {
+                        auto score = scores[j] - gapCost(fragJ, fragI);
+                        if (score > scores[i]) { scores[i] = score; }
+                    }
+                }
+                scores[i] += weight(fragI);
+                if (scores[i] > maxClusterCount) {
+                    maxClusterCount = scores[i];
+                    maxClusterPos = i;
+                }
+            }
+        }
+
+        bool computeBestChain() {
+            return true;
+        }
+
+        */
 
         bool computeBestHit() {
             std::sort(votes.begin(), votes.end(),
@@ -298,78 +387,277 @@ class TranscriptHitList {
                         return v1.votePos < v2.votePos;
                     });
 
-            /*
-            std::cerr << "(" << votes.size() << ") { ";
-            for (auto v : votes) {
-                std::cerr << v.votePos << " ";
-            }
-            std::cerr << "}\n";
-            */
+            std::sort(rcVotes.begin(), rcVotes.end(),
+                    [](const KmerVote& v1, const KmerVote& v2) -> bool {
+                        if (v1.votePos == v2.votePos) {
+                            return v1.readPos < v2.readPos;
+                        }
+                        return v1.votePos < v2.votePos;
+                    });
+
             uint32_t maxClusterPos{0};
             uint32_t maxClusterCount{0};
-            uint32_t klen{20};
-            struct VoteInfo {
-                uint32_t coverage;
-                uint32_t rightmostBase;
-            };
 
-            boost::container::flat_map<uint32_t, VoteInfo> hitMap;
-            int32_t currClust{votes.front().votePos};
-            for (size_t j = 0; j < votes.size(); ++j) {
-
-                uint32_t votePos = votes[j].votePos;
-                uint32_t readPos = votes[j].readPos;
-
-                if (votePos >= currClust) {
-                    if (votePos - currClust > 10) {
-                        currClust = votePos;
-                    }
-                    auto& hmEntry = hitMap[currClust];
-                    hmEntry.coverage += std::min(klen, (readPos + klen) - hmEntry.rightmostBase);
-                    hmEntry.rightmostBase = readPos + klen;
-                } else if (votePos < currClust) {
-                    std::cerr << "CHA?!?\n";
-                    if (currClust - votePos > 10) {
-                        currClust = votePos;
-                    }
-                    auto& hmEntry = hitMap[currClust];
-                    hmEntry.coverage += std::min(klen, (readPos + klen) - hmEntry.rightmostBase);
-                    hmEntry.rightmostBase = readPos + klen;
-                }
-
-                if (hitMap[currClust].coverage > maxClusterCount) {
-                    maxClusterCount = hitMap[currClust].coverage;
-                    maxClusterPos = currClust;
-                }
-
-            }
+            computeBestLoc_(votes, maxClusterPos, maxClusterCount);
+            computeBestLoc_(rcVotes, maxClusterPos, maxClusterCount);
 
             bestHitPos = maxClusterPos;
             bestHitScore = maxClusterCount;
+
             return true;
         }
 };
 
+
+void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& frag,
+                        bwaidx_t *idx,
+                        smem_i *itr,
+                        const bwtintv_v *a,
+                        int minLen,
+                        int minIWidth,
+                        int splitWidth,
+                        double coverageThresh,
+                        std::vector<Alignment>& hitList,
+                        uint64_t& hitListCount) {
+
+    uint64_t leftHitCount{0};
+
+    std::unordered_map<uint64_t, TranscriptHitList> leftHits;
+    std::unordered_map<uint64_t, TranscriptHitList> rightHits;
+
+    uint32_t leftReadLength{0};
+    uint32_t rightReadLength{0};
+
+    //---------- Left End ----------------------//
+    {
+        std::string& readStr   = frag.first.seq;
+        uint32_t readLen      = frag.first.seq.size();
+
+        leftReadLength = readLen;
+
+        for (int p = 0; p < readLen; ++p) {
+            readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
+        }
+
+        char* readPtr = const_cast<char*>(readStr.c_str());
+
+        smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
+
+        // while there are more matches on the query
+        while ((a = smem_next(itr)) != 0) {
+        //while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
+
+            for (size_t mi = 0; mi < a->n; ++mi) {
+                bwtintv_t *p = &a->a[mi];
+                if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
+                uint32_t qstart = static_cast<uint32_t>(p->info>>32);
+                uint32_t qend = static_cast<uint32_t>(p->info);
+                long numHits = static_cast<long>(p->x[2]);
+
+                if ( p->x[2] <= minIWidth) {
+                    for (bwtint_t k = 0; k < p->x[2]; ++k) {
+                        bwtint_t pos;
+                        int len, isRev, refID;
+                        len = static_cast<uint32_t>(p->info - (p->info >> 32));
+                        pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
+                        if (isRev) { pos -= len - 1; }
+                        bns_cnt_ambi(idx->bns, pos, len, &refID);
+                        long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+                        if (isRev) {
+                            qstart = leftReadLength - qend;
+                            leftHits[refID].addVoteRC(hitLoc, qstart, len);
+                        } else {
+                            leftHits[refID].addVote(hitLoc, qstart, len);
+                        }
+                    } // for k
+                } // if <= minIWidth
+
+            } // for mi
+        } // for all query matches
+    }
+
+    //---------- Right End ----------------------//
+    {
+        std::string& readStr   = frag.second.seq;
+        uint32_t readLen      = frag.second.seq.size();
+
+        rightReadLength = readLen;
+
+        for (int p = 0; p < readLen; ++p) {
+            readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
+        }
+
+        char* readPtr = const_cast<char*>(readStr.c_str());
+        smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
+
+        // while there are more matches on the query
+        while ((a = smem_next(itr)) != 0) {
+        //while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
+            for (size_t mi = 0; mi < a->n; ++mi) {
+                bwtintv_t *p = &a->a[mi];
+                if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
+                uint32_t qstart = static_cast<uint32_t>(p->info>>32);
+                uint32_t qend = static_cast<uint32_t>(p->info);
+                long numHits = static_cast<long>(p->x[2]);
+
+                if ( p->x[2] <= minIWidth) {
+                    for (bwtint_t k = 0; k < p->x[2]; ++k) {
+                        bwtint_t pos;
+                        int len, isRev, refID;
+                        len = static_cast<uint32_t>(p->info - (p->info >> 32));
+                        pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
+                        if (isRev) { pos -= len - 1; }
+                        bns_cnt_ambi(idx->bns, pos, len, &refID);
+                        long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+                        if (isRev) {
+                            qstart = rightReadLength - qend;
+                            rightHits[refID].addVoteRC(hitLoc, qstart, len);
+                        } else {
+                            rightHits[refID].addVote(hitLoc, qstart, len);
+                        }
+                    } // for k
+                } // if <= minIWidth
+
+            } // for mi
+        } // for all query matches
+
+    } // end right
+
+    size_t readHits{0};
+    hitList.clear();
+
+    for (auto& tHitList : leftHits) {
+        // Coverage score
+        tHitList.second.computeBestHit();
+        ++leftHitCount;
+    }
+
+    double cutoffLeft{ coverageThresh * leftReadLength};
+    double cutoffRight{ coverageThresh * rightReadLength};
+
+    for (auto& tHitList : rightHits) {
+        auto it = leftHits.find(tHitList.first);
+        // Coverage score
+        if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
+            tHitList.second.computeBestHit();
+            if (tHitList.second.bestHitScore < cutoffRight) { continue; }
+            uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
+            hitList.emplace_back(tHitList.first, score);
+            readHits += score;
+            ++hitListCount;
+        }
+    }
+
+
+}
+
+/**
+  *   Get hits for single-end fragment
+  *
+  *
+  */
+void getHitsForFragment(jellyfish::header_sequence_qual& frag,
+                        bwaidx_t *idx,
+                        smem_i *itr,
+                        const bwtintv_v *a,
+                        int minLen,
+                        int minIWidth,
+                        int splitWidth,
+                        double coverageThresh,
+                        std::vector<Alignment>& hitList,
+                        uint64_t& hitListCount) {
+
+    uint64_t leftHitCount{0};
+
+    std::unordered_map<uint64_t, TranscriptHitList> hits;
+
+    uint32_t readLength{0};
+
+    //---------- get hits ----------------------//
+    {
+        std::string& readStr   = frag.seq;
+        uint32_t readLen      = frag.seq.size();
+
+        readLength = readLen;
+
+        for (int p = 0; p < readLen; ++p) {
+            readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
+        }
+
+        char* readPtr = const_cast<char*>(readStr.c_str());
+
+        smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
+
+        // while there are more matches on the query
+        while ((a = smem_next(itr)) != 0) {
+        //while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
+            for (size_t mi = 0; mi < a->n; ++mi) {
+                bwtintv_t *p = &a->a[mi];
+                if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
+                uint32_t qstart = static_cast<uint32_t>(p->info>>32);
+                uint32_t qend = static_cast<uint32_t>(p->info);
+                long numHits = static_cast<long>(p->x[2]);
+
+                if ( p->x[2] <= minIWidth) {
+                    for (bwtint_t k = 0; k < p->x[2]; ++k) {
+                        bwtint_t pos;
+                        int len, isRev, refID;
+                        len = static_cast<uint32_t>(p->info - (p->info >> 32));
+                        pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
+                        if (isRev) { pos -= len - 1; }
+                        bns_cnt_ambi(idx->bns, pos, len, &refID);
+                        long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+                        if (isRev) {
+                            qstart = readLength - qend;
+                            hits[refID].addVoteRC(hitLoc, qstart, len);
+                        } else {
+                            hits[refID].addVote(hitLoc, qstart, len);
+                        }
+                    } // for k
+                } // if <= minIWidth
+
+            } // for mi
+        } // for all query matches
+    }
+
+    size_t readHits{0};
+    hitList.clear();
+
+    double cutoff{ coverageThresh * readLength};
+    for (auto& tHitList : hits) {
+        // Coverage score
+        tHitList.second.computeBestHit();
+        if (tHitList.second.bestHitScore >= cutoff) {
+            uint32_t score = tHitList.second.bestHitScore;
+            hitList.emplace_back(tHitList.first, score);
+            readHits += score;
+            ++hitListCount;
+            ++leftHitCount;
+        }
+    }
+
+}
+
+
+
 // To use the parser in the following, we get "jobs" until none is
 // available. A job behaves like a pointer to the type
 // jellyfish::sequence_list (see whole_sequence_parser.hpp).
-void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::atomic<uint64_t>* total_bwd,
+template <typename ParserT>
+void processReadsMEM(ParserT* parser,
                std::atomic<uint64_t>& totalHits,
                std::atomic<uint64_t>& rn,
-               PerfectHashIndex& phi,
+               bwaidx_t *idx,
                std::vector<Transcript>& transcripts,
                std::atomic<uint64_t>& batchNum,
                double& logForgettingMass,
                std::mutex& ffMutex,
                ClusterForest& clusterForest,
-               std::vector<uint64_t>& offsets,
-               std::vector<uint64_t>& kmerLocs
-               //google::dense_hash_map<uint64_t, uint64_t>& khash
-               //std::vector<std::vector<uint64_t>>& kmerLocMap
+               uint32_t minMEMLength,
+               uint32_t maxMEMOcc,
+               double coverageThresh
                ) {
   uint64_t count_fwd = 0, count_bwd = 0;
-  auto INVALID = phi.INVALID;
-  auto merLen = phi.kmerLength();
 
   double forgettingFactor{0.65};
 
@@ -379,30 +667,22 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
   uint64_t leftHitCount{0};
   uint64_t hitListCount{0};
 
-  class DirHit {
-      uint32_t fwd{0};
-      uint32_t rev{0};
-  };
+  // Super-MEM iterator
+  smem_i *itr = smem_itr_init(idx->bwt);
+  const bwtintv_v *a;
+  int minLen{minMEMLength};
+  int minIWidth{maxMEMOcc};
+  int splitWidth{0};
 
   size_t locRead{0};
   while(true) {
-    sequence_parser::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
+    typename ParserT::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
     if(j.is_empty()) break;          // If got nothing, quit
 
-    my_mer kmer;
-    my_mer rkmer;
-
+    hitLists.resize(j->nb_filled);
     for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
 
-        hitLists.resize(j->nb_filled);
-
-        /*
-        btree::btree_map<uint64_t, uint32_t> eqLeftFwdPos;
-        btree::btree_map<uint64_t, uint32_t> eqLeftBwdPos;
-        btree::btree_map<uint64_t, uint32_t> eqRightFwdPos;
-        btree::btree_map<uint64_t, uint32_t> eqRightBwdPos;
-        */
-
+    /*
         std::unordered_map<uint64_t, TranscriptHitList> leftFwdHits;
         std::unordered_map<uint64_t, TranscriptHitList> leftBwdHits;
 
@@ -420,84 +700,50 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
 
         uint64_t prevEQ{std::numeric_limits<uint64_t>::max()};
 
-        count_fwd += j->data[i].first.seq.size();        // Add up the size of the sequence
-        count_bwd += j->data[i].second.seq.size();        // Add up the size of the sequence
-
         //---------- Left End ----------------------//
         {
-            const char* start     = j->data[i].first.seq.c_str();
+            std::string& readStr   = j->data[i].first.seq;
             uint32_t readLen      = j->data[i].first.seq.size();
+
             leftReadLength = readLen;
-            const char* const end = start + readLen;
-            uint32_t cmlen{0};
-            uint32_t rbase{0};
-            // iterate over the read base-by-base
-            while(start < end) {
-                ++rbase; ++readLength;
-                char base = *start; ++start;
-                auto c = jellyfish::mer_dna::code(base);
-                kmer.shift_left(c);
-                rkmer.shift_right(jellyfish::mer_dna::complement(c));
-                switch(c) {
-                    case jellyfish::mer_dna::CODE_IGNORE:
-                        break;
-                    case jellyfish::mer_dna::CODE_COMMENT:
-                        std::cerr << "ERROR: unexpected character " << base << " in read!\n";
-                        // Fall through
-                    case jellyfish::mer_dna::CODE_RESET:
-                        cmlen = 0;
-                        kmer.polyA(); rkmer.polyA();
-                        break;
 
-                    default:
-                        if(++cmlen >= merLen) {
-                            cmlen = merLen;
-                            auto merID = phi.index(kmer.get_bits(0, 2*merLen));
-                            //auto merIt = khash.find(kmer.get_bits(0, 2*merLen));
-                            //auto merID = (merIt == khash.end()) ? INVALID : merIt->second;
+            for (int p = 0; p < readLen; ++p) {
+                readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
+            }
 
+            char* readPtr = const_cast<char*>(readStr.c_str());
 
-                            if (merID != INVALID) {
-                                // Locations
-                                auto first = offsets[merID];
-                                auto last = offsets[merID+1];
-                                for (size_t ei = first; ei < last; ++ei) {
-                                    uint64_t e = kmerLocs[ei];
-                                    //for (uint64_t e : kmerLocMap[merID]) {
-                                    leftFwdHits[transcript(e)].addVote(offset(e), rbase - merLen);
-                                }
-                                /*
-                                auto eqClass = memberships[merID];
-                                eqLeftFwdPos[eqClass]++;//.push_back(rbase);
-                                */
-                                totFwdLeft++;
+            smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
+
+            // while there are more matches on the query
+            while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
+                for (size_t mi = 0; mi < a->n; ++mi) {
+                    bwtintv_t *p = &a->a[mi];
+                    if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
+                    uint32_t qstart = static_cast<uint32_t>(p->info>>32);
+                    uint32_t qend = static_cast<uint32_t>(p->info);
+                    long numHits = static_cast<long>(p->x[2]);
+
+                    if ( p->x[2] <= minIWidth) {
+                        for (bwtint_t k = 0; k < p->x[2]; ++k) {
+                            bwtint_t pos;
+                            int len, isRev, refID;
+                            len = static_cast<uint32_t>(p->info - (p->info >> 32));
+                            pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
+                            if (isRev) { pos -= len - 1; }
+                            bns_cnt_ambi(idx->bns, pos, len, &refID);
+                            long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+                            if (isRev) {
+                                qstart = leftReadLength - qend;
+                                leftFwdHits[refID].addVoteRC(hitLoc, qstart, len);
+                            } else {
+                                leftFwdHits[refID].addVote(hitLoc, qstart, len);
                             }
+                        } // for k
+                    } // if <= minIWidth
 
-                            auto rmerID = phi.index(rkmer.get_bits(0, 2*merLen));
-                            //auto rmerIt = khash.find(rkmer.get_bits(0, 2*merLen));
-                            //auto rmerID = (rmerIt == khash.end()) ? INVALID : rmerIt->second;
-
-                            if (rmerID != INVALID) {
-                                // Locations
-                                auto first = offsets[rmerID];
-                                auto last = offsets[rmerID+1];
-                                for (size_t ei = first ; ei < last; ++ei) {
-                                    uint64_t e = kmerLocs[ei];
-                                    //for (uint64_t e : kmerLocMap[rmerID]) {
-                                    leftFwdHits[transcript(e)].addVoteRC(offset(e), rbase - merLen);
-                                }
-
-                                /*
-                                auto eqClass = memberships[rmerID];
-                                eqLeftBwdPos[eqClass]++;//.push_back(rbase);
-                                */
-                                totBwdLeft++;
-                            }
-
-                        }
-
-                        } // end switch(c)
-                } // while (start < end)
+                } // for mi
+            } // for all query matches
         }
 
         hitLists[i].clear();
@@ -505,202 +751,105 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
         prevEQ = std::numeric_limits<uint64_t>::max();
         //---------- Right End ----------------------//
         {
-            kmer.polyA();
-            rkmer.polyA();
-            const char* start     = j->data[i].second.seq.c_str();
+            std::string& readStr   = j->data[i].second.seq;
             uint32_t readLen      = j->data[i].second.seq.size();
+
             rightReadLength = readLen;
-            const char* const end = start + readLen;
-            uint32_t cmlen{0};
-            uint32_t rbase{0};
 
-            // iterate over the read base-by-base
-            while(start < end) {
-                ++rbase; ++readLength;
-                char base = *start; ++start;
-                auto c = jellyfish::mer_dna::code(base);
-                kmer.shift_left(c);
-                rkmer.shift_right(jellyfish::mer_dna::complement(c));
-                switch(c) {
-                    case jellyfish::mer_dna::CODE_IGNORE:
-                        break;
-                    case jellyfish::mer_dna::CODE_COMMENT:
-                        std::cerr << "ERROR: unexpected character " << base << " in read!\n";
-                        // Fall through
-                    case jellyfish::mer_dna::CODE_RESET:
-                        cmlen = 0;
-                        kmer.polyA(); rkmer.polyA();
-                        break;
+            for (int p = 0; p < readLen; ++p) {
+                readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
+            }
 
-                    default:
-                        if(++cmlen >= merLen) {
-                            cmlen = merLen;
-                            auto merID = phi.index(kmer.get_bits(0, 2*merLen));
-                            //auto merIt = khash.find(kmer.get_bits(0, 2*merLen));
-                            //auto merID = (merIt == khash.end()) ? INVALID : merIt->second;
+            char* readPtr = const_cast<char*>(readStr.c_str());
+            smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
 
+            // while there are more matches on the query
+            while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
+                for (size_t mi = 0; mi < a->n; ++mi) {
+                    bwtintv_t *p = &a->a[mi];
+                    if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
+                    uint32_t qstart = static_cast<uint32_t>(p->info>>32);
+                    uint32_t qend = static_cast<uint32_t>(p->info);
+                    long numHits = static_cast<long>(p->x[2]);
 
-                            if (merID != INVALID) {
-                                // Locations
-                                auto first = offsets[merID];
-                                auto last = offsets[merID+1];
-                                for (size_t ei = first; ei < last; ++ei) {
-                                    uint64_t e = kmerLocs[ei];
-                                    //for (uint64_t e : kmerLocMap[merID]) {
-                                     rightFwdHits[transcript(e)].addVote(offset(e), rbase - merLen);
-                                }
-                                /*
-                                auto eqClass = memberships[merID];
-                                eqRightFwdPos[eqClass]++;//.push_back(rbase);
-                                */
-                                totFwdRight++;
-
+                    if ( p->x[2] <= minIWidth) {
+                        for (bwtint_t k = 0; k < p->x[2]; ++k) {
+                            bwtint_t pos;
+                            int len, isRev, refID;
+                            len = static_cast<uint32_t>(p->info - (p->info >> 32));
+                            pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
+                            if (isRev) { pos -= len - 1; }
+                            bns_cnt_ambi(idx->bns, pos, len, &refID);
+                            long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+                            if (isRev) {
+                                qstart = rightReadLength - qend;
+                                rightFwdHits[refID].addVoteRC(hitLoc, qstart, len);
+                            } else {
+                                rightFwdHits[refID].addVote(hitLoc, qstart, len);
                             }
+                        } // for k
+                    } // if <= minIWidth
 
+                } // for mi
+            } // for all query matches
 
-                            auto rmerID = phi.index(rkmer.get_bits(0, 2*merLen));
-                            //auto rmerIt = khash.find(rkmer.get_bits(0, 2*merLen));
-                            //auto rmerID = (rmerIt == khash.end()) ? INVALID : rmerIt->second;
-
-                            if (rmerID != INVALID) {
-                                // Locations
-                                auto first = offsets[rmerID];
-                                auto last = offsets[rmerID+1];
-                                for (size_t ei = first; ei < last; ++ei) {
-                                    uint64_t e = kmerLocs[ei];
-                                    //for (uint64_t e : kmerLocMap[rmerID]) {
-                                    rightFwdHits[transcript(e)].addVoteRC(offset(e), rbase - merLen);
-                                }
-                                /*
-                                auto eqClass = memberships[rmerID];
-                                eqRightBwdPos[eqClass]++;//.push_back(rbase);
-                                */
-                                totBwdRight++;
-                            }
-
-
-
-                        }
-
-                } // end switch(c)
-            } // while (start < end)
-        }
-
-        /*
-        std::unordered_map<TranscriptID, uint32_t> leftHits;
-        std::unordered_map<TranscriptID, uint32_t> rightHits;
-
-       auto& eqLeftPos = (totFwdLeft >= totBwdLeft) ? eqLeftFwdPos : eqLeftBwdPos;
-       auto& eqRightPos = (totFwdRight >= totBwdRight) ? eqRightFwdPos : eqRightBwdPos;
-
-      for (auto& leqPos: eqLeftPos) {
-          for (auto t : klut[leqPos.first]) {
-              // --- counts
-              leftHits[t] += leqPos.second;//.size();
-
-              // --- positions
-             //auto& thits = leftHits[t];
-             //thits.insert(thits.end(), leqPos.second.begin(), leqPos.second.end());
-         }
-      }
-
-      for (auto& reqPos : eqRightPos) {
-          for (auto t : klut[reqPos.first]) {
-              auto it = leftHits.find(t);
-              if (it != leftHits.end() and it->second > 40) {
-                  // --- counts
-                  rightHits[t] += reqPos.second;//.size();
-
-                  // --- positions
-                  //auto score = basesCovered(it->second);
-                  //if (score < 70) { continue; }
-                  //auto& thits = rightHits[t];
-                  //thits.insert(thits.end(), reqPos.second.begin(), reqPos.second.end());
-              }
-          }
-      }
-
-      uint32_t readHits{0};
-      for (auto& rightHit : rightHits) {
-          if (rightHit.second > 40) {
-              // --- counts
-              uint32_t score = leftHits[rightHit.first] + rightHit.second;
-              hitList.emplace_back(rightHit.first, score);
-              readHits += score;
-
-              // --- positions
-              //auto rscore = basesCovered(rightHit.second);
-               //if (rscore >= 70) {
-              //uint32_t score = leftHits[rightHit.first] + rightHit.second;
-              //hitList.emplace_back(rightHit.first, score);
-              //readHits += score;
-          }
-      }
-      leftHitCount += leftHits.size();
-      hitListCount += hitList.size();
-
-        */
+        } // end right
 
         size_t readHits{0};
-    std::unordered_map<TranscriptID, uint32_t> leftHitCounts;
-    std::unordered_map<TranscriptID, uint32_t> rightHitCounts;
+        std::unordered_map<TranscriptID, uint32_t> leftHitCounts;
+        std::unordered_map<TranscriptID, uint32_t> rightHitCounts;
 
-    auto& leftHits = leftFwdHits;//(totFwdLeft >= totBwdLeft) ? leftFwdHits : leftBwdHits;
-    auto& rightHits = rightFwdHits;//(totFwdRight >= totBwdRight) ? rightFwdHits : rightBwdHits;
+        auto& leftHits = leftFwdHits;
+        auto& rightHits = rightFwdHits;
 
-    for (auto& tHitList : leftHits) {
-        // Coverage score
-        tHitList.second.computeBestHit();
-        //leftHitCounts[tHitList.first] = tHitList.second.totalNumHits();
-        ++leftHitCount;
-    }
-
-    double cutoffLeft{ 0.80 * leftReadLength};
-    double cutoffRight{ 0.80 * rightReadLength};
-
-    double cutoffLeftCount{ 0.80 * leftReadLength - merLen + 1};
-    double cutoffRightCount{ 0.80 * rightReadLength - merLen + 1};
-    for (auto& tHitList : rightHits) {
-        auto it = leftHits.find(tHitList.first);
-        // Simple counting score
-        /*
-        if (it != leftHits.end() and it->second.totalNumHits() >= cutoffLeftCount) {
-            if (tHitList.second.totalNumHits() < cutoffRightCount) { continue; }
-            uint32_t score = it->second.totalNumHits() + tHitList.second.totalNumHits();
-        */
-        // Coverage score
-        if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
+        for (auto& tHitList : leftHits) {
+            // Coverage score
             tHitList.second.computeBestHit();
-            if (tHitList.second.bestHitScore < cutoffRight) { continue; }
-            uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
-
-
-            hitList.emplace_back(tHitList.first, score);
-            readHits += score;
-            ++hitListCount;
+            ++leftHitCount;
         }
-    }
+
+        double cutoffLeft{ coverageThresh * leftReadLength};
+        double cutoffRight{ coverageThresh * rightReadLength};
+
+        for (auto& tHitList : rightHits) {
+            auto it = leftHits.find(tHitList.first);
+            // Coverage score
+            if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
+                tHitList.second.computeBestHit();
+                if (tHitList.second.bestHitScore < cutoffRight) { continue; }
+                uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
+                hitList.emplace_back(tHitList.first, score);
+                readHits += score;
+                ++hitListCount;
+            }
+        }
+
+        totalHits += hitList.size() > 0;
+    */
 
 
-      totalHits += hitList.size() > 0;
-      locRead++;
-      ++rn;
-      if (rn % 50000 == 0) {
-          std::cerr << "\r\rprocessed read "  << rn;
-          std::cerr << "\n leftHits.size() " << leftHits.size()
-                    << ", rightHits.size() " << rightHits.size() << ", hit list of size = " << hitList.size() << "\n";
-          std::cerr << "average leftHits = " << leftHitCount / static_cast<float>(locRead)
-                    << ", average hitList = " << hitListCount / static_cast<float>(locRead) << "\n";
-      }
+        getHitsForFragment(j->data[i], idx, itr, a,
+                           minLen, minIWidth, splitWidth, coverageThresh,
+                           hitLists[i], hitListCount);
+        auto& hitList = hitLists[i];
+        totalHits += hitList.size() > 0;
 
-      if (hitList.size() > 100) { hitList.clear(); }
 
-      double invHits = 1.0 / readHits;
-      for (auto t : hitList) {
-          transcripts[t.transcriptID()].addSharedCount( t.kmerCount * invHits );
-      }
+        locRead++;
+        ++rn;
+        if (rn % 50000 == 0) {
+            std::cerr << "\r\rprocessed read "  << rn;
+/*            std::cerr << "\n leftHits.size() " << leftHits.size()
+                << ", rightHits.size() " << rightHits.size() << ", hit list of size = " << hitList.size() << "\n";
+                std::cerr << "average leftHits = " << leftHitCount / static_cast<float>(locRead)
+               << ", average hitList = " << hitListCount / static_cast<float>(locRead) << "\n";
+               */
+        }
 
-    } // end for i < j->nb_filled
+        // If the read mapped to > 100 places, discard it
+        if (hitList.size() > 100) { hitList.clear(); }
+
+        } // end for i < j->nb_filled
 
     auto oldBatchNum = batchNum++;
     if (oldBatchNum > 1) {
@@ -710,14 +859,22 @@ void add_sizes(sequence_parser* parser, std::atomic<uint64_t>* total_fwd, std::a
         ffMutex.unlock();
     }
 
-    //
     processMiniBatch(logForgettingMass, hitLists, transcripts, clusterForest);
-
   }
+  smem_itr_destroy(itr);
 
-  *total_fwd += count_fwd;
-  *total_bwd += count_bwd;
 }
+
+int performBiasCorrection(boost::filesystem::path featPath,
+                          boost::filesystem::path expPath,
+                          double estimatedReadLength,
+                          double kmersPerRead,
+                          uint64_t mappedKmers,
+                          uint32_t merLen,
+                          boost::filesystem::path outPath,
+                          size_t numThreads);
+
+
 
 int salmonQuantify(int argc, char *argv[]) {
     using std::cerr;
@@ -726,8 +883,11 @@ int salmonQuantify(int argc, char *argv[]) {
     namespace bfs = boost::filesystem;
     namespace po = boost::program_options;
 
+    bool noBiasCorrect{false};
     uint32_t maxThreads = std::thread::hardware_concurrency();
-
+    uint32_t sampleRate{1};
+    double coverageThresh;
+    uint32_t minMEMLength, maxMEMOcc;
     vector<string> unmatedReadFiles;
     vector<string> mate1ReadFiles;
     vector<string> mate2ReadFiles;
@@ -745,7 +905,20 @@ int salmonQuantify(int argc, char *argv[]) {
     ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
         "File containing the #2 mates")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
-    ("output,o", po::value<std::string>(), "Output quantification file");
+    //("sample,s", po::value<uint32_t>(&sampleRate)->default_value(1), "Sample rate --- only consider every s-th k-mer in a read.")
+    ("minLen,k", po::value<uint32_t>(&minMEMLength)->default_value(15), "MEMs smaller than this size won't be considered")
+    ("maxOcc,n", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "MEMs occuring more than this many times won't be considered")
+    ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of MEMs to consider it a \"hit\"")
+    ("output,o", po::value<std::string>(), "Output quantification file")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
+                                        "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
+                                        "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
+                                        "should be provided as either a GTF file, or a in a simple tab-delimited format\n"
+                                        "where each line contains the name of a transcript and the gene to which it belongs\n"
+                                        "separated by a tab.  The extension of the file is used to determine how the file\n"
+                                        "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF\n"
+                                        "format; files with any other extension are assumed to be in the simple format");
 
     po::variables_map vm;
     try {
@@ -776,6 +949,19 @@ transcript abundance from RNA-seq reads
             }
             std::cerr << " }\n";
         }
+
+        // Verify the gene_map before we start doing any real work.
+        bfs::path geneMapPath;
+        if (vm.count("gene_map")) {
+            // Make sure the provided file exists
+            geneMapPath = vm["gene_map"].as<std::string>();
+            if (!bfs::exists(geneMapPath)) {
+                std::cerr << "Could not fine transcript <=> gene map file " << geneMapPath << "\n";
+                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file\n";
+                std::exit(1);
+            }
+        }
+
 
         bfs::path outputDirectory(vm["output"].as<std::string>());
         bfs::create_directory(outputDirectory);
@@ -821,57 +1007,24 @@ transcript abundance from RNA-seq reads
             }
         }
 
-        for (auto& rl : readLibraries) { rl.checkValid(); }
+        bwaidx_t *idx;
 
-        auto& rl = readLibraries.front();
-        // Handle all the proper cases here
-        char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
-                              const_cast<char*>(rl.mates2().front().c_str()) };
-
-        uint32_t nbThreads = vm["threads"].as<uint32_t>();
-
-        size_t maxReadGroup{2000}; // Number of files to read simultaneously
-        size_t concurrentFile{1}; // Number of reads in each "job"
-        sequence_parser parser(4 * nbThreads, maxReadGroup, concurrentFile,
-                readFiles, readFiles + 2);
-
-        bfs::path sfIndexPath = indexDirectory / "transcriptome.sfi";
-        std::string sfTrascriptIndexFile(sfIndexPath.string());
-        std::cerr << "reading index . . . ";
-        auto phi = PerfectHashIndex::fromFile(sfTrascriptIndexFile);
-        std::cerr << "done\n";
-        std::cerr << "index contained " << phi.numKeys() << " kmers\n";
-
-        size_t nkeys = phi.numKeys();
-        size_t merLen = phi.kmerLength();
-
-
-        /*
-        google::dense_hash_map<uint64_t, uint64_t> khash;
-        khash.set_empty_key(std::numeric_limits<uint64_t>::max());
-        uint64_t i{0};
-        for (auto k : phi.kmers()) {
-            khash[k] = phi.index(k);
+        { // mem-based
+            bfs::path indexPath = indexDirectory / "bwaidx";
+            if ((idx = bwa_idx_load(indexPath.string().c_str(), BWA_IDX_BWT|BWA_IDX_BNS)) == 0) return 1;
         }
-        */
 
-        std::cerr << "kmer length = " << merLen << "\n";
-        my_mer::k(merLen);
-
-        bfs::path tlutPath = indexDirectory / "transcriptome.tlut";
-        // Get transcript lengths
-        std::ifstream ifile(tlutPath.string(), std::ios::binary);
-        size_t numRecords {0};
-        ifile.read(reinterpret_cast<char *>(&numRecords), sizeof(numRecords));
-
+        size_t numRecords = idx->bns->n_seqs;
         std::vector<Transcript> transcripts_tmp;
 
         std::cerr << "Transcript LUT contained " << numRecords << " records\n";
         //transcripts_.resize(numRecords);
         for (auto i : boost::irange(size_t(0), numRecords)) {
-            auto ti = LUTTools::readTranscriptInfo(ifile);
+            uint32_t id = i;
+            char* name = idx->bns->anns[i].name;
+            uint32_t len = idx->bns->anns[i].len;
             // copy over the length, then we're done.
-            transcripts_tmp.emplace_back(ti->transcriptID, ti->name.c_str(), ti->length);
+            transcripts_tmp.emplace_back(id, name, len);
         }
 
         std::sort(transcripts_tmp.begin(), transcripts_tmp.end(),
@@ -883,32 +1036,9 @@ transcript abundance from RNA-seq reads
             transcripts_.emplace_back(t.id, t.RefName.c_str(), t.RefLength);
         }
         transcripts_tmp.clear();
-        ifile.close();
         // --- done ---
 
-        bfs::path locPath = indexDirectory / "fullLookup.kmap";
-        // Make sure we have the file we need to look up k-mer hits
-        if (!boost::filesystem::exists(locPath)) {
-            std::cerr << "could not find k-mer location index; expected at " << locPath << "\n";
-            std::cerr << "please ensure that you've run salmon index before attempting to run salmon quant\n";
-            std::exit(1);
-        }
-        std::cerr << "Loading k-mer location index from " << locPath << " . . .";
-
-        //std::vector<std::vector<uint64_t>> kmerLocMap;
-        std::vector<uint64_t> offsets;
-        std::vector<uint64_t> kmerLocs;
-
-        std::ifstream binstream(locPath.string(), std::ios::binary);
-        cereal::BinaryInputArchive archive(binstream);
-        //archive(kmerLocMap);
-        archive(offsets, kmerLocs);
-        binstream.close();
-        std::cerr << "done\n";
-
         std::vector<std::thread> threads;
-        std::atomic<uint64_t> total_fwd(0);
-        std::atomic<uint64_t> total_bwd(0);
         std::atomic<uint64_t> totalHits(0);
         std::atomic<uint64_t> rn{0};
         std::atomic<uint64_t> batchNum{0};
@@ -918,39 +1048,87 @@ transcript abundance from RNA-seq reads
 
         double logForgettingMass{sailfish::math::LOG_1};
         std::mutex ffmutex;
-        for(int i = 0; i < nbThreads; ++i)  {
-            std::cerr << "here\n";
-            threads.push_back(std::thread(add_sizes, &parser, &total_fwd, &total_bwd,
-                        std::ref(totalHits), std::ref(rn),
-                        std::ref(phi),
-                        std::ref(transcripts_),
-                        std::ref(batchNum),
-                        std::ref(logForgettingMass),
-                        std::ref(ffmutex),
-                        std::ref(clusterForest),
-                        std::ref(offsets),
-                        std::ref(kmerLocs)
-                        //std::ref(khash)
-                        //std::ref(kmerLocMap)
-                        ));
+
+
+        uint32_t nbThreads = vm["threads"].as<uint32_t>();
+        for (auto& rl : readLibraries) {
+
+            rl.checkValid();
+            // If the read library is paired-end
+            // ------ Paired-end --------
+            if (rl.format().type == ReadType::PAIRED_END) {
+                char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
+                    const_cast<char*>(rl.mates2().front().c_str()) };
+
+                size_t maxReadGroup{1000}; // Number of files to read simultaneously
+                size_t concurrentFile{2}; // Number of reads in each "job"
+                paired_parser parser(4 * nbThreads, maxReadGroup, concurrentFile,
+                        readFiles, readFiles + 2);
+
+
+                for(int i = 0; i < nbThreads; ++i)  {
+                    threads.push_back(std::thread(processReadsMEM<paired_parser>, &parser,
+                                std::ref(totalHits), std::ref(rn),
+                                idx,
+                                std::ref(transcripts_),
+                                std::ref(batchNum),
+                                std::ref(logForgettingMass),
+                                std::ref(ffmutex),
+                                std::ref(clusterForest),
+                                minMEMLength,
+                                maxMEMOcc,
+                                coverageThresh
+                                ));
+                }
+
+                for(int i = 0; i < nbThreads; ++i)
+                    threads[i].join();
+
+            } // ------ Single-end --------
+            else if (rl.format().type == ReadType::SINGLE_END) {
+
+                char* readFiles[] = { const_cast<char*>(rl.unmated().front().c_str()) };
+                size_t maxReadGroup{1000}; // Number of files to read simultaneously
+                size_t concurrentFile{1}; // Number of reads in each "job"
+                stream_manager streams( rl.unmated().begin(),
+                                        rl.unmated().end(), concurrentFile);
+
+                single_parser parser(4 * nbThreads, maxReadGroup, concurrentFile,
+                                     streams);
+
+                for(int i = 0; i < nbThreads; ++i)  {
+                    threads.push_back(std::thread(processReadsMEM<single_parser>, &parser,
+                                std::ref(totalHits), std::ref(rn),
+                                idx,
+                                std::ref(transcripts_),
+                                std::ref(batchNum),
+                                std::ref(logForgettingMass),
+                                std::ref(ffmutex),
+                                std::ref(clusterForest),
+                                minMEMLength,
+                                maxMEMOcc,
+                                coverageThresh
+                                ));
+                }
+
+                for(int i = 0; i < nbThreads; ++i)
+                    threads[i].join();
+            } // ------ END Single-end --------
+
+            std::cerr << "\n\n";
+            std::cerr << "processed " << rn << " total reads\n";
+            std::cout << "Had a hit for " << totalHits  / static_cast<double>(rn) * 100.0 << "% of the reads\n";
+
         }
-
-        for(int i = 0; i < nbThreads; ++i)
-            threads[i].join();
-
-        std::cerr << "\n\n";
-        std::cerr << "processed " << rn << " total reads\n";
-        std::cout << "Total bases: " << total_fwd << " " << total_bwd << "\n";
-        std::cout << "Had a hit for " << totalHits  / static_cast<double>(rn) * 100.0 << "% of the reads\n";
 
         size_t tnum{0};
 
         std::cerr << "writing output \n";
 
-        bfs::path outputFile = outputDirectory / "quant.sf";
-        std::ofstream output(outputFile.string());
-        output << "# SDAFish v0.01\n";
-        output << "# ClusterID\tName\tLength\tFPKM\tNumReads\n";
+        bfs::path estFilePath = outputDirectory / "quant.sf";
+        std::ofstream output(estFilePath.string());
+        output << "# Salmon v0.1.0\n";
+        output << "# Name\tLength\tFPKM\tNumReads\n";
 
         const double logBillion = std::log(1000000000.0);
         const double logNumFragments = std::log(static_cast<double>(rn));
@@ -989,7 +1167,7 @@ transcript abundance from RNA-seq reads
             }
 
             // Now posterior has the transcript fraction
-            size_t idx = 0;
+            size_t tidx = 0;
             for (auto transcriptID : members) {
                 auto& transcript = transcripts_[transcriptID];
                 double logLength = std::log(transcript.RefLength);
@@ -998,14 +1176,73 @@ transcript abundance from RNA-seq reads
                 double countTotal = transcripts_[transcriptID].totalCounts;
                 double countUnique = transcripts_[transcriptID].uniqueCounts;
                 double fpkm = count > 0 ? fpkmFactor * count : 0.0;
-                output << clusterID << '\t' << transcript.RefName << '\t' <<
-                    transcript.RefLength << '\t' << fpkm << '\t' << countTotal << '\t' << countUnique << '\t' << count <<  '\t' << transcript.mass() << '\n';
-                ++idx;
+                output << transcript.RefName << '\t' << transcript.RefLength
+                        << '\t' << fpkm << '\t' << fpkm
+                        << '\t' << fpkm << '\t' << count <<  '\t' << count << '\n';
+                ++tidx;
             }
 
             ++clusterID;
         }
         output.close();
+
+
+        if (!noBiasCorrect) {
+            // Estimated read length
+            double estimatedReadLength = 36;
+            // Number of k-mers per read
+            double kmersPerRead = 1.0;
+            // Total number of mapped kmers
+            uint64_t mappedKmers= totalHits;
+
+            auto origExpressionFile = estFilePath;
+
+            auto outputDirectory = estFilePath;
+            outputDirectory.remove_filename();
+
+            auto biasFeatPath = indexDirectory / "bias_feats.txt";
+            auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
+            performBiasCorrection(biasFeatPath, estFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
+                    20, biasCorrectedFile, nbThreads);
+
+        }
+
+
+        /** If the user requested gene-level abundances, then compute those now **/
+        if (vm.count("gene_map")) {
+           std::cerr << "Computing gene-level abundance estimates\n";
+           bfs::path gtfExtension(".gtf");
+           auto extension = geneMapPath.extension();
+
+           TranscriptGeneMap tranGeneMap;
+           // parse the map as a GTF file
+           if (extension == gtfExtension) {
+               // Using the custom GTF Parser
+               //auto features = GTFParser::readGTFFile<TranscriptGeneID>(geneMapPath.string());
+               //tranGeneMap = sailfish::utils::transcriptToGeneMapFromFeatures(features);
+
+               // Using libgff
+                tranGeneMap = sailfish::utils::transcriptGeneMapFromGTF(geneMapPath.string(), "gene_id");
+           } else { // parse the map as a simple format files
+               std::ifstream tgfile(geneMapPath.string());
+                tranGeneMap = sailfish::utils::readTranscriptToGeneMap(tgfile);
+                tgfile.close();
+           }
+
+           std::cerr << "There were " << tranGeneMap.numTranscripts() << " transcripts mapping to "
+                     << tranGeneMap.numGenes() << " genes\n";
+
+           sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, estFilePath);
+           /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
+           if (!noBiasCorrect) {
+                bfs::path biasCorrectEstFilePath(estFilePath.parent_path());
+                biasCorrectEstFilePath /= "quant_bias_corrected.sf";
+                sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, biasCorrectEstFilePath);
+           }
+
+        }
+
+
 
     } catch (po::error &e) {
         std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";

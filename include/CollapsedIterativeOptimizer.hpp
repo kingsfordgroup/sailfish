@@ -1500,12 +1500,13 @@ public:
                 double maxRelativeChange = *std::max_element( relDiff.begin(), relDiff.end() );
                 std::cerr << "max relative change: " << maxRelativeChange << "\n";
                 if (maxRelativeChange < 10.0*maxDelta) { accel = true; }// else { accel = true; }
-                accel = false;
+                //accel = false;
                 return maxRelativeChange < maxDelta;
             };
         } else {
-            hasConverged = [] (std::vector<double>& v0, std::vector<double>& v1) -> bool {
+            hasConverged = [&accel] (std::vector<double>& v0, std::vector<double>& v1) -> bool {
                 std::cerr << "no data-driven convergence criterion specified\n";
+                accel = true;
                 return false;
             };
         }
@@ -1519,7 +1520,6 @@ public:
             std::cerr << clearline << "SQUAREM iteraton [" << iter << "]\n";
             jumpBack += "\x1b[A";
 
-
           // Theta_1 = EMUpdate(Theta_0)
           std::cerr << clearline << "1/3\n";
           EMUpdate_(means0, means1, accel);
@@ -1529,7 +1529,11 @@ public:
           if (hasConverged(means0, means1)) {
               std::cerr << "convergence criteria met; terminating SQUAREM\n";
               break;
+          } else if (!accel) {
+              std::cerr << jumpBack;
+              continue;
           }
+
 
           if (!std::isfinite(negLogLikelihoodOld)) {
             negLogLikelihoodOld = -expectedLogLikelihood_(means0);
@@ -1565,8 +1569,8 @@ public:
             [&r, &v, alphaS, &means0, &meansPrime](const BlockedIndexRange& range) -> void {
               for (auto tid = range.begin(); tid != range.end(); ++tid) {
                // Looking into Nick Bray's problem
-                 meansPrime[tid] = std::max(means0[tid] * 0.1, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
-               // meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+               //  meansPrime[tid] = std::max(means0[tid] * 0.1, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+               meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
               }
             }
           );

@@ -59,6 +59,74 @@ using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 typedef jellyfish::stream_manager<char**>                stream_manager;
 typedef jellyfish::whole_sequence_parser<stream_manager> sequence_parser;
 
+extern "C" {
+int bwa_index(int argc, char* argv[]);
+}
+
+int salmonIndex(int argc, char* argv[]) {
+
+    using std::string;
+    namespace bfs = boost::filesystem;
+    namespace po = boost::program_options;
+
+    uint32_t maxThreads = std::thread::hardware_concurrency();
+
+    po::options_description generic("Command Line Options");
+    generic.add_options()
+    ("version,v", "print version string")
+    ("help,h", "produce help message")
+    ("transcripts,t", po::value<string>(), "Transcript fasta file.")
+    ("index,i", po::value<string>(), "sailfish index.")
+    ;
+
+    po::variables_map vm;
+    int ret = 1;
+    try {
+
+        po::store(po::command_line_parser(argc, argv).options(generic).run(), vm);
+
+        if ( vm.count("help") ) {
+            auto hstring = R"(
+Index
+==========
+Augments an existing Sailfish index [index] with a
+Salmon index.
+)";
+            std::cout << hstring << std::endl;
+            std::cout << generic << std::endl;
+            std::exit(1);
+        }
+        po::notify(vm);
+
+        string transcriptFiles = vm["transcripts"].as<string>();
+        bfs::path indexDirectory(vm["index"].as<string>());
+
+        bfs::path outputPrefix = indexDirectory / "bwaidx";
+
+        std::vector<char*> bwaArgVec{ "index", "-p",
+                                    const_cast<char*>(outputPrefix.string().c_str()),
+                                    const_cast<char*>(transcriptFiles.c_str()) };
+
+        char* bwaArgv[] = { bwaArgVec[0], bwaArgVec[1],
+                            bwaArgVec[2], bwaArgVec[3] };
+        int bwaArgc = 4;
+
+        ret = bwa_index(bwaArgc, bwaArgv);
+
+    std::cerr << "done\n";
+
+    } catch (po::error &e) {
+        std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
+        std::exit(1);
+    } catch (std::exception& e) {
+        std::cerr << "Exception : [" << e.what() << "]\n";
+        std::cerr << argv[0] << " index was invoked improperly.\n";
+        std::cerr << "For usage information, try " << argv[0] << " index --help\nExiting.\n";
+    }
+    return ret;
+}
+
+/*
 int salmonIndex(int argc, char* argv[]) {
 
     using std::string;
@@ -319,3 +387,4 @@ Salmon index.
         std::cerr << "For usage information, try " << argv[0] << " index --help\nExiting.\n";
     }
 }
+*/

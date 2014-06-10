@@ -56,8 +56,9 @@ public:
                                                      ".fasta", ".fastq", ".fa", ".fq"};
         bool extensionsOK{true};
         for (auto& fn : filenames) {
-            auto ext = bfs::path(fn).extension().string();
-            if (acceptableExensions.find(ext) == acceptableExensions.end()) {
+            auto fpath = bfs::path(fn);
+            auto ext = fpath.extension().string();
+            if (bfs::is_regular_file(fpath) and acceptableExensions.find(ext) == acceptableExensions.end()) {
                 errorStream << "ERROR: file " << fn << " has extension " << ext << ", "
                             << "which suggests it is neither a fasta nor a fastq file.\n"
                             << "Is this a compressed file?  If so, consider replacing: \n\n"
