@@ -220,7 +220,7 @@ ExternalProject_Add(libcereal
     INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include && cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
 )
 
-message("Build system will fetch and build the BWA (for Salmon)")
+message("Build system will fetch and build BWA (for Salmon)")
 message("==================================================================")
 include(ExternalProject)
 ExternalProject_Add(libbwa
@@ -231,6 +231,20 @@ ExternalProject_Add(libbwa
     CONFIGURE_COMMAND ""
     BUILD_COMMAND sh -c "make"
     INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/bwa && cp libbwa.a <INSTALL_DIR>/lib && cp *.h <INSTALL_DIR>/include/bwa && cp is.c bwtindex.c bwt_gen.c QSufSort.c ${CMAKE_CURRENT_SOURCE_DIR}/src/"
+    BUILD_IN_SOURCE TRUE
+)
+
+
+message("Build system will fetch and build CLASP (for Salmon)")
+message("==================================================================")
+ExternalProject_Add(libclasp
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://www.cs.cmu.edu/~robp/files/clasp_v1_1.tar.gz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/clasp_v1_1
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND sh -c "make && ar cr libclasp.a <SOURCE_DIR>/libs/*.o"
+    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/clasp && cp libclasp.a <INSTALL_DIR>/lib && cp libs/*.h <INSTALL_DIR>/include/clasp"
     BUILD_IN_SOURCE TRUE
 )
 

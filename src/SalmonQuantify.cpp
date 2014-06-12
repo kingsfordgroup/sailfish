@@ -96,6 +96,7 @@ extern "C" {
 #include "ReadLibrary.hpp"
 
 #include "PairSequenceParser.hpp"
+#include "FragmentList.hpp"
 
 //#include "google/dense_hash_map"
 
@@ -292,20 +293,36 @@ class KmerVote {
         uint32_t voteLen{0};
 };
 
+class MatchFragment {
+    public:
+        MatchFragment(uint32_t refStart_, uint32_t queryStart_, uint32_t length_) :
+            refStart(refStart_), queryStart(queryStart_), length(length_) {}
+
+        uint32_t refStart, queryStart, length;
+        uint32_t weight;
+        double score;
+};
+
+bool precedes(const MatchFragment& a, const MatchFragment& b) {
+    return (a.refStart + a.length) < b.refStart and
+           (a.queryStart + a.length) < b.queryStart;
+}
+
 
 class TranscriptHitList {
     public:
         uint32_t bestHitPos{0};
         uint32_t bestHitScore{0};
+
         std::vector<KmerVote> votes;
         std::vector<KmerVote> rcVotes;
 
-        void addVote(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
+        void addFragMatch(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
             uint32_t votePos = (readPos > tpos) ? 0 : tpos - readPos;
             votes.emplace_back(votePos, readPos, voteLen);
         }
 
-        void addVoteRC(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
+        void addFragMatchRC(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
             uint32_t votePos = (readPos > tpos) ? 0 : tpos - readPos;
             rcVotes.emplace_back(votePos, readPos, voteLen);
         }
@@ -349,36 +366,7 @@ class TranscriptHitList {
 
         }
 
-        /*
-
-        void computeBestChain_(std::vector<KmerVote>& sVotes, uint32_t& maxClusterPos, uint32_t& maxClusterCount) {
-            if (sVotes.size() == 0) { return; }
-            std::vector<double> scores(sVotes.size(), -std::numeric_limits<double>::max());
-
-            for (size_t i = 0; i < sVotes.size(); ++i) {
-                auto& fragI = sVotes[i];
-                for (size_t j = 0; j < i; ++j) {
-                    auto& fragJ = sVotes[j];
-                    if (precedes(fragJ, fragI)) {
-                        auto score = scores[j] - gapCost(fragJ, fragI);
-                        if (score > scores[i]) { scores[i] = score; }
-                    }
-                }
-                scores[i] += weight(fragI);
-                if (scores[i] > maxClusterCount) {
-                    maxClusterCount = scores[i];
-                    maxClusterPos = i;
-                }
-            }
-        }
-
         bool computeBestChain() {
-            return true;
-        }
-
-        */
-
-        bool computeBestHit() {
             std::sort(votes.begin(), votes.end(),
                     [](const KmerVote& v1, const KmerVote& v2) -> bool {
                         if (v1.votePos == v2.votePos) {
@@ -406,9 +394,61 @@ class TranscriptHitList {
 
             return true;
         }
+
+            /*
+        std::vector<MatchFragment> frags;
+        std::vector<MatchFragment> rcFrags;
+
+        void addFragMatch(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
+            frags.emplace_back(tpos, readPos, voteLen);
+        }
+
+        void addFragMatchRC(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
+             rcFrags.emplace_back(tpos, readPos, voteLen);
+        }
+
+        double gapCost_(MatchFragment& a, MatchFragment& b) {
+            return 0.5 * ((a.queryStart + a.length - b.queryStart) +
+                          (a.refStart + a.length - b.refStart) );
+        }
+
+        void computeBestChain_(std::vector<MatchFragment>& mfrags, uint32_t& maxClusterPos, uint32_t& maxClusterCount) {
+            if (mfrags.size() == 0) { return; }
+            std::vector<double> scores(mfrags.size(), 0);
+
+            for (size_t i = 0; i < mfrags.size(); ++i) {
+                auto& fragI = mfrags[i];
+                for (size_t j = 0; j < mfrags.size(); ++j) {
+                    auto& fragJ = mfrags[j];
+                    if (precedes(fragJ, fragI)) {
+                        auto score = scores[j] - gapCost_(fragJ, fragI);
+                        if (score > scores[i]) { scores[i] = score; }
+                    }
+                }
+                scores[i] += fragI.weight;
+                if (scores[i] > maxClusterCount) {
+                    maxClusterCount = scores[i];
+                    maxClusterPos = i;
+                }
+            }
+        }
+
+        bool computeBestChain() {
+            uint32_t maxClusterPos{0};
+            uint32_t maxClusterCount{0};
+
+            computeBestChain_(frags, maxClusterPos, maxClusterCount);
+            computeBestChain_(rcFrags, maxClusterPos, maxClusterCount);
+
+            bestHitPos = maxClusterPos;
+            bestHitScore = maxClusterCount;
+
+            return true;
+        }
+        */
 };
 
-
+template <typename CoverageCalculator>
 void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& frag,
                         bwaidx_t *idx,
                         smem_i *itr,
@@ -422,8 +462,11 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
 
     uint64_t leftHitCount{0};
 
-    std::unordered_map<uint64_t, TranscriptHitList> leftHits;
-    std::unordered_map<uint64_t, TranscriptHitList> rightHits;
+    //std::unordered_map<uint64_t, TranscriptHitList> leftHits;
+    //std::unordered_map<uint64_t, TranscriptHitList> rightHits;
+    std::unordered_map<uint64_t, CoverageCalculator> leftHits;
+    std::unordered_map<uint64_t, CoverageCalculator> rightHits;
+
 
     uint32_t leftReadLength{0};
     uint32_t rightReadLength{0};
@@ -465,9 +508,9 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                         long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
                         if (isRev) {
                             qstart = leftReadLength - qend;
-                            leftHits[refID].addVoteRC(hitLoc, qstart, len);
+                            leftHits[refID].addFragMatchRC(hitLoc, qstart, len);
                         } else {
-                            leftHits[refID].addVote(hitLoc, qstart, len);
+                            leftHits[refID].addFragMatch(hitLoc, qstart, len);
                         }
                     } // for k
                 } // if <= minIWidth
@@ -511,9 +554,9 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                         long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
                         if (isRev) {
                             qstart = rightReadLength - qend;
-                            rightHits[refID].addVoteRC(hitLoc, qstart, len);
+                            rightHits[refID].addFragMatchRC(hitLoc, qstart, len);
                         } else {
-                            rightHits[refID].addVote(hitLoc, qstart, len);
+                            rightHits[refID].addFragMatch(hitLoc, qstart, len);
                         }
                     } // for k
                 } // if <= minIWidth
@@ -528,7 +571,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
 
     for (auto& tHitList : leftHits) {
         // Coverage score
-        tHitList.second.computeBestHit();
+        tHitList.second.computeBestChain();
         ++leftHitCount;
     }
 
@@ -539,7 +582,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         auto it = leftHits.find(tHitList.first);
         // Coverage score
         if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
-            tHitList.second.computeBestHit();
+            tHitList.second.computeBestChain();
             if (tHitList.second.bestHitScore < cutoffRight) { continue; }
             uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
             hitList.emplace_back(tHitList.first, score);
@@ -556,6 +599,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
   *
   *
   */
+template <typename CoverageCalculator>
 void getHitsForFragment(jellyfish::header_sequence_qual& frag,
                         bwaidx_t *idx,
                         smem_i *itr,
@@ -569,7 +613,8 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 
     uint64_t leftHitCount{0};
 
-    std::unordered_map<uint64_t, TranscriptHitList> hits;
+    //std::unordered_map<uint64_t, TranscriptHitList> hits;
+    std::unordered_map<uint64_t, CoverageCalculator> hits;
 
     uint32_t readLength{0};
 
@@ -609,9 +654,9 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
                         long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
                         if (isRev) {
                             qstart = readLength - qend;
-                            hits[refID].addVoteRC(hitLoc, qstart, len);
+                            hits[refID].addFragMatchRC(hitLoc, qstart, len);
                         } else {
-                            hits[refID].addVote(hitLoc, qstart, len);
+                            hits[refID].addFragMatch(hitLoc, qstart, len);
                         }
                     } // for k
                 } // if <= minIWidth
@@ -626,7 +671,7 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
     double cutoff{ coverageThresh * readLength};
     for (auto& tHitList : hits) {
         // Coverage score
-        tHitList.second.computeBestHit();
+        tHitList.second.computeBestChain();
         if (tHitList.second.bestHitScore >= cutoff) {
             uint32_t score = tHitList.second.bestHitScore;
             hitList.emplace_back(tHitList.first, score);
@@ -643,7 +688,7 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 // To use the parser in the following, we get "jobs" until none is
 // available. A job behaves like a pointer to the type
 // jellyfish::sequence_list (see whole_sequence_parser.hpp).
-template <typename ParserT>
+template <typename ParserT, typename CoverageCalculator>
 void processReadsMEM(ParserT* parser,
                std::atomic<uint64_t>& totalHits,
                std::atomic<uint64_t>& rn,
@@ -682,168 +727,17 @@ void processReadsMEM(ParserT* parser,
     hitLists.resize(j->nb_filled);
     for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
 
-    /*
-        std::unordered_map<uint64_t, TranscriptHitList> leftFwdHits;
-        std::unordered_map<uint64_t, TranscriptHitList> leftBwdHits;
 
-        std::unordered_map<uint64_t, TranscriptHitList> rightFwdHits;
-        std::unordered_map<uint64_t, TranscriptHitList> rightBwdHits;
-
-        uint32_t totFwdLeft = 0;
-        uint32_t totBwdLeft = 0;
-        uint32_t totFwdRight = 0;
-        uint32_t totBwdRight = 0;
-        uint32_t readLength = 0;
-
-        uint32_t leftReadLength{0};
-        uint32_t rightReadLength{0};
-
-        uint64_t prevEQ{std::numeric_limits<uint64_t>::max()};
-
-        //---------- Left End ----------------------//
-        {
-            std::string& readStr   = j->data[i].first.seq;
-            uint32_t readLen      = j->data[i].first.seq.size();
-
-            leftReadLength = readLen;
-
-            for (int p = 0; p < readLen; ++p) {
-                readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
-            }
-
-            char* readPtr = const_cast<char*>(readStr.c_str());
-
-            smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
-
-            // while there are more matches on the query
-            while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
-                for (size_t mi = 0; mi < a->n; ++mi) {
-                    bwtintv_t *p = &a->a[mi];
-                    if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
-                    uint32_t qstart = static_cast<uint32_t>(p->info>>32);
-                    uint32_t qend = static_cast<uint32_t>(p->info);
-                    long numHits = static_cast<long>(p->x[2]);
-
-                    if ( p->x[2] <= minIWidth) {
-                        for (bwtint_t k = 0; k < p->x[2]; ++k) {
-                            bwtint_t pos;
-                            int len, isRev, refID;
-                            len = static_cast<uint32_t>(p->info - (p->info >> 32));
-                            pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
-                            if (isRev) { pos -= len - 1; }
-                            bns_cnt_ambi(idx->bns, pos, len, &refID);
-                            long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
-                            if (isRev) {
-                                qstart = leftReadLength - qend;
-                                leftFwdHits[refID].addVoteRC(hitLoc, qstart, len);
-                            } else {
-                                leftFwdHits[refID].addVote(hitLoc, qstart, len);
-                            }
-                        } // for k
-                    } // if <= minIWidth
-
-                } // for mi
-            } // for all query matches
-        }
-
-        hitLists[i].clear();
-        auto& hitList = hitLists[i];
-        prevEQ = std::numeric_limits<uint64_t>::max();
-        //---------- Right End ----------------------//
-        {
-            std::string& readStr   = j->data[i].second.seq;
-            uint32_t readLen      = j->data[i].second.seq.size();
-
-            rightReadLength = readLen;
-
-            for (int p = 0; p < readLen; ++p) {
-                readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
-            }
-
-            char* readPtr = const_cast<char*>(readStr.c_str());
-            smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
-
-            // while there are more matches on the query
-            while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
-                for (size_t mi = 0; mi < a->n; ++mi) {
-                    bwtintv_t *p = &a->a[mi];
-                    if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
-                    uint32_t qstart = static_cast<uint32_t>(p->info>>32);
-                    uint32_t qend = static_cast<uint32_t>(p->info);
-                    long numHits = static_cast<long>(p->x[2]);
-
-                    if ( p->x[2] <= minIWidth) {
-                        for (bwtint_t k = 0; k < p->x[2]; ++k) {
-                            bwtint_t pos;
-                            int len, isRev, refID;
-                            len = static_cast<uint32_t>(p->info - (p->info >> 32));
-                            pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
-                            if (isRev) { pos -= len - 1; }
-                            bns_cnt_ambi(idx->bns, pos, len, &refID);
-                            long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
-                            if (isRev) {
-                                qstart = rightReadLength - qend;
-                                rightFwdHits[refID].addVoteRC(hitLoc, qstart, len);
-                            } else {
-                                rightFwdHits[refID].addVote(hitLoc, qstart, len);
-                            }
-                        } // for k
-                    } // if <= minIWidth
-
-                } // for mi
-            } // for all query matches
-
-        } // end right
-
-        size_t readHits{0};
-        std::unordered_map<TranscriptID, uint32_t> leftHitCounts;
-        std::unordered_map<TranscriptID, uint32_t> rightHitCounts;
-
-        auto& leftHits = leftFwdHits;
-        auto& rightHits = rightFwdHits;
-
-        for (auto& tHitList : leftHits) {
-            // Coverage score
-            tHitList.second.computeBestHit();
-            ++leftHitCount;
-        }
-
-        double cutoffLeft{ coverageThresh * leftReadLength};
-        double cutoffRight{ coverageThresh * rightReadLength};
-
-        for (auto& tHitList : rightHits) {
-            auto it = leftHits.find(tHitList.first);
-            // Coverage score
-            if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
-                tHitList.second.computeBestHit();
-                if (tHitList.second.bestHitScore < cutoffRight) { continue; }
-                uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
-                hitList.emplace_back(tHitList.first, score);
-                readHits += score;
-                ++hitListCount;
-            }
-        }
-
-        totalHits += hitList.size() > 0;
-    */
-
-
-        getHitsForFragment(j->data[i], idx, itr, a,
-                           minLen, minIWidth, splitWidth, coverageThresh,
-                           hitLists[i], hitListCount);
+        getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
+                                               minLen, minIWidth, splitWidth, coverageThresh,
+                                               hitLists[i], hitListCount);
         auto& hitList = hitLists[i];
         totalHits += hitList.size() > 0;
-
 
         locRead++;
         ++rn;
         if (rn % 50000 == 0) {
             std::cerr << "\r\rprocessed read "  << rn;
-/*            std::cerr << "\n leftHits.size() " << leftHits.size()
-                << ", rightHits.size() " << rightHits.size() << ", hit list of size = " << hitList.size() << "\n";
-                std::cerr << "average leftHits = " << leftHitCount / static_cast<float>(locRead)
-               << ", average hitList = " << hitListCount / static_cast<float>(locRead) << "\n";
-               */
         }
 
         // If the read mapped to > 100 places, discard it
@@ -884,6 +778,7 @@ int salmonQuantify(int argc, char *argv[]) {
     namespace po = boost::program_options;
 
     bool noBiasCorrect{false};
+    bool greedyChain{false};
     uint32_t maxThreads = std::thread::hardware_concurrency();
     uint32_t sampleRate{1};
     double coverageThresh;
@@ -910,6 +805,7 @@ int salmonQuantify(int argc, char *argv[]) {
     ("maxOcc,n", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "MEMs occuring more than this many times won't be considered")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of MEMs to consider it a \"hit\"")
     ("output,o", po::value<std::string>(), "Output quantification file")
+    ("greedyChain,f", po::bool_switch(&greedyChain)->default_value(false), "Chain MEMs greedily rather than optimally")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
                                         "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
@@ -1067,18 +963,33 @@ transcript abundance from RNA-seq reads
 
 
                 for(int i = 0; i < nbThreads; ++i)  {
-                    threads.push_back(std::thread(processReadsMEM<paired_parser>, &parser,
-                                std::ref(totalHits), std::ref(rn),
-                                idx,
-                                std::ref(transcripts_),
-                                std::ref(batchNum),
-                                std::ref(logForgettingMass),
-                                std::ref(ffmutex),
-                                std::ref(clusterForest),
-                                minMEMLength,
-                                maxMEMOcc,
-                                coverageThresh
-                                ));
+                    if (greedyChain) {
+                        threads.push_back(std::thread(processReadsMEM<paired_parser, TranscriptHitList>, &parser,
+                                    std::ref(totalHits), std::ref(rn),
+                                    idx,
+                                    std::ref(transcripts_),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffmutex),
+                                    std::ref(clusterForest),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh
+                                    ));
+                    } else {
+                        threads.push_back(std::thread(processReadsMEM<paired_parser, FragmentList>, &parser,
+                                    std::ref(totalHits), std::ref(rn),
+                                    idx,
+                                    std::ref(transcripts_),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffmutex),
+                                    std::ref(clusterForest),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh
+                                    ));
+                    }
                 }
 
                 for(int i = 0; i < nbThreads; ++i)
@@ -1097,18 +1008,34 @@ transcript abundance from RNA-seq reads
                                      streams);
 
                 for(int i = 0; i < nbThreads; ++i)  {
-                    threads.push_back(std::thread(processReadsMEM<single_parser>, &parser,
-                                std::ref(totalHits), std::ref(rn),
-                                idx,
-                                std::ref(transcripts_),
-                                std::ref(batchNum),
-                                std::ref(logForgettingMass),
-                                std::ref(ffmutex),
-                                std::ref(clusterForest),
-                                minMEMLength,
-                                maxMEMOcc,
-                                coverageThresh
-                                ));
+                    if (greedyChain) {
+                        threads.push_back(std::thread(processReadsMEM<single_parser, TranscriptHitList>, &parser,
+                                    std::ref(totalHits), std::ref(rn),
+                                    idx,
+                                    std::ref(transcripts_),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffmutex),
+                                    std::ref(clusterForest),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh
+                                    ));
+                    } else {
+                        threads.push_back(std::thread(processReadsMEM<single_parser, FragmentList>, &parser,
+                                    std::ref(totalHits), std::ref(rn),
+                                    idx,
+                                    std::ref(transcripts_),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffmutex),
+                                    std::ref(clusterForest),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh
+                                    ));
+                    }
+
                 }
 
                 for(int i = 0; i < nbThreads; ++i)

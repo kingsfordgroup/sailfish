@@ -12,6 +12,7 @@ QSufSort.c
 is.c
 bwt_gen.c
 bwtindex.c
+FragmentList.cpp
 Salmon.cpp
 BuildSalmonIndex.cpp
 SalmonQuantify.cpp
@@ -62,6 +63,7 @@ ${GAT_SOURCE_DIR}/external/install/include
 ${GAT_SOURCE_DIR}/external/install/include/samtools
 ${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.1.3
 ${GAT_SOURCE_DIR}/external/install/include/bwa
+${GAT_SOURCE_DIR}/external/install/include/clasp
 ${ZLIB_INCLUDE_DIR}
 ${TBB_INCLUDE_DIRS}
 ${Boost_INCLUDE_DIRS}
@@ -120,6 +122,7 @@ target_link_libraries(salmon
     sailfish_core 
     gff
     bwa
+    clasp
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     cmph # perfect hashing library
