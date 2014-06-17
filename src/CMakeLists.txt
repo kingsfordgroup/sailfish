@@ -145,6 +145,7 @@ target_link_libraries(salmon-read
     cmph # perfect hashing library
     jellyfish-2.0 
     ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
+    z
     pthread 
     gomp 
     m
