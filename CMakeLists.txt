@@ -237,18 +237,18 @@ ExternalProject_Add(libcmph
 
 message("build system will fetch and build jellyfish")
 message("==================================================================")
-externalproject_add(libjellyfish
-    download_dir ${cmake_current_source_dir}/external
-    url http://www.cbcb.umd.edu/software/jellyfish/jellyfish-1.1.10.tar.gz
-    source_dir ${cmake_current_source_dir}/external/jellyfish-1.1.10
-    install_dir ${cmake_current_source_dir}/external/install
-    configure_command ${cmake_current_source_dir}/external/jellyfish-1.1.10/configure --prefix=<install_dir>
-    build_command ${make}
-    build_in_source 1
-    install_command make install && 
-                    cp config.h <install_dir>/include/jellyfish-1.1.10/ && 
-                    cp jellyfish/noop_dumper.hpp <install_dir>/include/jellyfish-1.1.10/jellyfish &&
-                    cp jellyfish/count_main_cmdline.hpp <install_dir>/include/jellyfish-1.1.10/jellyfish
+ExternalProject_Add(libjellyfish
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://www.cbcb.umd.edu/software/jellyfish/jellyfish-1.1.10.tar.gz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-1.1.10
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-1.1.10/configure --prefix=<INSTALL_DIR>
+    BUILD_COMMAND ${MAKE}
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND make install && 
+                    cp config.h <INSTALL_DIR>/include/jellyfish-1.1.10/ && 
+                    cp jellyfish/noop_dumper.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish &&
+                    cp jellyfish/count_main_cmdline.hpp <INSTALL_DIR>/include/jellyfish-1.1.10/jellyfish
 )
 
 find_package(TBB)
