@@ -1,8 +1,8 @@
 /**
 >HEADER
-    Copyright (c) 2013/2014 Rob Patro robp@cs.cmu.edu
+    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
 
-    This file is part of the Sailfish suite.
+    This file is part of Sailfish.
 
     Sailfish is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,3 +20,16 @@
 **/
 
 
+#ifndef SALMON_CONFIG_HPP
+#define SALMON_CONFIG_HPP
+
+#include <string>
+
+namespace salmon {
+	constexpr char majorVersion[] = "0";
+	constexpr char minorVersion[] = "1";
+	constexpr char patchVersion[] = "0";
+	constexpr char version[] = "0.1.0";
+}
+
+#endif // SALMON_CONFIG_HPP

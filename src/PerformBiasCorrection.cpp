@@ -370,12 +370,13 @@ int performBiasCorrection(
         std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
 
         double grandMean = 0.0;
-        for (auto i : boost::irange(size_t{0}, size_t{train.n_samples})) {
+        size_t ntrain = train.n_samples;
+        for (auto i : boost::irange(size_t{0}, ntrain)) {
                 grandMean += retainedRPKMs[i];
         }
         grandMean /= train.n_samples;
 
-        for (auto i : boost::irange(size_t{0}, size_t{train.n_samples})) {
+        for (auto i : boost::irange(size_t{0}, ntrain)) {
                 pred[i] = grandMean + (retainedRPKMs[i] - pred[i]);
         }
 

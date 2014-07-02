@@ -20,7 +20,7 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 ## Set the standard required compile flags
-set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -O3 -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
+set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -march=native -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wno-unused-local-typedefs")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -65,11 +65,18 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
 
     set (BOOST_CONFIGURE_TOOLSET "")
     set (BOOST_EXTRA_FLAGS "")
+    # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    message(FATAL_ERROR "Currently, the only supported compiler is GCC(>=4.7).  We hope to support Clang soon.")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-    set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
-    set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
+    # If we're on OSX using clang, try to use libc++ instead of libstdc++
+    if (APPLE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
+        set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
+    endif()
+    # We should have the logger under clang
+    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
+    set (HAVE_LOGGER TRUE)
+ 
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
@@ -102,6 +109,11 @@ set (Boost_USE_STATIC_RUNTIME OFF)
 # unset(Boost_INCLUDE_DIRS CACHE)
 # unset(Boost_LIBRARY_DIRS CACHE) 
 # message("BOOST_ROOT = ${BOOST_ROOT}")
+
+find_package (ZLIB)
+if (NOT ZLIB_FOUND)
+	message(FATAL_ERROR "zlib must be installed before configuration & building can proceed")
+endif()
 
 ##
 # Set the latest version and look for what we need
@@ -183,27 +195,8 @@ message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
 message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
-find_package (ZLIB)
-
+	
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
-
-##
-# Logging library; currently unused so the dependency is temporarily removed
-##
-# message(status "Building and Installing g2log")
-# message(status "============================")
-# include(ExternalProject)
-# ExternalProject_Add(libg2log
-#     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-#     URL http://www.cs.cmu.edu/~robp/files/g2log.tgz
-#     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
-#     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-#     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-#     BUILD_COMMAND make
-#     #BUILD_IN_SOURCE 1
-#     INSTALL_COMMAND sh -c "cp <BINARY_DIR>/*.a <INSTALL_DIR>/lib && cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include"
-# )
-# message(status "g2log installed.")
 
 message("Build system will fetch and build the Cereal serialization library")
 message("==================================================================")
@@ -316,7 +309,7 @@ set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-	URL http://threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb41_20130314oss_src.tgz
+    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb42_20140601oss_src.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     PATCH_COMMAND "${TBB_PATCH_STEP}"

@@ -16,6 +16,7 @@ public:
 
     Transcript(Transcript&& other) {
         id = other.id;
+        //std::swap(RefName, other.RefName);
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
         uniqueCount_.store(other.uniqueCount_);
@@ -23,9 +24,11 @@ public:
 
     Transcript& operator=(Transcript&& other) {
         id = other.id;
+        //std::swap(RefName, other.RefName);
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
         uniqueCount_.store(other.uniqueCount_);
+        return *this;
     }
 
 

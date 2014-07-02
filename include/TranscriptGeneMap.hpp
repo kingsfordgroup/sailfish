@@ -51,11 +51,10 @@ private:
 
         _genesToTranscripts.resize( _geneNames.size(), {});
 
-        Index geneID;
         Index transcriptID = 0;
         size_t maxNumTrans = 0;
         Index maxGene;
-        for ( size_t transcriptID = 0; transcriptID < _transcriptsToGenes.size(); ++transcriptID ) {
+        for ( transcriptID = 0; transcriptID < _transcriptsToGenes.size(); ++transcriptID ) {
             _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].push_back( transcriptID );
             if ( maxNumTrans < _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].size() ) {
                 maxNumTrans = _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].size();

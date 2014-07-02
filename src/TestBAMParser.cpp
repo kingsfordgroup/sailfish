@@ -100,7 +100,7 @@ public:
         using sailfish::math::approxEqual;
 
         // The transcript belonging to this cluster
-        double clusterCounts{count_};
+        double clusterCounts{static_cast<double>(count_)};
         std::vector<Transcript*> transcripts;
         for (auto tid : members_) {
             transcripts.push_back(&allTranscripts[tid]);

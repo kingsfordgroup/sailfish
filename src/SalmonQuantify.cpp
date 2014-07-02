@@ -94,11 +94,12 @@ extern "C" {
 #include "LibraryFormat.hpp"
 #include "SailfishUtils.hpp"
 #include "ReadLibrary.hpp"
+#include "SalmonConfig.hpp"
 
 #include "PairSequenceParser.hpp"
 #include "FragmentList.hpp"
 
-//#include "google/dense_hash_map"
+#include "google/dense_hash_map"
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
@@ -317,6 +318,8 @@ class TranscriptHitList {
         std::vector<KmerVote> votes;
         std::vector<KmerVote> rcVotes;
 
+        uint32_t targetID;
+
         void addFragMatch(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
             uint32_t votePos = (readPos > tpos) ? 0 : tpos - readPos;
             votes.emplace_back(votePos, readPos, voteLen);
@@ -337,7 +340,7 @@ class TranscriptHitList {
             };
 
             boost::container::flat_map<uint32_t, VoteInfo> hitMap;
-            int32_t currClust{sVotes.front().votePos};
+            int32_t currClust{static_cast<int32_t>(sVotes.front().votePos)};
             for (size_t j = 0; j < sVotes.size(); ++j) {
 
                 uint32_t votePos = sVotes[j].votePos;
@@ -464,9 +467,15 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
 
     //std::unordered_map<uint64_t, TranscriptHitList> leftHits;
     //std::unordered_map<uint64_t, TranscriptHitList> rightHits;
-    std::unordered_map<uint64_t, CoverageCalculator> leftHits;
-    std::unordered_map<uint64_t, CoverageCalculator> rightHits;
 
+    //std::unordered_map<uint64_t, CoverageCalculator> leftHits;
+    //std::unordered_map<uint64_t, CoverageCalculator> rightHits;
+
+
+    google::dense_hash_map<uint64_t, CoverageCalculator> leftHits;
+    google::dense_hash_map<uint64_t, CoverageCalculator> rightHits;
+    leftHits.set_empty_key(std::numeric_limits<uint64_t>::max());
+    rightHits.set_empty_key(std::numeric_limits<uint64_t>::max());
 
     uint32_t leftReadLength{0};
     uint32_t rightReadLength{0};
@@ -495,7 +504,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                 if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
                 uint32_t qstart = static_cast<uint32_t>(p->info>>32);
                 uint32_t qend = static_cast<uint32_t>(p->info);
-                long numHits = static_cast<long>(p->x[2]);
+                // long numHits = static_cast<long>(p->x[2]);
 
                 if ( p->x[2] <= minIWidth) {
                     for (bwtint_t k = 0; k < p->x[2]; ++k) {
@@ -506,6 +515,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                         if (isRev) { pos -= len - 1; }
                         bns_cnt_ambi(idx->bns, pos, len, &refID);
                         long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+
                         if (isRev) {
                             qstart = leftReadLength - qend;
                             leftHits[refID].addFragMatchRC(hitLoc, qstart, len);
@@ -541,7 +551,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                 if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
                 uint32_t qstart = static_cast<uint32_t>(p->info>>32);
                 uint32_t qend = static_cast<uint32_t>(p->info);
-                long numHits = static_cast<long>(p->x[2]);
+                // long numHits = static_cast<long>(p->x[2]);
 
                 if ( p->x[2] <= minIWidth) {
                     for (bwtint_t k = 0; k < p->x[2]; ++k) {
@@ -552,6 +562,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                         if (isRev) { pos -= len - 1; }
                         bns_cnt_ambi(idx->bns, pos, len, &refID);
                         long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset) + 1;
+
                         if (isRev) {
                             qstart = rightReadLength - qend;
                             rightHits[refID].addFragMatchRC(hitLoc, qstart, len);
@@ -641,7 +652,7 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
                 if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
                 uint32_t qstart = static_cast<uint32_t>(p->info>>32);
                 uint32_t qend = static_cast<uint32_t>(p->info);
-                long numHits = static_cast<long>(p->x[2]);
+                // long numHits = static_cast<long>(p->x[2]);
 
                 if ( p->x[2] <= minIWidth) {
                     for (bwtint_t k = 0; k < p->x[2]; ++k) {
@@ -700,7 +711,8 @@ void processReadsMEM(ParserT* parser,
                ClusterForest& clusterForest,
                uint32_t minMEMLength,
                uint32_t maxMEMOcc,
-               double coverageThresh
+               double coverageThresh,
+	       std::mutex& iomutex
                ) {
   uint64_t count_fwd = 0, count_bwd = 0;
 
@@ -715,8 +727,8 @@ void processReadsMEM(ParserT* parser,
   // Super-MEM iterator
   smem_i *itr = smem_itr_init(idx->bwt);
   const bwtintv_v *a;
-  int minLen{minMEMLength};
-  int minIWidth{maxMEMOcc};
+  int minLen{static_cast<int>(minMEMLength)};
+  int minIWidth{static_cast<int>(maxMEMOcc)};
   int splitWidth{0};
 
   size_t locRead{0};
@@ -737,7 +749,9 @@ void processReadsMEM(ParserT* parser,
         locRead++;
         ++rn;
         if (rn % 50000 == 0) {
+	    iomutex.lock();
             std::cerr << "\r\rprocessed read "  << rn;
+	    iomutex.unlock();
         }
 
         // If the read mapped to > 100 places, discard it
@@ -839,7 +853,7 @@ transcript abundance from RNA-seq reads
 
 
         for (auto& opt : orderedOptions.options) {
-            std::cerr << "[ " << opt.string_key << "] => {";
+            std::cerr << "[ " << opt.string_key << " ] => {";
             for (auto& val : opt.value) {
                 std::cerr << " " << val;
             }
@@ -882,28 +896,11 @@ transcript abundance from RNA-seq reads
         g2::initializeLogging(&logger);
 #endif
 
-        vector<ReadLibrary> readLibraries;
-        for (auto& opt : orderedOptions.options) {
-            if (opt.string_key == "libtype") {
-                LibraryFormat libFmt = sailfish::utils::parseLibraryFormatString(opt.value[0]);
-                if (libFmt.check()) {
-                    std::cerr << libFmt << "\n";
-                } else {
-                    std::stringstream ss;
-                    ss << libFmt << " is invalid!";
-                    throw std::invalid_argument(ss.str());
-                }
-                readLibraries.emplace_back(libFmt);
-            } else if (opt.string_key == "mates1") {
-                readLibraries.back().addMates1(opt.value);
-            } else if (opt.string_key == "mates2") {
-                readLibraries.back().addMates2(opt.value);
-            } else if (opt.string_key == "unmated_reads") {
-                readLibraries.back().addUnmated(opt.value);
-            }
-        }
+        //----- WHAT?????? -----
+        LOG(INFO) << "parsing read library format";
 
-        bwaidx_t *idx;
+        vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
+        bwaidx_t *idx{nullptr};
 
         { // mem-based
             bfs::path indexPath = indexDirectory / "bwaidx";
@@ -925,8 +922,9 @@ transcript abundance from RNA-seq reads
 
         std::sort(transcripts_tmp.begin(), transcripts_tmp.end(),
                 [](const Transcript& t1, const Transcript& t2) -> bool {
-                return t1.id < t2.id;
+                    return t1.id < t2.id;
                 });
+
         std::vector<Transcript> transcripts_;
         for (auto& t : transcripts_tmp) {
             transcripts_.emplace_back(t.id, t.RefName.c_str(), t.RefLength);
@@ -944,6 +942,7 @@ transcript abundance from RNA-seq reads
 
         double logForgettingMass{sailfish::math::LOG_1};
         std::mutex ffmutex;
+        std::mutex iomutex;
 
 
         uint32_t nbThreads = vm["threads"].as<uint32_t>();
@@ -974,9 +973,11 @@ transcript abundance from RNA-seq reads
                                     std::ref(clusterForest),
                                     minMEMLength,
                                     maxMEMOcc,
-                                    coverageThresh
+                                    coverageThresh,
+                                    std::ref(iomutex)
                                     ));
                     } else {
+                        /*
                         threads.push_back(std::thread(processReadsMEM<paired_parser, FragmentList>, &parser,
                                     std::ref(totalHits), std::ref(rn),
                                     idx,
@@ -987,8 +988,9 @@ transcript abundance from RNA-seq reads
                                     std::ref(clusterForest),
                                     minMEMLength,
                                     maxMEMOcc,
-                                    coverageThresh
-                                    ));
+                                    coverageThresh,
+                                    std::ref(iomutex)
+                                    ));*/
                     }
                 }
 
@@ -1002,10 +1004,10 @@ transcript abundance from RNA-seq reads
                 size_t maxReadGroup{1000}; // Number of files to read simultaneously
                 size_t concurrentFile{1}; // Number of reads in each "job"
                 stream_manager streams( rl.unmated().begin(),
-                                        rl.unmated().end(), concurrentFile);
+                        rl.unmated().end(), concurrentFile);
 
                 single_parser parser(4 * nbThreads, maxReadGroup, concurrentFile,
-                                     streams);
+                        streams);
 
                 for(int i = 0; i < nbThreads; ++i)  {
                     if (greedyChain) {
@@ -1019,9 +1021,11 @@ transcript abundance from RNA-seq reads
                                     std::ref(clusterForest),
                                     minMEMLength,
                                     maxMEMOcc,
-                                    coverageThresh
+                                    coverageThresh,
+                                    std::ref(iomutex)
                                     ));
                     } else {
+                        /*
                         threads.push_back(std::thread(processReadsMEM<single_parser, FragmentList>, &parser,
                                     std::ref(totalHits), std::ref(rn),
                                     idx,
@@ -1032,8 +1036,10 @@ transcript abundance from RNA-seq reads
                                     std::ref(clusterForest),
                                     minMEMLength,
                                     maxMEMOcc,
-                                    coverageThresh
+                                    coverageThresh,
+                                    std::ref(iomutex)
                                     ));
+                                    */
                     }
 
                 }
@@ -1048,13 +1054,16 @@ transcript abundance from RNA-seq reads
 
         }
 
+        // ---- Get rid of things we no longer need --------
+        bwa_idx_destroy(idx);
+
         size_t tnum{0};
 
         std::cerr << "writing output \n";
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
         std::ofstream output(estFilePath.string());
-        output << "# Salmon v0.1.0\n";
+        output << "# Salmon version " << salmon::version << '\n';
         output << "# Name\tLength\tFPKM\tNumReads\n";
 
         const double logBillion = std::log(1000000000.0);
@@ -1104,8 +1113,8 @@ transcript abundance from RNA-seq reads
                 double countUnique = transcripts_[transcriptID].uniqueCounts;
                 double fpkm = count > 0 ? fpkmFactor * count : 0.0;
                 output << transcript.RefName << '\t' << transcript.RefLength
-                        << '\t' << fpkm << '\t' << fpkm
-                        << '\t' << fpkm << '\t' << count <<  '\t' << count << '\n';
+                    << '\t' << fpkm << '\t' << fpkm
+                    << '\t' << fpkm << '\t' << count <<  '\t' << count << '\n';
                 ++tidx;
             }
 
@@ -1137,35 +1146,35 @@ transcript abundance from RNA-seq reads
 
         /** If the user requested gene-level abundances, then compute those now **/
         if (vm.count("gene_map")) {
-           std::cerr << "Computing gene-level abundance estimates\n";
-           bfs::path gtfExtension(".gtf");
-           auto extension = geneMapPath.extension();
+            std::cerr << "Computing gene-level abundance estimates\n";
+            bfs::path gtfExtension(".gtf");
+            auto extension = geneMapPath.extension();
 
-           TranscriptGeneMap tranGeneMap;
-           // parse the map as a GTF file
-           if (extension == gtfExtension) {
-               // Using the custom GTF Parser
-               //auto features = GTFParser::readGTFFile<TranscriptGeneID>(geneMapPath.string());
-               //tranGeneMap = sailfish::utils::transcriptToGeneMapFromFeatures(features);
+            TranscriptGeneMap tranGeneMap;
+            // parse the map as a GTF file
+            if (extension == gtfExtension) {
+                // Using the custom GTF Parser
+                //auto features = GTFParser::readGTFFile<TranscriptGeneID>(geneMapPath.string());
+                //tranGeneMap = sailfish::utils::transcriptToGeneMapFromFeatures(features);
 
-               // Using libgff
+                // Using libgff
                 tranGeneMap = sailfish::utils::transcriptGeneMapFromGTF(geneMapPath.string(), "gene_id");
-           } else { // parse the map as a simple format files
-               std::ifstream tgfile(geneMapPath.string());
+            } else { // parse the map as a simple format files
+                std::ifstream tgfile(geneMapPath.string());
                 tranGeneMap = sailfish::utils::readTranscriptToGeneMap(tgfile);
                 tgfile.close();
-           }
+            }
 
-           std::cerr << "There were " << tranGeneMap.numTranscripts() << " transcripts mapping to "
-                     << tranGeneMap.numGenes() << " genes\n";
+            std::cerr << "There were " << tranGeneMap.numTranscripts() << " transcripts mapping to "
+                << tranGeneMap.numGenes() << " genes\n";
 
-           sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, estFilePath);
-           /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
-           if (!noBiasCorrect) {
+            sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, estFilePath);
+            /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
+            if (!noBiasCorrect) {
                 bfs::path biasCorrectEstFilePath(estFilePath.parent_path());
                 biasCorrectEstFilePath /= "quant_bias_corrected.sf";
                 sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, biasCorrectEstFilePath);
-           }
+            }
 
         }
 

@@ -109,7 +109,7 @@ bool countKmers(std::vector<std::string> readFiles,
 
 
     threads.emplace_back(thread(
-            [&parser, &readNum, &fileReadNum, &rhash, &start, &phi, &unmappedKmers, &k, discardPolyA, threadIdx, direction, merLen]() mutable -> void {
+            [&parser, &readNum, &fileReadNum, &rhash, &start, &phi, &unmappedKmers, &k, discardPolyA, threadIdx, direction, merLen]() mutable -> bool {
                     using BinMer = uint64_t;
                     vector<BinMer> fwdMers;
                     vector<BinMer> revMers;
@@ -143,7 +143,7 @@ bool countKmers(std::vector<std::string> readFiles,
                         // If this job is empty, then we're done
                         if (j.is_empty()) {
                             unmappedKmers += localUnmappedKmers;
-                            return;
+                            return true ;
                         }
 
                         for (size_t i=0; i < j->nb_filled; ++i) {
@@ -316,6 +316,7 @@ bool countKmers(std::vector<std::string> readFiles,
           // Wait for all of the threads to finish
           for ( auto& thread : threads ){ thread.join(); }
           cerr << "\n";
+          return true;
 }
 
 /**
@@ -556,11 +557,12 @@ same index, and the counts will be written to the file [counts].
                 std::cerr << " ] using " << cthreads << " threads\n";
 
                 auto myFuture = std::async(std::launch::async,
-                        countKmers<sequence_parser>,
+                        [&] () -> bool {
+                        return countKmers<sequence_parser>(
                         kv.second,
                         std::ref(phi), std::ref(rhash), merLen, discardPolyA,
                         kv.first, std::ref(numReadsProcessed),
-                        std::ref(unmappedKmers), std::ref(readNum), cthreads);
+                        std::ref(unmappedKmers), std::ref(readNum), cthreads); });
                 futures.emplace_back(std::move(myFuture));
             }
         }
