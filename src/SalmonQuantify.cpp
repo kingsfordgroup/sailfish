@@ -54,6 +54,10 @@ extern "C" {
 #include "utils.h"
 }
 
+#include "jellyfish/mer_dna.hpp"
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+
 /** Boost Includes */
 #include <boost/filesystem.hpp>
 #include <boost/container/flat_map.hpp>
@@ -81,10 +85,6 @@ extern "C" {
 
 #include "cereal/types/vector.hpp"
 #include "cereal/archives/binary.hpp"
-
-#include "jellyfish/mer_dna.hpp"
-#include "jellyfish/stream_manager.hpp"
-#include "jellyfish/whole_sequence_parser.hpp"
 
 #include "ClusterForest.hpp"
 #include "PerfectHashIndex.hpp"

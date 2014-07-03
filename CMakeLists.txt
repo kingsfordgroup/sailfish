@@ -72,6 +72,8 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
         set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
+    else()
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
     endif()
     # We should have the logger under clang
     set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
@@ -264,7 +266,7 @@ ExternalProject_Add(libjellyfish
     URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR>
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
     BUILD_COMMAND ${MAKE}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install && 

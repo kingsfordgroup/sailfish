@@ -38,6 +38,10 @@
 #include <chrono>
 #include <iomanip>
 
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+#include "jellyfish/mer_dna.hpp"
+
 #include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
@@ -48,10 +52,6 @@
 #include "tbb/concurrent_queue.h"
 #include "tbb/parallel_for_each.h"
 #include "tbb/task_scheduler_init.h"
-
-#include "jellyfish/stream_manager.hpp"
-#include "jellyfish/whole_sequence_parser.hpp"
-#include "jellyfish/mer_dna.hpp"
 
 #if HAVE_LOGGER
 #include "g2logworker.h"

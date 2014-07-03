@@ -39,6 +39,11 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include "jellyfish/config.h"
+#include "jellyfish/err.hpp"
+#include "jellyfish/misc.hpp"
+#include "jellyfish/jellyfish.hpp"
+
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
@@ -51,11 +56,6 @@
 #include "tbb/parallel_for_each.h"
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
-
-#include "jellyfish/config.h"
-#include "jellyfish/err.hpp"
-#include "jellyfish/misc.hpp"
-#include "jellyfish/jellyfish.hpp"
 
 #if HAVE_LOGGER
 #include "g2logworker.h"

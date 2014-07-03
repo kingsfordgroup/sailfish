@@ -21,6 +21,14 @@
 #include "cereal/types/vector.hpp"
 #include "cereal/archives/binary.hpp"
 
+#include "jellyfish/config.h"
+#include "jellyfish/err.hpp"
+#include "jellyfish/misc.hpp"
+#include "jellyfish/jellyfish.hpp"
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+
+
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
@@ -34,13 +42,6 @@
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
 #include "tbb/parallel_sort.h"
-
-#include "jellyfish/config.h"
-#include "jellyfish/err.hpp"
-#include "jellyfish/misc.hpp"
-#include "jellyfish/jellyfish.hpp"
-#include "jellyfish/stream_manager.hpp"
-#include "jellyfish/whole_sequence_parser.hpp"
 
 #if HAVE_LOGGER
 #include "g2logworker.h"

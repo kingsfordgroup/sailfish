@@ -36,6 +36,10 @@
 #include <list>
 #include <unordered_map>
 
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+#include "jellyfish/mer_dna.hpp"
+
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/thread/thread.hpp>
@@ -53,10 +57,6 @@
 #include "tbb/task_scheduler_init.h"
 
 #include "ReadLibrary.hpp"
-
-#include "jellyfish/stream_manager.hpp"
-#include "jellyfish/whole_sequence_parser.hpp"
-#include "jellyfish/mer_dna.hpp"
 
 #include "CountDBNew.hpp"
 #include "cmph.h"
