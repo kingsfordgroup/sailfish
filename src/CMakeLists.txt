@@ -16,6 +16,7 @@ FragmentList.cpp
 Salmon.cpp
 BuildSalmonIndex.cpp
 SalmonQuantify.cpp
+FragmentLengthDistribution.cpp 
 )
 
 set (BUILD_TRANSCRIPT_MAP_SRCS
@@ -53,6 +54,7 @@ PartitionRefiner.cpp
 StreamingSequenceParser.cpp
 cokus.cpp
 merge_files.cc
+format.cc
 )
 
 include_directories( 
@@ -60,7 +62,9 @@ ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include
-${GAT_SOURCE_DIR}/external/install/include/samtools
+#${GAT_SOURCE_DIR}/external/install/include/samtools
+#${GAT_SOURCE_DIR}/../../samtools
+#${GAT_SOURCE_DIR}/../../htslib
 ${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.1.3
 ${GAT_SOURCE_DIR}/external/install/include/bwa
 ${GAT_SOURCE_DIR}/external/install/include/clasp
@@ -72,6 +76,8 @@ ${Boost_INCLUDE_DIRS}
 link_directories( 
 ${GAT_SOURCE_DIR}/lib
 ${GAT_SOURCE_DIR}/external/install/lib
+#${GAT_SOURCE_DIR}/../../samtools
+#${GAT_SOURCE_DIR}/../../htslib
 ${Boost_LIBRARY_DIRS}
 ${TBB_LIBRARY_DIRS}
 ${LAPACK_LIBRARY_DIR}
@@ -139,12 +145,14 @@ add_dependencies(salmon libbwa)
 
 # Link the executable
 target_link_libraries(salmon-read
+    sailfish_core
     gff
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     cmph # perfect hashing library
     jellyfish-2.0 
     ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
+    hts
     z
     pthread 
     gomp 

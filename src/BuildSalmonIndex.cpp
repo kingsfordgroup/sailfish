@@ -91,7 +91,8 @@ int salmonIndex(int argc, char* argv[]) {
 Index
 ==========
 Augments an existing Sailfish index [index] with a
-Salmon index.
+Salmon index if it exists, or creates a new index
+[index] if one does not.
 )";
             std::cout << hstring << std::endl;
             std::cout << generic << std::endl;
@@ -101,6 +102,12 @@ Salmon index.
 
         string transcriptFiles = vm["transcripts"].as<string>();
         bfs::path indexDirectory(vm["index"].as<string>());
+
+        if (!bfs::exists(indexDirectory)) {
+            std::cerr << "index [" << indexDirectory << "] did not previously exist "
+                      << " . . . creating it\n";
+            bfs::create_directory(indexDirectory);
+        }
 
         bfs::path outputPrefix = indexDirectory / "bwaidx";
 

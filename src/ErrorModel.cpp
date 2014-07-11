@@ -26,11 +26,11 @@ double ErrorModel::logLikelihood(bam1_t* read, Transcript& ref,
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
     double logLike = sailfish::math::LOG_1;
 
-    uint8_t* qseq = bam1_seq(read);
-    auto qualStr = bam1_qual(read);
+    uint8_t* qseq = bam_get_seq(read);//bam1_seq(read);
+    auto qualStr = bam_get_qual(read);//bam1_qual(read);
     while (readIdx < read->core.l_qseq) {
-        size_t curReadBase = samToTwoBit[bam1_seqi(qseq, readIdx)];
-        size_t prevReadBase = (readIdx) ? samToTwoBit[bam1_seqi(qseq, readIdx-1)] : 0;
+        size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];// samToTwoBit[bam1_seqi(qseq, readIdx)];
+        size_t prevReadBase = (readIdx) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0; //(readIdx) ? samToTwoBit[bam1_seqi(qseq, readIdx-1)] : 0;
         size_t refBase = samToTwoBit[ref.baseAt(transcriptIdx, readStrand)];
         size_t index = prevReadBase + refBase;
         int qval = qualStr[readIdx];
@@ -91,11 +91,11 @@ void ErrorModel::update(bam1_t* read, Transcript& ref, double p, double mass,
     //    sailfish::stringtools::strand::forward;
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
 
-    uint8_t* qseq = bam1_seq(read);
-    uint8_t* qualStr = bam1_qual(read);
+    uint8_t* qseq = bam_get_seq(read);//bam1_seq(read);
+    uint8_t* qualStr = bam_get_qual(read);//bam1_qual(read);
     while (readIdx < read->core.l_qseq) {
-        size_t curReadBase = samToTwoBit[bam1_seqi(qseq, readIdx)];
-        size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam1_seqi(qseq, readIdx-1)] : 0;
+        size_t curReadBase = bam_seqi(qseq, readIdx);//samToTwoBit[bam1_seqi(qseq, readIdx)];
+        size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;//(readIdx > 0) ? samToTwoBit[bam1_seqi(qseq, readIdx-1)] : 0;
         size_t refBase = samToTwoBit[ref.baseAt(transcriptIdx, readStrand)];
         size_t index = prevReadBase + refBase;
         int qval = qualStr[readIdx];

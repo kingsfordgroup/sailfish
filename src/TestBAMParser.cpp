@@ -2,16 +2,19 @@
 //#include <boost/thread/thread.hpp>
 
 extern "C" {
-#include "sam.h"
+#include "htslib/sam.h"
+//#include "sam.h"
 }
+
+#include "format.h"
 
 #include <boost/dynamic_bitset.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/lockfree/queue.hpp>
+
 #include <omp.h>
 #include <forward_list>
 #include <tbb/atomic.h>
-#include <boost/container/flat_map.hpp>
 #include <algorithm>
 #include <iostream>
 #include <fstream>
@@ -23,16 +26,20 @@ extern "C" {
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+
+#include <tbb/concurrent_queue.h>
+
+#include <boost/container/flat_map.hpp>
 #include <boost/timer/timer.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/math/special_functions/digamma.hpp>
-#include <mutex>
-#include <thread>
-#include <tbb/concurrent_queue.h>
 #include <boost/program_options.hpp>
 #include <boost/pending/disjoint_sets.hpp>
 #include <boost/math/distributions/normal.hpp>
-#include <boost/math/distributions/normal.hpp>
+
 #include "AlignmentGroup.hpp"
 #include "MiniBatchInfo.hpp"
 #include "BAMQueue.hpp"
@@ -98,6 +105,8 @@ public:
     // Adopted from https://github.com/adarob/eXpress/blob/master/src/targets.cpp
     void projectToPolytope(std::vector<Transcript>& allTranscripts) {
         using sailfish::math::approxEqual;
+        constexpr size_t maxIter = 1000;
+        size_t iter{0};
 
         // The transcript belonging to this cluster
         double clusterCounts{static_cast<double>(count_)};
@@ -147,7 +156,8 @@ public:
                     transcript->projectedCounts *= normalizer;
                 }
             }
-
+          if (iter > maxIter) { return; }
+          ++iter;
         } // end while
 
     }
@@ -259,6 +269,8 @@ private:
 
 template <typename FragT>
 void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
+                      std::condition_variable& workAvailable,
+                      std::mutex& cvmutex,
                      std::vector<Transcript>& refs,
                       ClusterForest& clusterForest, std::atomic<bool>& doneParsing, std::atomic<size_t>& activeBatches,
                       tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
@@ -323,11 +335,17 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
     };
 
     size_t numTranscripts = refs.size();
+
     while (!doneParsing) {
-        while(workQueue.try_pop(miniBatch)) {
+        miniBatch = nullptr;
+        {
+            std::unique_lock<std::mutex> l(cvmutex);
+            workAvailable.wait(l, [&miniBatch, &workQueue, &doneParsing]() { return workQueue.try_pop(miniBatch) or doneParsing; });
+        }
+        if (miniBatch != nullptr) {
+        //while(workQueue.try_pop(miniBatch)) {
             ++activeBatches;
             size_t batchReads{0};
-            size_t batchNum = miniBatch->batchNum;
             double logForgettingMass = miniBatch->logForgettingMass;
             std::vector<AlignmentGroup<FragT>*>& alignmentGroups = *(miniBatch->alignments);
 
@@ -346,7 +364,6 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                 }
             }
 
-            double clustTotal = std::log(alignmentGroups.size()) + logForgettingMass;
             {
                 // E-step
                 //boost::timer::auto_cpu_timer t(3, "E-step part 2 took %w sec.\n");
@@ -381,7 +398,6 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                             case ReadType::PAIRED_END:
                                 logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln.fragLen()));
                         }
-                        //double logFragProb = fragLengthDist.pmf(static_cast<size_t>(fragLength));
 
                         // @TODO: handle this case better
                         //double fragProb = cdf(fragLengthDist, fragLength + 0.5) - cdf(fragLengthDist, fragLength - 0.5);
@@ -398,16 +414,26 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
 
                         // The alignment probability is the product of a transcript-level term (based on abundance and) an alignment-level
                         // term below which is P(Q_1) * P(Q_2) * P(F | T)
-                        double qualProb = aln.logQualProb() + logFragProb;//logP1 + logP2 + logFragProb;
                         double logRefLength = std::log(refLength);
+                        double adjustedTranscriptLength = std::max(refLength - aln.fragLen() + 1, 1.0);
+                        double logStartPosProb = std::log(1.0 / adjustedTranscriptLength);
+                        // P(Fn | Tn) = Probability of selecting a fragment of this length, given the transcript is t
+                        // d(Fn) / sum_x = 1^{lt} d(x)
+                        //double logConditionalFragLengthProb = logFragProb  - fragLengthDist.cmf(refLength);
+                        //double logProbStartPos = logStartPosProb + logConditionalFragLengthProb;
+                        //double qualProb = logProbStartPos + aln.logQualProb();
+                        double qualProb = -logRefLength + logFragProb + aln.logQualProb();
                         double transcriptLogCount = transcript.mass();
+
                         if ( transcriptLogCount != LOG_0 ) {
 
                             double errLike = sailfish::math::LOG_1;
                             if (burnedIn) {
-                                errLike = errMod.logLikelihood(aln, transcript);
+                                //errLike = errMod.logLikelihood(aln, transcript);
                             }
-                            aln.logProb = (transcriptLogCount - logRefLength) + qualProb + errLike;
+
+                            //aln.logProb = (transcriptLogCount - logRefLength) + qualProb + errLike;
+                            aln.logProb = transcriptLogCount + qualProb;
 
                             sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
                             if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
@@ -426,7 +452,7 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                         auto& transcript = refs[transcriptID];
                         double r = uni(eng);
                         if (!burnedIn and r < std::exp(aln.logProb)) {
-                            errMod.update(aln, transcript, aln.logProb, logForgettingMass);
+                            //errMod.update(aln, transcript, aln.logProb, logForgettingMass);
                             if (aln.fragType() == ReadType::PAIRED_END) {
                                 double fragLength = aln.fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
@@ -449,7 +475,6 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
             double individualTotal = LOG_0;
             {
                 // M-step
-                double totalMass{0.0};
                 for (auto kv = hitList.begin(); kv != hitList.end(); ++kv) {
                     auto transcriptID = kv->first;
                     // The target must be a valid transcript
@@ -487,7 +512,7 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
             processedReads += batchReads;
             if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
         }
-        std::this_thread::yield();
+        //std::this_thread::yield();
     } // nothing left to process
 }
 
@@ -624,12 +649,15 @@ void quantifyLibrary(LibraryFormat libFmt,
     double fragLenKernelP = 0.5;
     FragmentLengthDistribution fragLengthDist(1.0, maxFragLen, meanFragLen, fragLenStd, fragLenKernelN, fragLenKernelP, 1);
 
-    size_t numWorkers{8};
+    std::condition_variable workAvailable;
+    std::mutex cvmutex;
+    size_t numWorkers{6};
     std::vector<std::thread> workers;
     std::atomic<size_t> activeBatches{0};
     std::atomic<size_t> processedReads{0};
     for (size_t i = 0; i < numWorkers; ++i) {
         workers.emplace_back(processMiniBatch<FragT>, std::ref(workQueue),
+                std::ref(workAvailable), std::ref(cvmutex),
                 std::ref(refs), std::ref(clusterForest),
                 std::ref(doneParsing), std::ref(activeBatches),
                 std::ref(bq.getAlignmentStructureQueue()),
@@ -640,12 +668,12 @@ void quantifyLibrary(LibraryFormat libFmt,
                 std::ref(processedReads));
     }
 
-    size_t miniBatchSize{500};
+    size_t miniBatchSize{1000};
     size_t batchNum{0};
     size_t numProc{0};
 
     double logForgettingMass{std::log(1.0)};
-    double forgettingFactor{0.65};
+    double forgettingFactor{0.60};
 
     std::vector<AlignmentGroup<FragT>*>* alignments = new std::vector<AlignmentGroup<FragT>*>;
     alignments->reserve(miniBatchSize);
@@ -662,28 +690,42 @@ void quantifyLibrary(LibraryFormat libFmt,
             MiniBatchInfo<AlignmentGroup<FragT>>* mbi =
                 new MiniBatchInfo<AlignmentGroup<FragT>>(batchNum, alignments, logForgettingMass);
             workQueue.push(mbi);
+            {
+                std::unique_lock<std::mutex> l(cvmutex);
+                workAvailable.notify_one();
+            }
             alignments = new std::vector<AlignmentGroup<FragT>*>;
             alignments->reserve(miniBatchSize);
         }
         if (numProc % 1000000 == 0) {
-            std::cerr << "processed " << numProc << " reads\n";
-            std::cerr << "alignment structure queue size: " << bq.getAlignmentStructureQueue().size() << "\n";
-            std::cerr << "alignment group queue size: " << bq.getAlignmentGroupQueue().size() << "\n";
+            const char RESET_COLOR[] = "\x1b[0m";
+            char green[] = "\x1b[30m";
+            green[3] = '0' + static_cast<char>(fmt::GREEN);
+            char red[] = "\x1b[30m";
+            red[3] = '0' + static_cast<char>(fmt::RED);
+            fmt::print(stderr, "\r\r{}processed{} {} {}reads{}", green, red, numProc, green, RESET_COLOR);
         }
         ++numProc;
-        //if (numProc >= 20000000) { bq.forceEndParsing(); break; }
     }
     std::cerr << "\n";
 
     doneParsing = true;
     size_t tnum{0};
-    for (auto& t : workers) { std::cerr << "killing thread" << tnum++; t.join(); std::cerr << " done\n";}
+    for (auto& t : workers) {
+        std::cerr << "killing thread" << tnum++;
+        {
+            std::unique_lock<std::mutex> l(cvmutex);
+            workAvailable.notify_all();
+        }
+        t.join(); std::cerr << " done\n";
+    }
 
     std::cerr << "writing output \n";
 
-    std::ofstream output(outputFile.string());
-    output << "# SDAFish v0.01\n";
-    output << "# ClusterID\tName\tLength\tFPKM\tNumReads\n";
+    std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(outputFile.c_str(), "w"), std::fclose);
+
+    fmt::print(output.get(), "# Salmon-Read v 0.01\n");
+    fmt::print(output.get(), "# ClusterID\tName\tLength\tFPKM\tNumReads\n");
 
     const double logBillion = std::log(1000000000.0);
     const double logNumFragments = std::log(static_cast<double>(numProc));
@@ -741,14 +783,18 @@ void quantifyLibrary(LibraryFormat libFmt,
             double countTotal = refs[transcriptID].totalCounts;
             double countUnique = refs[transcriptID].uniqueCounts;
             double fpkm = count > 0 ? fpkmFactor * count : 0.0;
-            output << clusterID << '\t' << transcript.RefName << '\t' <<
-                transcript.RefLength << '\t' << fpkm << '\t' << countTotal << '\t' << countUnique << '\t' << count <<  '\t' << transcript.mass() << '\n';
+            fmt::print(output.get(),
+                       "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                       clusterID, transcript.RefName, transcript.RefLength,
+                       fpkm, countTotal, countUnique, count, transcript.mass());
+
             ++idx;
         }
 
         ++clusterID;
     }
-    output.close();
+
+    fmt::print(stdout, "{}\n", fragLengthDist.toString());
 }
 
 int main(int argc, char* argv[]) {
@@ -825,6 +871,7 @@ int main(int argc, char* argv[]) {
                         "format " << libFmt << "\n";
                 std::exit(1);
         }
+
     } catch (po::error& e) {
         std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
         std::exit(1);

@@ -2,7 +2,8 @@
 #define __BAMQUEUE_HPP__
 
 extern "C" {
-#include "sam.h"
+#include "htslib/sam.h"
+#include "samtools/samtools.h"
 }
 
 #include <boost/lockfree/spsc_queue.hpp>
@@ -63,7 +64,9 @@ private:
 private:
   std::string fname_;
   LibraryFormat libFmt_;
-  samfile_t* fp_ = nullptr;
+  samFile* fp_ = nullptr;
+  bam_hdr_t* hdr_ = nullptr;
+  //htsFile* fp_ = nullptr;
   size_t totalReads_;
   size_t numUnaligned_;
   tbb::concurrent_bounded_queue<bam1_t*> alnStructQueue_;

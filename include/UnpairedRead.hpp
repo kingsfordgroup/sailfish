@@ -2,7 +2,7 @@
 #define UNPAIRED_READ
 
 extern "C" {
-#include "sam.h"
+#include "samtools/sam.h"
 }
 
 #include "SailfishMath.hpp"
@@ -13,7 +13,7 @@ struct UnpairedRead {
    double logProb;
 
     inline char* getName() {
-        return bam1_qname(read);
+        return  bam_get_qname(read);//bam1_qname(read);
     }
 
    inline bool isRight() { return read->core.flag & BAM_FREVERSE; }

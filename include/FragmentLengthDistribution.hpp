@@ -8,7 +8,7 @@
 // Modifications by Rob Patro; 2014
 
 #ifndef FRAGMENT_LENGTH_DISTRIBUTION
-#define FRAGMENT_LENGTH_DISTRIBUTION 
+#define FRAGMENT_LENGTH_DISTRIBUTION
 
 #include "tbb/atomic.h"
 #include <atomic>
@@ -48,7 +48,7 @@ class FragmentLengthDistribution {
    * A size for internal binning of the lengths in the distribution.
    */
   size_t binSize_;
-  
+
 public:
   /**
    * LengthDistribution Constructor.
@@ -120,6 +120,7 @@ public:
    * @return Space-separated string of probabilities ordered from length 0 to
    *         max_val (non-logged).
    */
+   std::string toString() const;
   //std::string to_string() const;
   /**
    * A member function that appends the LengthDistribution parameters to the end

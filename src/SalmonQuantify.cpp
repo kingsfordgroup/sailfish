@@ -24,6 +24,7 @@
 #include <atomic>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <unordered_map>
 #include <map>
 #include <vector>
@@ -44,6 +45,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <cctype>
+
+// C++ string formatting library
+#include "format.h"
 
 extern "C" {
 #include "bwa.h"
@@ -98,6 +102,7 @@ extern "C" {
 
 #include "PairSequenceParser.hpp"
 #include "FragmentList.hpp"
+#include "FragmentLengthDistribution.hpp"
 
 #include "google/dense_hash_map"
 
@@ -125,31 +130,41 @@ uint32_t offset(uint64_t enc) {
 
 class Alignment {
     public:
-        Alignment(TranscriptID transcriptIDIn, uint32_t kCountIn = 1, double logProbIn = sailfish::math::LOG_0) :
-            transcriptID_(transcriptIDIn), kmerCount(kCountIn), logProb(logProbIn) {}
+        Alignment(TranscriptID transcriptIDIn, uint32_t kCountIn = 1, uint32_t fragLengthIn= 0, double logProbIn = sailfish::math::LOG_0) :
+            transcriptID_(transcriptIDIn), kmerCount(kCountIn), fragLength_(fragLengthIn), logProb(logProbIn) {}
 
         inline TranscriptID transcriptID() { return transcriptID_; }
+        inline uint32_t fragLength() { return fragLength_; }
+
         uint32_t kmerCount;
         double logProb;
 
     private:
         TranscriptID transcriptID_;
+        uint32_t fragLength_;
 };
 
 void processMiniBatch(
         double logForgettingMass,
         std::vector<std::vector<Alignment>>& batchHits,
         std::vector<Transcript>& transcripts,
-        ClusterForest& clusterForest
+        ClusterForest& clusterForest,
+        FragmentLengthDistribution& fragLengthDist,
+        std::atomic<uint64_t>& processedReads,
+        std::default_random_engine& randEng
         ) {
 
     using sailfish::math::LOG_0;
+    using sailfish::math::LOG_1;
     using sailfish::math::logAdd;
     using sailfish::math::logSub;
 
     size_t numTranscripts{transcripts.size()};
+    size_t numReads{batchHits.size()};
+    std::uniform_real_distribution<> uni(0.0, 1.0 + std::numeric_limits<double>::min());
 
-    bool burnedIn{true};
+    bool burnedIn{false};
+
     // Build reverse map from transcriptID => hit id
     using HitID = uint32_t;
     btree::btree_map<TranscriptID, std::vector<Alignment*>> hitsForTranscript;
@@ -194,12 +209,14 @@ void processMiniBatch(
                         //errLike = errMod.logLikelihood(aln, transcript);
                     }
 
+                    double logFragProb = (aln.fragLength() == 0) ? LOG_1 : fragLengthDist.pmf(static_cast<size_t>(aln.fragLength()));
+
                     //aln.logProb = std::log(aln.kmerCount) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
                     //aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
-                    aln.logProb = (transcriptLogCount - logRefLength);// + qualProb + errLike;
-
+                    aln.logProb = (transcriptLogCount - logRefLength) + logFragProb;// + qualProb + errLike;
 
                     sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
+
                     if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
                         transcripts[transcriptID].addTotalCount(1);
                         observedTranscripts.insert(transcriptID);
@@ -215,16 +232,17 @@ void processMiniBatch(
                 aln.logProb -= sumOfAlignProbs;
                 auto transcriptID = aln.transcriptID();
                 auto& transcript = transcripts[transcriptID];
-                /*
-                double r = uni(eng);
+
+                double r = uni(randEng);
                 if (!burnedIn and r < std::exp(aln.logProb)) {
-                    errMod.update(aln, transcript, aln.logProb, logForgettingMass);
-                    if (aln.fragType() == ReadType::PAIRED_END) {
-                        double fragLength = aln.fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
+                    //errMod.update(aln, transcript, aln.logProb, logForgettingMass);
+                    double fragLength = aln.fragLength();
+                    if (fragLength > 0.0) {
+                        //if (aln.fragType() == ReadType::PAIRED_END) {
                         fragLengthDist.addVal(fragLength, logForgettingMass);
                     }
                 }
-                */
+
 
             } // end normalize
 
@@ -267,7 +285,8 @@ void processMiniBatch(
                 transcript.addMass(updateMass);
             } // end for
         } // end timer
-        //if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
+        processedReads += numReads;
+        if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
 }
 
 uint32_t basesCovered(std::vector<uint32_t>& kmerHits) {
@@ -596,7 +615,10 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
             tHitList.second.computeBestChain();
             if (tHitList.second.bestHitScore < cutoffRight) { continue; }
             uint32_t score = it->second.bestHitScore + tHitList.second.bestHitScore;
-            hitList.emplace_back(tHitList.first, score);
+            uint32_t fragLength = std::abs(static_cast<int32_t>(it->second.bestHitPos) -
+                                           static_cast<int32_t>(tHitList.second.bestHitPos +
+                                                                rightReadLength));
+            hitList.emplace_back(tHitList.first, score, fragLength);
             readHits += score;
             ++hitListCount;
         }
@@ -694,8 +716,6 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 
 }
 
-
-
 // To use the parser in the following, we get "jobs" until none is
 // available. A job behaves like a pointer to the type
 // jellyfish::sequence_list (see whole_sequence_parser.hpp).
@@ -703,12 +723,14 @@ template <typename ParserT, typename CoverageCalculator>
 void processReadsMEM(ParserT* parser,
                std::atomic<uint64_t>& totalHits,
                std::atomic<uint64_t>& rn,
+               std::atomic<uint64_t>& processedReads,
                bwaidx_t *idx,
                std::vector<Transcript>& transcripts,
                std::atomic<uint64_t>& batchNum,
                double& logForgettingMass,
                std::mutex& ffMutex,
                ClusterForest& clusterForest,
+               FragmentLengthDistribution& fragLengthDist,
                uint32_t minMEMLength,
                uint32_t maxMEMOcc,
                double coverageThresh,
@@ -717,6 +739,12 @@ void processReadsMEM(ParserT* parser,
   uint64_t count_fwd = 0, count_bwd = 0;
 
   double forgettingFactor{0.65};
+
+  // Seed with a real random value, if available
+  std::random_device rd;
+
+  // Create a random uniform distribution
+  std::default_random_engine eng(rd());
 
   std::vector<std::vector<Alignment>> hitLists;
   hitLists.resize(5000);
@@ -734,11 +762,10 @@ void processReadsMEM(ParserT* parser,
   size_t locRead{0};
   while(true) {
     typename ParserT::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
-    if(j.is_empty()) break;          // If got nothing, quit
+    if(j.is_empty()) break;           // If got nothing, quit
 
     hitLists.resize(j->nb_filled);
     for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
-
 
         getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
                                                minLen, minIWidth, splitWidth, coverageThresh,
@@ -749,15 +776,16 @@ void processReadsMEM(ParserT* parser,
         locRead++;
         ++rn;
         if (rn % 50000 == 0) {
-	    iomutex.lock();
-            std::cerr << "\r\rprocessed read "  << rn;
-	    iomutex.unlock();
+    	    iomutex.lock();
+            fmt::print(stderr, "\r\rprocessed {} reads", rn);
+    	    iomutex.unlock();
         }
 
         // If the read mapped to > 100 places, discard it
         if (hitList.size() > 100) { hitList.clear(); }
 
-        } // end for i < j->nb_filled
+    } // end for i < j->nb_filled
+
 
     auto oldBatchNum = batchNum++;
     if (oldBatchNum > 1) {
@@ -767,7 +795,8 @@ void processReadsMEM(ParserT* parser,
         ffMutex.unlock();
     }
 
-    processMiniBatch(logForgettingMass, hitLists, transcripts, clusterForest);
+    processMiniBatch(logForgettingMass, hitLists, transcripts, clusterForest,
+                     fragLengthDist, processedReads, eng);
   }
   smem_itr_destroy(itr);
 
@@ -896,7 +925,6 @@ transcript abundance from RNA-seq reads
         g2::initializeLogging(&logger);
 #endif
 
-        //----- WHAT?????? -----
         LOG(INFO) << "parsing read library format";
 
         vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
@@ -935,10 +963,18 @@ transcript abundance from RNA-seq reads
         std::vector<std::thread> threads;
         std::atomic<uint64_t> totalHits(0);
         std::atomic<uint64_t> rn{0};
+        std::atomic<uint64_t> processedReads{0};
         std::atomic<uint64_t> batchNum{0};
 
         size_t numTranscripts{transcripts_.size()};
         ClusterForest clusterForest(numTranscripts, transcripts_);
+
+        size_t maxFragLen = 800;
+        size_t meanFragLen = 200;
+        size_t fragLenStd = 80;
+        size_t fragLenKernelN = 4;
+        double fragLenKernelP = 0.5;
+        FragmentLengthDistribution fragLengthDist(1.0, maxFragLen, meanFragLen, fragLenStd, fragLenKernelN, fragLenKernelP, 1);
 
         double logForgettingMass{sailfish::math::LOG_1};
         std::mutex ffmutex;
@@ -964,33 +1000,34 @@ transcript abundance from RNA-seq reads
                 for(int i = 0; i < nbThreads; ++i)  {
                     if (greedyChain) {
                         threads.push_back(std::thread(processReadsMEM<paired_parser, TranscriptHitList>, &parser,
-                                    std::ref(totalHits), std::ref(rn),
+                                    std::ref(totalHits), std::ref(rn), std::ref(processedReads),
                                     idx,
                                     std::ref(transcripts_),
                                     std::ref(batchNum),
                                     std::ref(logForgettingMass),
                                     std::ref(ffmutex),
                                     std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
                                     std::ref(iomutex)
                                     ));
                     } else {
-                        /*
                         threads.push_back(std::thread(processReadsMEM<paired_parser, FragmentList>, &parser,
-                                    std::ref(totalHits), std::ref(rn),
+                                    std::ref(totalHits), std::ref(rn), std::ref(processedReads),
                                     idx,
                                     std::ref(transcripts_),
                                     std::ref(batchNum),
                                     std::ref(logForgettingMass),
                                     std::ref(ffmutex),
                                     std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
                                     std::ref(iomutex)
-                                    ));*/
+                                    ));
                     }
                 }
 
@@ -1012,34 +1049,34 @@ transcript abundance from RNA-seq reads
                 for(int i = 0; i < nbThreads; ++i)  {
                     if (greedyChain) {
                         threads.push_back(std::thread(processReadsMEM<single_parser, TranscriptHitList>, &parser,
-                                    std::ref(totalHits), std::ref(rn),
+                                    std::ref(totalHits), std::ref(rn), std::ref(processedReads),
                                     idx,
                                     std::ref(transcripts_),
                                     std::ref(batchNum),
                                     std::ref(logForgettingMass),
                                     std::ref(ffmutex),
                                     std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
                                     std::ref(iomutex)
                                     ));
                     } else {
-                        /*
                         threads.push_back(std::thread(processReadsMEM<single_parser, FragmentList>, &parser,
-                                    std::ref(totalHits), std::ref(rn),
+                                    std::ref(totalHits), std::ref(rn), std::ref(processedReads),
                                     idx,
                                     std::ref(transcripts_),
                                     std::ref(batchNum),
                                     std::ref(logForgettingMass),
                                     std::ref(ffmutex),
                                     std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
                                     std::ref(iomutex)
                                     ));
-                                    */
                     }
 
                 }
@@ -1062,65 +1099,68 @@ transcript abundance from RNA-seq reads
         std::cerr << "writing output \n";
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
-        std::ofstream output(estFilePath.string());
-        output << "# Salmon version " << salmon::version << '\n';
-        output << "# Name\tLength\tFPKM\tNumReads\n";
 
-        const double logBillion = std::log(1000000000.0);
-        const double logNumFragments = std::log(static_cast<double>(rn));
-        auto clusters = clusterForest.getClusters();
-        size_t clusterID = 0;
-        for(auto cptr : clusters) {
-            double logClusterMass = cptr->logMass();
-            double logClusterCount = std::log(static_cast<double>(cptr->numHits()));
+        {
+            std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(estFilePath.c_str(), "w"), std::fclose);
 
-            if (logClusterMass == sailfish::math::LOG_0) {
-                std::cerr << "Warning: cluster " << clusterID << " has 0 mass!\n";
+            fmt::print(output.get(), "# Salmon version {}\n", salmon::version);
+            fmt::print(output.get(), "# Name\tLength\tFPKM\tNumReads\n");
+
+            const double logBillion = std::log(1000000000.0);
+            const double logNumFragments = std::log(static_cast<double>(rn));
+            auto clusters = clusterForest.getClusters();
+            size_t clusterID = 0;
+            for(auto cptr : clusters) {
+                double logClusterMass = cptr->logMass();
+                double logClusterCount = std::log(static_cast<double>(cptr->numHits()));
+
+                if (logClusterMass == sailfish::math::LOG_0) {
+                    std::cerr << "Warning: cluster " << clusterID << " has 0 mass!\n";
+                }
+
+                bool requiresProjection{false};
+
+                auto& members = cptr->members();
+                size_t clusterSize{0};
+                for (auto transcriptID : members) {
+                    Transcript& t = transcripts_[transcriptID];
+                    t.uniqueCounts = t.uniqueCount();
+                    t.totalCounts = t.totalCount();
+                }
+
+                for (auto transcriptID : members) {
+                    Transcript& t = transcripts_[transcriptID];
+                    double logTranscriptMass = t.mass();
+                    double logClusterFraction = logTranscriptMass - logClusterMass;
+                    t.projectedCounts = std::exp(logClusterFraction + logClusterCount);
+                    requiresProjection |= t.projectedCounts > static_cast<double>(t.totalCounts) or
+                        t.projectedCounts < static_cast<double>(t.uniqueCounts);
+                    ++clusterSize;
+                }
+
+                if (clusterSize > 1 and requiresProjection) {
+                    cptr->projectToPolytope(transcripts_);
+                }
+
+                // Now posterior has the transcript fraction
+                size_t tidx = 0;
+                for (auto transcriptID : members) {
+                    auto& transcript = transcripts_[transcriptID];
+                    double logLength = std::log(transcript.RefLength);
+                    double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
+                    double count = transcripts_[transcriptID].projectedCounts;
+                    double countTotal = transcripts_[transcriptID].totalCounts;
+                    double countUnique = transcripts_[transcriptID].uniqueCounts;
+                    double fpkm = count > 0 ? fpkmFactor * count : 0.0;
+                    fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                            transcript.RefName, transcript.RefLength,
+                            fpkm, fpkm, fpkm, count, count);
+                    ++tidx;
+                }
+
+                ++clusterID;
             }
-
-            bool requiresProjection{false};
-
-            auto& members = cptr->members();
-            size_t clusterSize{0};
-            for (auto transcriptID : members) {
-                Transcript& t = transcripts_[transcriptID];
-                t.uniqueCounts = t.uniqueCount();
-                t.totalCounts = t.totalCount();
-            }
-
-            for (auto transcriptID : members) {
-                Transcript& t = transcripts_[transcriptID];
-                double logTranscriptMass = t.mass();
-                double logClusterFraction = logTranscriptMass - logClusterMass;
-                t.projectedCounts = std::exp(logClusterFraction + logClusterCount);
-                requiresProjection |= t.projectedCounts > static_cast<double>(t.totalCounts) or
-                    t.projectedCounts < static_cast<double>(t.uniqueCounts);
-                ++clusterSize;
-            }
-
-            if (clusterSize > 1 and requiresProjection) {
-                cptr->projectToPolytope(transcripts_);
-            }
-
-            // Now posterior has the transcript fraction
-            size_t tidx = 0;
-            for (auto transcriptID : members) {
-                auto& transcript = transcripts_[transcriptID];
-                double logLength = std::log(transcript.RefLength);
-                double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
-                double count = transcripts_[transcriptID].projectedCounts;
-                double countTotal = transcripts_[transcriptID].totalCounts;
-                double countUnique = transcripts_[transcriptID].uniqueCounts;
-                double fpkm = count > 0 ? fpkmFactor * count : 0.0;
-                output << transcript.RefName << '\t' << transcript.RefLength
-                    << '\t' << fpkm << '\t' << fpkm
-                    << '\t' << fpkm << '\t' << count <<  '\t' << count << '\n';
-                ++tidx;
-            }
-
-            ++clusterID;
         }
-        output.close();
 
 
         if (!noBiasCorrect) {

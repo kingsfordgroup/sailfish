@@ -2,7 +2,7 @@
 #define ERROR_MODEL
 
 extern "C" {
-#include "sam.h"
+#include "samtools/sam.h"
 }
 
 #include <mutex>
@@ -10,8 +10,8 @@ extern "C" {
 #include "tbb/concurrent_vector.h"
 #include "AtomicMatrix.hpp"
 
-class UnpairedRead;
-class ReadPair;
+struct UnpairedRead;
+struct ReadPair;
 class Transcript;
 
 class ErrorModel {

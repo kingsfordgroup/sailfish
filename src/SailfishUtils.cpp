@@ -58,49 +58,34 @@ LibraryFormat parseLibraryFormatStringNew(std::string& fmt) {
 	using std::map;
 	using std::stringstream;
 
-	map<char, ReadOrientation> orientationType = {{'S', ReadOrientation::SAME},
-		{'A', ReadOrientation::AWAY},
-		{'T', ReadOrientation::TOWARD},
-		{'I', ReadOrientation::NONE}};
-	map<string, ReadStrandedness> strandType = {{"FF", ReadStrandedness::S},
-		{"RR", ReadStrandedness::A},
-		{"FR", ReadStrandedness::SA},
-		{"RF", ReadStrandedness::AS},
-		{"UU", ReadStrandedness::U},
-		{"F", ReadStrandedness::S},
-		{"R", ReadStrandedness::A},
-		{"U", ReadStrandedness::U}};
+    map<string, LibraryFormat> formatMap = {
+        {"IU", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::U)},
+        {"ISF", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::SA)},
+        {"ISR", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::AS)},
+        {"OU", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::U)},
+        {"OSF", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::SA)},
+        {"OSR", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::AS)},
+        {"MU", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::U)},
+        {"MSF", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::S)},
+        {"MSR", LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::A)},
+        {"U", LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::U)},
+        {"SF", LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::S)},
+        {"SR", LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::A)}};
 
 	// inspired by http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
 	// first convert the string to upper-case
 	for (auto& c : fmt) { c = std::toupper(c); }
 
-	auto orientationIt = orientationType.find(fmt.front());
-	auto strandednessIt = strandType.find(fmt.substr(1));
 
-	if (orientationIt == orientationType.end()) {
+    auto libFmtIt = formatMap.find(fmt);
+
+	if (libFmtIt == formatMap.end()) {
 		stringstream errstr;
-		errstr << "unknown orientation type: " << fmt.front();
-		throw std::invalid_argument(errstr.str());
-	}
-	if (strandednessIt == strandType.end()) {
-		stringstream errstr;
-		errstr << "unknown strand type: " << fmt.substr(1);
+		errstr << "unknown library format string : " << fmt;
 		throw std::invalid_argument(errstr.str());
 	}
 
-	// if we recognize the orientation & strand
-	auto orientation = orientationIt->second;
-	auto strandedness = strandednessIt->second;
-
-	ReadType rt;
-	if (orientation == ReadOrientation::NONE) {
-		rt = ReadType::SINGLE_END;
-	} else {
-		rt = ReadType::PAIRED_END;
-	}
-
-	return LibraryFormat(rt, orientation, strandedness);
+    return libFmtIt->second;
 }
 
 /**

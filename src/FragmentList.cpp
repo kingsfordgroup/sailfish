@@ -49,7 +49,7 @@ void FragmentList::freeFragList(Container* frags) {
     free(frags);
 }
 
-void FragmentList::computeBestChain_(Container* frags, double& maxScore) {
+void FragmentList::computeBestChain_(Container* frags, double& maxScore, uint32_t& bestPos) {
     double epsilon = 0.0;
     double lambda = 1.0;
     unsigned char chainMode = LIN;
@@ -92,6 +92,7 @@ void FragmentList::computeBestChain_(Container* frags, double& maxScore) {
                     slchain_t* chain = (slchain_t*) match->chain;
                     if (chain->scr >= maxScore) {
                         maxScore = chain->scr;
+                        bestPos = chain->p;
                     }
 
                     /*
@@ -164,9 +165,11 @@ void FragmentList::computeBestChain_(Container* frags, double& maxScore) {
 
     void FragmentList::computeBestChain() {
         double maxScore = 0.0;
-        computeBestChain_(fragments, maxScore);
-        computeBestChain_(fragmentsRC, maxScore);
+        uint32_t bestPos = 0;
+        computeBestChain_(fragments, maxScore, bestPos);
+        computeBestChain_(fragmentsRC, maxScore, bestPos);
         bestHitScore = maxScore;
+        bestHitPos = bestPos;
     }
 
     void FragmentList::addFragMatch(uint32_t refStart, uint32_t queryStart, uint32_t len) {

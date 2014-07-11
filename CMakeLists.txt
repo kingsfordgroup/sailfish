@@ -72,9 +72,11 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
         set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
-    else()
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
     endif()
+    # There's currently a bug with clang-3.4 & Boost 1.55 -- this hack fixes it
+    # but we should do something better (does this break things if CPU doesn't
+    # have 128-bit support)?
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
     # We should have the logger under clang
     set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
     set (HAVE_LOGGER TRUE)
@@ -414,51 +416,52 @@ ExternalProject_Add(libgff
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_SOURCE_DIR}/external/install
 )
 
-message("Build system will compile parallel samtools")
+#message("Build system will compile parallel samtools")
+#message("==================================================================")
+#ExternalProject_Add(libsamtools
+    #DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    #URL http://www.cs.cmu.edu/~robp/files/samtools.tgz
+    #SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
+    #BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
+    #INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    #CONFIGURE_COMMAND ""
+    #BUILD_COMMAND $(MAKE)
+    #INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include/samtools && mkdir -p <INSTALL_DIR>/include/samtools/pbgzip && mkdir -p <INSTALL_DIR>/include/samtools/bcftools && cp <SOURCE_DIR>/*.h <INSTALL_DIR>/include/samtools/ &&  cp <SOURCE_DIR>/pbgzip/*.h <INSTALL_DIR>/include/samtools/pbgzip/ && cp <SOURCE_DIR>/bcftools/*.h <INSTALL_DIR>/include/samtools/bcftools/ &&  cp <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/"
+#)
+
+message("Build system will compile htslib")
+message("==================================================================")
+ExternalProject_Add(libhts
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    DOWNLOAD_COMMAND curl -L https://github.com/samtools/htslib/archive/0.2.0-rc10.tar.gz -o htslib-0.2.0-rc10.tar.gz &&
+                     tar -xzf htslib-0.2.0-rc10.tar.gz &&
+                     rm -fr htslib &&
+                     mv -f htslib-0.2.0-rc10 htslib
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/htslib
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND make 
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND make install prefix=<INSTALL_DIR> 
+)
+
+message("Build system will compile samtools")
 message("==================================================================")
 ExternalProject_Add(libsamtools
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.cmu.edu/~robp/files/samtools.tgz
+    DOWNLOAD_COMMAND curl -L https://github.com/samtools/samtools/archive/0.2.0-rc10.tar.gz -o samtools-0.2.0-rc10.tar.gz &&
+                     tar -xzf samtools-0.2.0-rc10.tar.gz &&
+                     rm -fr samtools &&
+                     mv -f samtools-0.2.0-rc10 samtools
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
-    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND $(MAKE)
-    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include/samtools && mkdir -p <INSTALL_DIR>/include/samtools/pbgzip && mkdir -p <INSTALL_DIR>/include/samtools/bcftools && cp <SOURCE_DIR>/*.h <INSTALL_DIR>/include/samtools/ &&  cp <SOURCE_DIR>/pbgzip/*.h <INSTALL_DIR>/include/samtools/pbgzip/ && cp <SOURCE_DIR>/bcftools/*.h <INSTALL_DIR>/include/samtools/bcftools/ &&  cp <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/"
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    BUILD_COMMAND make 
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND make install prefix=<INSTALL_DIR> &&
+                    mv <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/libbam.a
 )
 
-# ###
-# # Armadillo library
-# ####
-# if (NOT Boost_FOUND)
-#     # Armadillo depends on Boost.  If it wasn't already found, then 
-#     # add a dependency between the Boost we fetch and this target.
-#     add_dependencies(libarmadillo libboost)
-# endif()
-
-# find_package( LAPACK REQUIRED )
-# find_package( BLAS REQUIRED )
-
-# message("Build system will fetch and build the Armadillo library")
-# message("==================================================================")
-# # These are useful for the custom install step we'll do later
-# set(ARMADILLO_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Armadillo)
-# set(ARMADILLO_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-# ExternalProject_Add(libarmadillo
-#     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-#     URL http://sourceforge.net/projects/arma/files/armadillo-3.900.6.tar.gz
-#     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Armadillo
-#     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-#     CMAKE_ARGS -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
-#                -DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DARMA_USE_BLAS=TRUE -DARMA_USE_LAPACK=TRUE
-#                -DCMAKE_INSTALL_PREFIX=${ARMADILLO_INSTALL_DIR}
-#                -DCMAKE_LIBRARY_PATH=/home/robp/dist/lib
-
-#     BUILD_COMMAND sh -c "make"
-#     INSTALL_COMMAND sh -c "make install"
-#     BUILD_IN_SOURCE 1
-#     UPDATE_COMMAND ""
-# )
 
 ###
 #

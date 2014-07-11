@@ -14,7 +14,7 @@ class FragmentList {
 
         void freeFragList(Container* frags);
 
-        void computeBestChain_(Container* frags, double& maxScore);
+        void computeBestChain_(Container* frags, double& maxScore, uint32_t& bestPos);
 
         void computeBestChain();
 
@@ -32,6 +32,7 @@ class FragmentList {
         Container* fragmentsRC;
         size_t numFrag;
         double bestHitScore;
+        uint32_t bestHitPos;
 };
 
 #endif // FRAGMENT_LIST_HPP

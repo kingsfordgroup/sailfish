@@ -134,11 +134,15 @@ double FragmentLengthDistribution::pmf(size_t len) const {
 
 double FragmentLengthDistribution::cmf(size_t len) const {
     double cum = sailfish::math::LOG_0;
-  vector<double> cdf(hist_.size());
-  for (size_t i = 0; i < hist_.size(); ++i) {
-      cum = sailfish::math::logAdd(cum, hist_[i]);
-  }
-  return cum - totMass_;
+    len /= binSize_;
+    if (len > maxVal()) {
+        len = maxVal();
+    }
+
+    for (size_t i = 0; i <= len; ++i) {
+        cum = sailfish::math::logAdd(cum, hist_[i]);
+    }
+    return cum - totMass_;
 }
 
 vector<double> FragmentLengthDistribution::cmf() const {
@@ -159,6 +163,16 @@ double FragmentLengthDistribution::totMass() const {
 
 double FragmentLengthDistribution::mean() const {
   return sum_ - totMass();
+}
+
+std::string FragmentLengthDistribution::toString() const {
+    std::stringstream ss;
+    for (size_t i = 0; i < hist_.size(); ++i) {
+        ss << std::exp(pmf(i*binSize_));
+        if (i != hist_.size() - 1) { ss << '\t'; }
+    }
+    ss << "\n";
+    return ss.str();
 }
 /*
 string FragmentLengthDistribution::to_string() const {
