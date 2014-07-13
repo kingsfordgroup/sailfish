@@ -797,7 +797,7 @@ void quantifyLibrary(LibraryFormat libFmt,
     fmt::print(stdout, "{}\n", fragLengthDist.toString());
 }
 
-int main(int argc, char* argv[]) {
+int salmonAlignmentQuantify(int argc, char* argv[]) {
     using std::cerr;
     using std::vector;
     namespace po = boost::program_options;

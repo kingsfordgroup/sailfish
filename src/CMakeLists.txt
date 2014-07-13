@@ -23,7 +23,7 @@ set (BUILD_TRANSCRIPT_MAP_SRCS
 BuildTranscriptMap.cpp
 )
 
-set (SALMON_READ_SRCS
+set (SALMON_ALIGN_SRCS
 FASTAParser.cpp 
 SailfishStringUtils.cpp 
 LibraryFormat.cpp 
@@ -100,12 +100,11 @@ add_library(sailfish_core SHARED ${SAILFISH_LIB_SRCS} )
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
 # Build the salmon executable
-add_executable(salmon ${SALMON_MAIN_SRCS})
+add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 
-add_executable(salmon-read ${SALMON_READ_SRCS})
-
-set_target_properties(salmon-read PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp"
-    LINK_FLAGS "-DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp")
+#add_executable(salmon-read ${SALMON_READ_SRCS})
+#set_target_properties(salmon-read PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp"
+#    LINK_FLAGS "-DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp")
 
 # Link the executable
 target_link_libraries(sailfish 
@@ -130,6 +129,8 @@ target_link_libraries(salmon
     bwa
     clasp
     ${Boost_LIBRARIES} 
+    ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
+    hts
     ${ZLIB_LIBRARY} 
     cmph # perfect hashing library
     jellyfish-2.0 
@@ -144,23 +145,23 @@ target_link_libraries(salmon
 add_dependencies(salmon libbwa)
 
 # Link the executable
-target_link_libraries(salmon-read
-    sailfish_core
-    gff
-    ${Boost_LIBRARIES} 
-    ${ZLIB_LIBRARY} 
-    cmph # perfect hashing library
-    jellyfish-2.0 
-    ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    hts
-    z
-    pthread 
-    gomp 
-    m
-    ${TBB_LIBRARIES}
-    ${LOGGING_LIBS}
-    ${LIBSAILFISH_LINKER_FLAGS} shark
-)
+#target_link_libraries(salmon-read
+    #sailfish_core
+    #gff
+    #${Boost_LIBRARIES} 
+    #${ZLIB_LIBRARY} 
+    #cmph # perfect hashing library
+    #jellyfish-2.0 
+    #${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
+    #hts
+    #z
+    #pthread 
+    #gomp 
+    #m
+    #${TBB_LIBRARIES}
+    #${LOGGING_LIBS}
+    #${LIBSAILFISH_LINKER_FLAGS} shark
+#)
 
 ##### ======================================
 

@@ -60,21 +60,46 @@
 #include "VersionChecker.hpp"
 
 int help(int argc, char* argv[]) {
-  auto helpmsg = R"(
-  ===============
+    auto helpmsg = R"(
+    ===============
 
-  Please invoke salmon with one of the following commands {index, quant, swim}.
-  For more inforation on the options for theses particular methods, use the -h
-  flag along with the method name.  For example:
+    Please invoke salmon with one of the following commands {index, quant, swim}.
+    For more inforation on the options for theses particular methods, use the -h
+    flag along with the method name.  For example:
 
-  salmon index -h
+    salmon index -h
 
-  will give you detailed help information about the index command.
-  )";
+    will give you detailed help information about the index command.
+    )";
 
-  std::cerr << "  Salmon v" << sailfish::version << helpmsg << "\n";
-  return 1;
+    std::cerr << "    Salmon v" << sailfish::version << helpmsg << "\n";
+    return 1;
 }
+
+
+int dualModeMessage() {
+    auto helpmsg = R"(
+    ===============
+
+    salmon quant has two modes --- one quantifies expression using raw reads
+    and the other makes use of already-aligned reads (in BAM/SAM format).
+    which algorithm is used depends on the arguments passed to salmon quant.
+    If you provide salmon with alignments '-a|--alignments' then the
+    alignment-based algorithm will be used, otherwise the algorithm for
+    quantifying from raw reads will be used.
+
+    To view the help for salmon's alignment-based mode, use the command
+
+    salmon quant --help-alignment
+
+    to view the help for salmon's read-based mode, use the command
+
+    salmon quant --help-reads
+    )";
+    std::cerr << "    Salmon v" << sailfish::version << helpmsg << "\n";
+    return 1;
+}
+
 
 /**
  * Bonus!
@@ -88,7 +113,7 @@ int salmonSwim(int argc, char* argv[]) {
   ___/ / /_/ / / / / / / / /_/ / / / /
  /____/\__,_/_/_/ /_/ /_/\____/_/ /_/
 
- 
+
 )";
 
   return 0;
@@ -97,6 +122,7 @@ int salmonSwim(int argc, char* argv[]) {
 
 int salmonIndex(int argc, char* argv[]);
 int salmonQuantify(int argc, char* argv[]);
+int salmonAlignmentQuantify(int argc, char* argv[]);
 
 int main( int argc, char* argv[] ) {
   using std::string;
@@ -168,7 +194,45 @@ int main( int argc, char* argv[] ) {
     if (cmdMain == cmds.end()) {
       help(subCommandArgc, argv2);
     } else {
-      cmdMain->second(subCommandArgc, argv2);
+      // If the command is quant; determine whether
+      // we're quantifying with raw sequences or alignemnts
+      if (cmdMain->first == "quant") {
+
+        // detect mode-specific help request
+        if (strncmp(argv2[1], "--help-alignment", 16) == 0) {
+            std::vector<char> helpStr{'-','-','h','e','l','p','\0'};
+            char* helpArgv[] = {argv[0], &helpStr[0]};
+            salmonAlignmentQuantify(2, helpArgv);
+        } else if (strncmp(argv2[1], "--help-reads", 12) == 0) {
+            std::vector<char> helpStr{'-','-','h','e','l','p','\0'};
+            char* helpArgv[] = {argv[0], &helpStr[0]};
+            salmonQuantify(2, helpArgv);
+        }
+
+        // detect general help request
+        if (strncmp(argv2[1], "--help", 6) == 0 or
+            strncmp(argv2[1], "-h", 2) == 0) {
+            dualModeMessage();
+            std::exit(0);
+        }
+
+        // otherwise, detect and dispatch the correct mode
+        bool useSalmonAlign{false};
+        for (size_t i = 0; i < subCommandArgc; ++i) {
+            if (strncmp(argv2[i], "-a", 2) == 0 or
+                strncmp(argv2[i], "--alignemnts", 12) == 0) {
+                useSalmonAlign = true;
+                break;
+            }
+        }
+        if (useSalmonAlign) {
+            salmonAlignmentQuantify(subCommandArgc, argv2);
+        } else {
+            salmonQuantify(subCommandArgc, argv2);
+        }
+      } else {
+        cmdMain->second(subCommandArgc, argv2);
+      }
     }
     delete[] argv2;
 
