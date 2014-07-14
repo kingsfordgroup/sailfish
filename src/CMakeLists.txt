@@ -29,7 +29,7 @@ SailfishStringUtils.cpp
 LibraryFormat.cpp 
 ErrorModel.cpp 
 FragmentLengthDistribution.cpp 
-TestBAMParser.cpp 
+SalmonQuantifyAlignments.cpp 
 )
 
 # Build the specific Sailfish commands as a 
