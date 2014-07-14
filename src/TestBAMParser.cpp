@@ -50,6 +50,7 @@ extern "C" {
 #include "ReadPair.hpp"
 #include "ErrorModel.hpp"
 #include "FragmentLengthDistribution.hpp"
+#include "SailfishUtils.hpp"
 
 namespace bfs = boost::filesystem;
 using sailfish::math::LOG_0;
@@ -517,83 +518,6 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
 }
 
 /**
- * This function parses the library format string that specifies the format in which
- * the reads are to be expected.
- */
-LibraryFormat parseLibraryFormatString(std::string& fmt) {
-    using std::vector;
-    using std::string;
-    using std::map;
-    using std::stringstream;
-
-    // inspired by http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
-    // first convert the string to upper-case
-    for (auto& c : fmt) { c = std::toupper(c); }
-    // split on the delimiter ':', and put the key, value (k=v) pairs into a map
-    stringstream ss(fmt);
-    string item;
-    map<string, string> kvmap;
-    while (std::getline(ss, item, ':')) {
-        auto splitPos = item.find('=', 0);
-        string key{item.substr(0, splitPos)};
-        string value{item.substr(splitPos+1)};
-        kvmap[key] = value;
-    }
-
-    map<string, ReadType> readType = {{"SE", ReadType::SINGLE_END}, {"PE", ReadType::PAIRED_END}};
-    map<string, ReadOrientation> orientationType = {{">>", ReadOrientation::SAME},
-                                           {"<>", ReadOrientation::AWAY},
-                                           {"><", ReadOrientation::TOWARD},
-                                           {"*", ReadOrientation::NONE}};
-    map<string, ReadStrandedness> strandType = {{"SA", ReadStrandedness::SA},
-                                    {"AS", ReadStrandedness::AS},
-                                    {"A", ReadStrandedness::A},
-                                    {"S", ReadStrandedness::S},
-                                    {"U", ReadStrandedness::U}};
-    auto it = kvmap.find("T");
-    string typeStr = "";
-    if (it != kvmap.end()) {
-        typeStr = it->second;
-    } else {
-        it = kvmap.find("TYPE");
-        if (it != kvmap.end()) {
-            typeStr = it->second;
-        }
-    }
-
-    if (typeStr != "SE" and typeStr != "PE") {
-        string e = typeStr + " is not a valid read type; must be one of {SE, PE}";
-        throw std::invalid_argument(e);
-    }
-
-    ReadType type = (typeStr == "SE") ? ReadType::SINGLE_END : ReadType::PAIRED_END;
-    ReadOrientation orientation = (type == ReadType::SINGLE_END) ? ReadOrientation::NONE : ReadOrientation::TOWARD;
-    ReadStrandedness strandedness{ReadStrandedness::U};
-    // Construct the LibraryFormat class from the key, value map
-    for (auto& kv : kvmap) {
-        auto& k = kv.first; auto& v = kv.second;
-        if (k == "O" or k == "ORIENTATION") {
-            auto it = orientationType.find(v);
-            if (it != orientationType.end()) { orientation = orientationType[it->first]; } else {
-                string e = v + " is not a valid orientation type; must be one of {>>, <>, ><}";
-                throw std::invalid_argument(e);
-            }
-
-        }
-        if (k == "S" or k == "STRAND") {
-            auto it = strandType.find(v);
-            if (it != strandType.end()) { strandedness = strandType[it->first]; } else {
-                string e = v + " is not a valid strand type; must be one of {SA, AS, S, A, U}";
-                throw std::invalid_argument(e);
-            }
-        }
-
-    }
-    LibraryFormat lf(type, orientation, strandedness);
-    return lf;
-}
-
-/**
   *  Quantify the targets given in the file `transcriptFile` using the
   *  alignments given in the file `alignmentFile`, and write the results
   *  to the file `outputFile`.  The reads are assumed to be in the format
@@ -794,7 +718,12 @@ void quantifyLibrary(LibraryFormat libFmt,
         ++clusterID;
     }
 
-    fmt::print(stdout, "{}\n", fragLengthDist.toString());
+    // Write the inferred fragment length distribution
+    bfs::path distFileName = outputFile.parent_path() / "flenDist.txt";
+    {
+        std::unique_ptr<std::FILE, int (*)(std::FILE *)> distOut(std::fopen(distFileName.c_str(), "w"), std::fclose);
+        fmt::print(distOut.get(), "{}\n", fragLengthDist.toString());
+    }
 }
 
 int salmonAlignmentQuantify(int argc, char* argv[]) {
@@ -810,7 +739,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     ("libtype,l", po::value<std::string>(), "Format string describing the library type")
     ("alignments,a", po::value<std::string>(), "input alignment (BAM) file")
     ("targets,t", po::value<std::string>(), "FASTA format file containing target transcripts")
-    ("output,o", po::value<std::string>(), "Output quantification file");
+    ("output,o", po::value<std::string>(), "Output quantification directory");
 
     po::variables_map vm;
     try {
@@ -820,7 +749,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         po::store(orderedOptions, vm);
 
         if (vm.count("help")) {
-            std::cout << "Sailfish read-quant\n";
+            std::cout << "Salmon quant (alignment-based)\n";
             std::cout << generic << std::endl;
             std::exit(0);
         }
@@ -844,7 +773,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         }
 
         std::string libFmtStr = vm["libtype"].as<std::string>();
-        LibraryFormat libFmt = parseLibraryFormatString(libFmtStr);
+        LibraryFormat libFmt = sailfish::utils::parseLibraryFormatStringNew(libFmtStr);
         if (libFmt.check()) {
             std::cerr << libFmt << "\n";
         } else {
@@ -854,7 +783,28 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         }
 
         std::string fname(alignmentFile.string());
-        bfs::path outputFile(vm["output"].as<std::string>());
+        bfs::path outputDirectory(vm["output"].as<std::string>());
+        // If the path exists
+        if (bfs::exists(outputDirectory)) {
+            // If it is not a directory, then complain
+            if (!bfs::is_directory(outputDirectory)) {
+                std::stringstream errstr;
+                errstr << "Path [" << outputDirectory << "] already exists "
+                       << "and is not a directory.\n"
+                       << "Please either remove this file or choose another "
+                       << "output path.\n";
+                throw std::invalid_argument(errstr.str());
+            }
+        } else { // If the path doesn't exist, then create it
+            if (!bfs::create_directories(outputDirectory)) { // creation failed for some reason
+                std::stringstream errstr;
+                errstr << "Could not create output directory ["
+                       << outputDirectory << "], please check that it is valid.";
+                throw std::invalid_argument(errstr.str());
+            }
+        }
+        // If we made it this far, the output directory exists
+        bfs::path outputFile = outputDirectory / "quant.sf";
         bfs::path transcriptFile(vm["targets"].as<std::string>());
 
         switch (libFmt.type) {
