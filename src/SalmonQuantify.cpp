@@ -811,8 +811,6 @@ int performBiasCorrection(boost::filesystem::path featPath,
                           boost::filesystem::path outPath,
                           size_t numThreads);
 
-
-
 int salmonQuantify(int argc, char *argv[]) {
     using std::cerr;
     using std::vector;
@@ -1162,6 +1160,11 @@ transcript abundance from RNA-seq reads
             }
         }
 
+        // Not ready for read / alignment-based bias correction yet
+        if (!noBiasCorrect) {
+            fmt::print(stderr, "Post-hoc bias correction is not yet supported in salmon; disabling\n");
+            noBiasCorrect = true;
+        }
 
         if (!noBiasCorrect) {
             // Estimated read length
@@ -1183,42 +1186,18 @@ transcript abundance from RNA-seq reads
 
         }
 
-
         /** If the user requested gene-level abundances, then compute those now **/
         if (vm.count("gene_map")) {
-            std::cerr << "Computing gene-level abundance estimates\n";
-            bfs::path gtfExtension(".gtf");
-            auto extension = geneMapPath.extension();
-
-            TranscriptGeneMap tranGeneMap;
-            // parse the map as a GTF file
-            if (extension == gtfExtension) {
-                // Using the custom GTF Parser
-                //auto features = GTFParser::readGTFFile<TranscriptGeneID>(geneMapPath.string());
-                //tranGeneMap = sailfish::utils::transcriptToGeneMapFromFeatures(features);
-
-                // Using libgff
-                tranGeneMap = sailfish::utils::transcriptGeneMapFromGTF(geneMapPath.string(), "gene_id");
-            } else { // parse the map as a simple format files
-                std::ifstream tgfile(geneMapPath.string());
-                tranGeneMap = sailfish::utils::readTranscriptToGeneMap(tgfile);
-                tgfile.close();
+            try {
+                sailfish::utils::generateGeneLevelEstimates(geneMapPath,
+                                                            outputDirectory,
+                                                            !noBiasCorrect);
+            } catch (std::invalid_argument& e) {
+                fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
+                                   "estimates. The gene-level file(s) may not exist",
+                                   e.what());
             }
-
-            std::cerr << "There were " << tranGeneMap.numTranscripts() << " transcripts mapping to "
-                << tranGeneMap.numGenes() << " genes\n";
-
-            sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, estFilePath);
-            /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
-            if (!noBiasCorrect) {
-                bfs::path biasCorrectEstFilePath(estFilePath.parent_path());
-                biasCorrectEstFilePath /= "quant_bias_corrected.sf";
-                sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, biasCorrectEstFilePath);
-            }
-
         }
-
-
 
     } catch (po::error &e) {
         std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";

@@ -553,6 +553,10 @@ ExpressionRecord parseExpressionRecord(std::string& l) {
                 break;
             default:
                 rec.quants.push_back(stod(tok));
+                if (rec.quants.back() < 0.0) {
+                    std::cerr << "read token [" << tok << "] which I think is < 0!!!!!!\n";
+                }
+                break;
         }
         ++idx;
     }
@@ -615,6 +619,55 @@ void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::pa
     }
     outputFile.close();
 }
+
+void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
+                                boost::filesystem::path& estDir,
+                                bool haveBiasCorrectedFile) {
+    namespace bfs = boost::filesystem;
+    std::cerr << "Computing gene-level abundance estimates\n";
+    bfs::path gtfExtension(".gtf");
+    auto extension = geneMapPath.extension();
+
+    TranscriptGeneMap tranGeneMap;
+    // parse the map as a GTF file
+    if (extension == gtfExtension) {
+        // Using libgff
+        tranGeneMap = sailfish::utils::transcriptGeneMapFromGTF(geneMapPath.string(), "gene_id");
+    } else { // parse the map as a simple format files
+        std::ifstream tgfile(geneMapPath.string());
+        tranGeneMap = sailfish::utils::readTranscriptToGeneMap(tgfile);
+        tgfile.close();
+    }
+
+    std::cerr << "There were " << tranGeneMap.numTranscripts() << " transcripts mapping to "
+        << tranGeneMap.numGenes() << " genes\n";
+
+    bfs::path estFilePath = estDir / "quant.sf";
+    if (!bfs::exists(estFilePath)) {
+        std::stringstream errstr;
+        errstr << "Attempting to compute gene-level esimtates, but could not \n"
+            << "find isoform-level file " << estFilePath;
+        throw std::invalid_argument(errstr.str());
+    } else {
+        sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, estFilePath);
+    }
+
+    /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
+    if (haveBiasCorrectedFile) {
+        bfs::path biasCorrectEstFilePath = estDir / "quant_bias_corrected.sf";
+        biasCorrectEstFilePath /= "quant_bias_corrected.sf";
+        if (!bfs::exists(biasCorrectEstFilePath)) {
+            std::stringstream errstr;
+            errstr << "Attempting to compute gene-level esimtates, but could not \n"
+                << "find bias-corrected isoform-level file " << biasCorrectEstFilePath;
+            throw std::invalid_argument(errstr.str());
+        } else {
+            sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, biasCorrectEstFilePath);
+        }
+    }
+}
+
+
 
 }
 }

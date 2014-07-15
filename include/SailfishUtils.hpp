@@ -142,6 +142,12 @@ TranscriptGeneMap transcriptToGeneMapFromFasta( const std::string& transcriptsFi
 
 void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::path& inputPath);
 
+// NOTE: Throws an invalid_argument exception of the quant or quant_bias_corrected files do
+// not exist!
+void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
+                                boost::filesystem::path& estDir,
+                                bool haveBiasCorrectedFile = false);
+
 }
 }
 #endif // UTILS_HPP

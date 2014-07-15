@@ -1,19 +1,15 @@
-//#include "MultithreadedBAMParser.hpp"
-//#include <boost/thread/thread.hpp>
-
 extern "C" {
 #include "htslib/sam.h"
-//#include "sam.h"
 }
 
+// for cpp-format
 #include "format.h"
 
+// are these used?
 #include <boost/dynamic_bitset.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/lockfree/queue.hpp>
 
-#include <omp.h>
-#include <forward_list>
 #include <tbb/atomic.h>
 #include <algorithm>
 #include <iostream>
@@ -32,7 +28,6 @@ extern "C" {
 
 #include <tbb/concurrent_queue.h>
 
-#include <boost/container/flat_map.hpp>
 #include <boost/timer/timer.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/math/special_functions/digamma.hpp>
@@ -50,6 +45,7 @@ extern "C" {
 #include "ReadPair.hpp"
 #include "ErrorModel.hpp"
 #include "FragmentLengthDistribution.hpp"
+#include "TranscriptCluster.hpp"
 #include "SailfishUtils.hpp"
 
 namespace bfs = boost::filesystem;
@@ -81,94 +77,6 @@ void scaleBy(std::vector<T>& vec, T scale) {
     std::for_each(vec.begin(), vec.end(), [scale](T& ele)->void { ele *= scale; });
 }
 
-class TranscriptCluster {
-    friend class ClusterForest;
-public:
-    TranscriptCluster() : members_(std::list<size_t>()), count_({0}), logMass_(LOG_0), active_(true) {}
-    TranscriptCluster(size_t initialMember) : members_(std::list<size_t>(1,initialMember)), count_({0}),
-                                              logMass_(LOG_0), active_(true) {
-    }
-
-    void incrementCount(size_t num) { count_ += num; }
-    void addMass(double logNewMass) { logMass_ = logAdd(logMass_, logNewMass); }
-    void merge(TranscriptCluster& other) {
-        members_.splice(members_.begin(), other.members_);
-        logMass_ = logAdd(logMass_, other.logMass_);
-        count_ += other.count_;
-    }
-
-    std::list<size_t>& members() { return members_; }
-    size_t numHits() { return count_.load(); }
-    bool isActive() { return active_; }
-    void deactivate() { active_ = false; }
-    double logMass() { return logMass_; }
-
-    // Adopted from https://github.com/adarob/eXpress/blob/master/src/targets.cpp
-    void projectToPolytope(std::vector<Transcript>& allTranscripts) {
-        using sailfish::math::approxEqual;
-        constexpr size_t maxIter = 1000;
-        size_t iter{0};
-
-        // The transcript belonging to this cluster
-        double clusterCounts{static_cast<double>(count_)};
-        std::vector<Transcript*> transcripts;
-        for (auto tid : members_) {
-            transcripts.push_back(&allTranscripts[tid]);
-        }
-        // The cluster size
-        size_t clusterSize = transcripts.size();
-
-        boost::dynamic_bitset<> polytopeBound(clusterSize);
-        while(true) {
-            double unboundCounts{0.0};
-            double boundCounts{0.0};
-            for (size_t i = 0; i < clusterSize; ++i) {
-                Transcript* transcript = transcripts[i];
-                if (transcript->projectedCounts > transcript->totalCounts) {
-                    transcript->projectedCounts = transcript->totalCounts;
-                    polytopeBound[i] = true;
-                } else if (transcript->projectedCounts < transcript->uniqueCounts) {
-                    transcript->projectedCounts = transcript->uniqueCounts;
-                    polytopeBound[i] = true;
-                }
-
-                if (polytopeBound[i]) {
-                    boundCounts += transcript->projectedCounts;
-                } else {
-                    unboundCounts += transcript->projectedCounts;
-                }
-            }
-
-
-            if (approxEqual(unboundCounts + boundCounts, clusterCounts)) {
-                return;
-            }
-
-            if (unboundCounts == 0) {
-                polytopeBound = boost::dynamic_bitset<>(clusterSize);
-                unboundCounts = boundCounts;
-                boundCounts = 0;
-            }
-
-            double normalizer = (clusterCounts - boundCounts) / unboundCounts;
-            for (size_t i = 0; i < clusterSize; ++i) {
-                if (!polytopeBound[i]) {
-                    Transcript* transcript = transcripts[i];
-                    transcript->projectedCounts *= normalizer;
-                }
-            }
-          if (iter > maxIter) { return; }
-          ++iter;
-        } // end while
-
-    }
-
-private:
-    std::list<size_t> members_;
-    std::atomic<size_t> count_;
-    double logMass_;
-    bool active_;
-};
 
 /** A forest of transcript clusters */
 class ClusterForest {
@@ -527,7 +435,8 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
 template <typename FragT>
 void quantifyLibrary(LibraryFormat libFmt,
             bfs::path& alignmentFile, bfs::path& transcriptFile,
-            bfs::path& outputFile) {
+            bfs::path& outputFile,
+            uint32_t numThreads) {
 
     std::string fname = alignmentFile.string();
     BAMQueue<FragT> bq(fname, libFmt);
@@ -575,11 +484,10 @@ void quantifyLibrary(LibraryFormat libFmt,
 
     std::condition_variable workAvailable;
     std::mutex cvmutex;
-    size_t numWorkers{6};
     std::vector<std::thread> workers;
     std::atomic<size_t> activeBatches{0};
     std::atomic<size_t> processedReads{0};
-    for (size_t i = 0; i < numWorkers; ++i) {
+    for (uint32_t i = 0; i < numThreads; ++i) {
         workers.emplace_back(processMiniBatch<FragT>, std::ref(workQueue),
                 std::ref(workAvailable), std::ref(cvmutex),
                 std::ref(refs), std::ref(clusterForest),
@@ -708,9 +616,9 @@ void quantifyLibrary(LibraryFormat libFmt,
             double countUnique = refs[transcriptID].uniqueCounts;
             double fpkm = count > 0 ? fpkmFactor * count : 0.0;
             fmt::print(output.get(),
-                       "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                       clusterID, transcript.RefName, transcript.RefLength,
-                       fpkm, countTotal, countUnique, count, transcript.mass());
+                       "{}\t{}\t{}\t{}\t{}\t{}\n",
+                       transcript.RefName, transcript.RefLength,
+                       fpkm, countTotal, countUnique, count);
 
             ++idx;
         }
@@ -732,6 +640,9 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     namespace po = boost::program_options;
     namespace bfs = boost::filesystem;
 
+    bool noBiasCorrect{false};
+    uint32_t numThreads{4};
+
     po::options_description generic("Sailfish read-quant options");
     generic.add_options()
     ("version,v", "print version string")
@@ -739,7 +650,21 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     ("libtype,l", po::value<std::string>(), "Format string describing the library type")
     ("alignments,a", po::value<std::string>(), "input alignment (BAM) file")
     ("targets,t", po::value<std::string>(), "FASTA format file containing target transcripts")
-    ("output,o", po::value<std::string>(), "Output quantification directory");
+    ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
+                                            "The alignment-based quantification mode of salmon is usually I/O bound\n"
+                                            "so until there is a faster multi-threaded SAM/BAM parser to feed the \n"
+                                            "quantification threads, one should not expect much of a speed-up beyond \n"
+                                            "~6 threads.")
+    ("output,o", po::value<std::string>(), "Output quantification directory")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("gene_map,g", po::value<std::string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
+                                        "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
+                                        "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
+                                        "should be provided as either a GTF file, or a in a simple tab-delimited format\n"
+                                        "where each line contains the name of a transcript and the gene to which it belongs\n"
+                                        "separated by a tab.  The extension of the file is used to determine how the file\n"
+                                        "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF\n"
+                                        "format; files with any other extension are assumed to be in the simple format");
 
     po::variables_map vm;
     try {
@@ -761,6 +686,18 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                 std::cerr << " " << val;
             }
             std::cerr << " }\n";
+        }
+
+        // Verify the gene_map before we start doing any real work.
+        bfs::path geneMapPath;
+        if (vm.count("gene_map")) {
+            // Make sure the provided file exists
+            geneMapPath = vm["gene_map"].as<std::string>();
+            if (!bfs::exists(geneMapPath)) {
+                std::cerr << "Could not fine transcript <=> gene map file " << geneMapPath << "\n";
+                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file\n";
+                std::exit(1);
+            }
         }
 
         bfs::path alignmentFile(vm["alignments"].as<std::string>());
@@ -810,16 +747,56 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         switch (libFmt.type) {
             case ReadType::SINGLE_END:
                 quantifyLibrary<UnpairedRead>(libFmt,
-                        alignmentFile, transcriptFile, outputFile);
+                        alignmentFile, transcriptFile, outputFile, numThreads);
                 break;
             case ReadType::PAIRED_END:
                 quantifyLibrary<ReadPair>(libFmt,
-                        alignmentFile, transcriptFile, outputFile);
+                        alignmentFile, transcriptFile, outputFile, numThreads);
                 break;
             default:
                 std::cerr << "Cannot quantify library of unknown " <<
                         "format " << libFmt << "\n";
                 std::exit(1);
+        }
+        /*
+        if (!noBiasCorrect) {
+            // Estimated read length
+            double estimatedReadLength = 36;
+            // Number of k-mers per read
+            double kmersPerRead = 1.0;
+            // Total number of mapped kmers
+            uint64_t mappedKmers= totalHits;
+
+            auto origExpressionFile = estFilePath;
+
+            auto outputDirectory = estFilePath;
+            outputDirectory.remove_filename();
+
+            auto biasFeatPath = indexDirectory / "bias_feats.txt";
+            auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
+            performBiasCorrection(biasFeatPath, estFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
+                    20, biasCorrectedFile, nbThreads);
+
+        }
+        */
+
+        // Not ready for read / alignment-based bias correction yet
+        if (!noBiasCorrect) {
+            fmt::print(stderr, "Post-hoc bias correction is not yet supported in salmon; disabling\n");
+            noBiasCorrect = true;
+        }
+
+        /** If the user requested gene-level abundances, then compute those now **/
+        if (vm.count("gene_map")) {
+            try {
+                sailfish::utils::generateGeneLevelEstimates(geneMapPath,
+                                                            outputDirectory,
+                                                            !noBiasCorrect);
+            } catch (std::exception& e) {
+                fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
+                                   "estimates. The gene-level file(s) may not exist",
+                                   e.what());
+            }
         }
 
     } catch (po::error& e) {
@@ -835,51 +812,3 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     }
     return 0;
 }
-
-/*
-  AlignmentGroup* nag;
-  bq.getAlignmentGroup(nag);
-
-  constexpr char samToChar[] = {'*', 'A', 'C', '*', 'G', '*', '*', '*', 'T',
-  '*', '*', '*', '*', '*', '*', '*'};
-
-  for(auto& aln : nag->alignments()) {
-  auto transcriptID = aln.read1->core.tid;
-  auto& ref = refs[transcriptID];
-  std::cerr << "ref = " << ref.RefName << "\n";
-
-  std::cerr << "read1 = " << bam1_qname(aln.read1) << ", p = " << aln.read1->core.pos << "\n";
-  size_t linit = aln.read1->core.pos;
-  for (size_t offset = 0; offset < aln.read1->core.l_qseq; ++offset) {
-  //std::cerr << linit + offset << " ";
-  std::cerr << samToChar[ref.baseAt(linit + offset)];
-  }
-  std::cerr << "\n";
-
-  uint8_t* seq = bam1_seq(aln.read1);
-  for (size_t offset = 0; offset < aln.read1->core.l_qseq; ++offset) {
-  //std::cerr << linit + offset << " ";
-  std::cerr << samToChar[bam1_seqi(seq, offset)];
-  }
-  std::cerr << "\n";
-
-  std::cerr << "read2 = " << bam1_qname(aln.read2) << ", p = " << aln.read2->core.pos << "\n";
-  size_t rinit = aln.read2->core.pos;
-  for (size_t offset = 0; offset < aln.read2->core.l_qseq; ++offset) {
-  //std::cerr << linit + offset << " ";
-  std::cerr << samToChar[ref.baseAt(rinit + offset)];
-  }
-  std::cerr << "\n";
-
-  seq = bam1_seq(aln.read2);
-  for (size_t offset = 0; offset < aln.read2->core.l_qseq; ++offset) {
-  //std::cerr << linit + offset << " ";
-  std::cerr << samToChar[bam1_seqi(seq, offset)];
-  }
-  std::cerr << "\n";
-
-
-  }
-  std::exit(1);
-*/
-
