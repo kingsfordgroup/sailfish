@@ -40,7 +40,7 @@ else()
     set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
 
-
+set( BOOST_EXTRA_FLAGS "--layout=tagged" )
 ##
 # Compiler-specific C++11 activation.
 # http://stackoverflow.com/questions/10984442/how-to-detect-c11-support-of-a-compiler-with-cmake
@@ -64,15 +64,16 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
 
 
     set (BOOST_CONFIGURE_TOOLSET "")
-    set (BOOST_EXTRA_FLAGS "")
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     message(FATAL_ERROR "Currently, the only supported compiler is GCC(>=4.7).  We hope to support Clang soon.")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
-    set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
+    set (BOOST_EXTRA_FLAGS "${BOOST_EXTRA_FLAGS} toolset=clang cxxflags=\"-stdlib=libc++\"  linkflags=\"-stdlib=libc++\"")
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
+
+message(STATUS "BOOST_EXTRA_FLAGS = ${BOOST_EXTRA_FLAGS}")
 
 ##
 # Record this top-level path
@@ -132,7 +133,7 @@ elseif(FETCH_BOOST)
         URL http://en.sourceforge.jp/frs/g_redir.php?m=jaist&f=%2Fboost%2Fboost%2F1.55.0%2Fboost_1_55_0.tar.gz
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR>
+        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR> 
         BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 ${BOOST_EXTRA_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
