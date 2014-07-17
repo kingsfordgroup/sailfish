@@ -8,6 +8,8 @@ language: cpp
 compiler: clang
 
 before_install:
+    - echo "yes" | sudo apt-add-repository ppa:mapnik/boost-backports-1-54
+    - sudo apt-get update -qq
     - sudo apt-get install -qq libboost-dev
 
 script: mkdir build && cd build && cmake .. && make && make test
