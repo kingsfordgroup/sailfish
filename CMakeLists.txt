@@ -289,31 +289,19 @@ set(TBB_WILL_RECONFIGURE TRUE)
 # Set the appropriate compiler
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(TBB_COMPILER "clang")
-    ##
-    # On OSX, tbb currently has a linker bug so we have to patch up the following file
-    ##
-   if ("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-    set(TBB_LINK_SYMBOLS "${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/src/tbb/mac64-tbb-export.lst")
-    set(TBB_PATCH_STEP awk "!/__TBB_SYMBOL\( _ZTVN3tbb13tbb_exceptionE \)/" ${TBB_LINK_SYMBOLS} > ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/tmplnk && mv ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss/tmplnk ${TBB_LINK_SYMBOLS})
-   else("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-    set(TBB_PATCH_STEP "")
-   endif("${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-
 else()
-
     set(TBB_COMPILER "gcc")
-
 endif()
 
 message("Build system will fetch and build Intel Threading Building Blocks")
 message("==================================================================")
 # These are useful for the custom install step we'll do later
-set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20130314oss)
+set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140601)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
     URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb42_20140601oss_src.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb41_20140601
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140601
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""
