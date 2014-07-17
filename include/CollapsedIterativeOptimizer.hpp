@@ -2037,8 +2037,10 @@ public:
                         }
                     }
         });
-
+        KmerQuantity q{0.0};
+        return q;
     }
+
     void applyCoverageFilter_(const boost::filesystem::path& estIn,
                               const boost::filesystem::path& transcriptKmerMap,
                               const boost::filesystem::path& filteredEstOut,
