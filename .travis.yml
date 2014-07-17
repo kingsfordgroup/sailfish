@@ -12,6 +12,6 @@ before_install:
     - sudo apt-get update -qq
     - sudo apt-get install -qq libboost-dev
 
-script: mkdir build && cd build && cmake .. && make && make test
+script: mkdir build && cd build && cmake -DBOOST_ROOT=/usr/local .. && make && make test
 
 
