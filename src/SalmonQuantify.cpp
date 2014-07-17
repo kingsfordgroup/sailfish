@@ -35,6 +35,7 @@
 #include <exception>
 #include <random>
 #include <queue>
+#include <unordered_map>
 #include "btree_map.h"
 #include "btree_set.h"
 
@@ -104,7 +105,7 @@ extern "C" {
 #include "FragmentList.hpp"
 #include "FragmentLengthDistribution.hpp"
 
-#include "google/dense_hash_map"
+//#include "google/dense_hash_map"
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
@@ -491,10 +492,10 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
     //std::unordered_map<uint64_t, CoverageCalculator> rightHits;
 
 
-    google::dense_hash_map<uint64_t, CoverageCalculator> leftHits;
-    google::dense_hash_map<uint64_t, CoverageCalculator> rightHits;
-    leftHits.set_empty_key(std::numeric_limits<uint64_t>::max());
-    rightHits.set_empty_key(std::numeric_limits<uint64_t>::max());
+    std::unordered_map<uint64_t, CoverageCalculator> leftHits;
+    std::unordered_map<uint64_t, CoverageCalculator> rightHits;
+    //leftHits.set_empty_key(std::numeric_limits<uint64_t>::max());
+    //rightHits.set_empty_key(std::numeric_limits<uint64_t>::max());
 
     uint32_t leftReadLength{0};
     uint32_t rightReadLength{0};
