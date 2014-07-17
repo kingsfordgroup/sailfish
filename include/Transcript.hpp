@@ -3,7 +3,7 @@
 
 #include <atomic>
 #include <cmath>
-#include <numeric_limits>
+#include <limits>
 #include "tbb/atomic.h"
 #include "SailfishStringUtils.hpp"
 #include "SailfishMath.hpp"
