@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <numeric_limits>
 #include "tbb/atomic.h"
 #include "SailfishStringUtils.hpp"
 #include "SailfishMath.hpp"
@@ -63,6 +64,7 @@ public:
             break;
         }
 
+        return std::numeric_limits<uint8_t>::max();
     }
 
     inline void addSharedCount(double sc) {
