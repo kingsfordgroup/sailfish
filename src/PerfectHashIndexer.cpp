@@ -179,7 +179,9 @@ int runJellyfish(bool canonical,
     argStream << inputFilesStream.str();
 
     std::string argString = argStream.str();
-    boost::trim(argString);
+    argString.pop_back();
+    std::cerr << "argString = [" << argString << "]\n";
+    //boost::trim(argString);
 
     std::cerr << "running jellyfish with " << argString << "\n";
 
@@ -193,11 +195,16 @@ int runJellyfish(bool canonical,
 
         char ** jfargs = new char*[argStrings.size()];
         for (size_t i : boost::irange({0}, argStrings.size())) {
-            jfargs[i] = const_cast<char*>(argStrings[i].c_str());
+            jfargs[i] = new char[argStrings[i].size()+1];
+            std::strcpy(jfargs[i], argStrings[i].c_str());
         }
 
         std::cerr << "In Jellyfish process. Counting transcript kmers\n";
         int jfRet = jellyfish_count_main(argStrings.size(), jfargs);
+        std::cerr << "Finished call to jellyfish process\n";
+        for (size_t i : boost::irange({0}, argStrings.size())) {
+            delete jfargs[i];
+        }
         delete [] jfargs;
         std::exit(jfRet);
 
@@ -208,11 +215,14 @@ int runJellyfish(bool canonical,
     } else { // parent
 
         int status = -1;
-        waitpid(pid, &status, 0); // wait on the Jellyfish process
-        std::cerr << "Jellyfish terminated with return code " << status << "\n";
-        assert( status == 0 );
+        auto waitRet = waitpid(pid, &status, 0); // wait on the Jellyfish process
+        std::cerr << "waited on " << pid << ", waitpid return was " << waitRet << "\n";
+        bool statusOK = (status == 0);
+        std::cerr << "Jellyfish status " << ((statusOK) ? "OK" : "NOT OK")
+                  << " -- return code " << status << "\n";
+        assert(statusOK);
     }
-
+    return 0;
     /*
     // Run Jellyfish as an external process using the shell.
     // This will force the mmapped memory to be cleaned up.
@@ -334,6 +344,12 @@ the Jellyfish database [thash] of the transcripts.
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
+
+        std::cerr << "computeBiasFeatures( {";
+        for (auto& tf : transcriptFiles) {
+            std::cerr << "[" << tf << "] ";
+        }
+        std::cerr << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
         bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts";
@@ -349,7 +365,6 @@ the Jellyfish database [thash] of the transcripts.
         if (mustRecompute) {
             std::cerr << "Running Jellyfish on transcripts\n";
             runJellyfish(canonical, merLen, numThreads, outputStem, transcriptFiles);
-
             std::cerr << "Jellyfish finished\n";
 
             bfs::path thashFile = jfHashFile;//vm["thash"].as<string>();

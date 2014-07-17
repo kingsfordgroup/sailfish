@@ -487,5 +487,5 @@ int performBiasCorrection(
         std::cerr << "retainedCnt = " << retainedCnt << ", nsamps = " << train.n_samples << "\n";
 
         ofile.close();
-
+    return 0;
 }

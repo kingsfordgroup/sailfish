@@ -108,13 +108,13 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 
 # Link the executable
 target_link_libraries(sailfish 
+    pthread 
     sailfish_core 
     gff
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     cmph # perfect hashing library
     jellyfish-2.0 
-    pthread 
     gomp 
     m
     ${TBB_LIBRARIES}

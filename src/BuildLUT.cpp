@@ -542,4 +542,5 @@ int mainBuildLUT(int argc, char* argv[] ) {
     std::exit(1);
   }
 
+  return 0;
 }

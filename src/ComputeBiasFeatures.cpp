@@ -75,16 +75,16 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                 while (true) { //producer.nextRead(s)) {
                     sequence_parser::job j(parser);
                     // If this job is empty, then we're done
-                    if (j.is_empty()) { std::cerr << "empty job\n"; return; }
+                    if (j.is_empty()) { return; }
 
                     for (size_t i=0; i < j->nb_filled; ++i) {
                         ++readNum;
                         if (readNum % 100 == 0) {
-                        auto tend = std::chrono::steady_clock::now();
-                        auto sec = std::chrono::duration_cast<std::chrono::seconds>(tend-tstart);
-                        auto nsec = sec.count();
-                        auto rate = (nsec > 0) ? readNum / sec.count() : 0;
-                        std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
+                            auto tend = std::chrono::steady_clock::now();
+                            auto sec = std::chrono::duration_cast<std::chrono::seconds>(tend-tstart);
+                            auto nsec = sec.count();
+                            auto rate = (nsec > 0) ? readNum / sec.count() : 0;
+                            std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
                         }
 
                         // we iterate over the entire read
@@ -113,7 +113,7 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                         size_t offset{0};
                         size_t numChars{j->data[i].seq.size()};
                         while (offset < numChars) {
-                            int c = jellyfish::mer_dna::code(j->data[i].seq[offset]);
+                            auto c = jellyfish::mer_dna::code(j->data[i].seq[offset]);
                             kmer.shift_left(c);
                             if (jellyfish::mer_dna::not_dna(c)) {
                                 cmlen = 0;
@@ -121,7 +121,8 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                                 continue;
                             }
                             if (++cmlen >= merLen) {
-                                tfeat.diNucleotides[kmer.get_bits(0, 2*merLen)]++;
+                                size_t twomer = kmer.get_bits(0, 2*merLen);
+                                tfeat.diNucleotides[twomer]++;
                                 switch(c) {
                                     case jellyfish::mer_dna::CODE_G:
                                     case jellyfish::mer_dna::CODE_C:
@@ -132,8 +133,8 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                             ++offset;
                         } // end while
 
-                        char lastBase = *(end - 1);
-                        int c = jellyfish::mer_dna::code(lastBase);
+                        char lastBase = j->data[i].seq.back();
+                        auto c = jellyfish::mer_dna::code(lastBase);
                         switch(c) {
                             case jellyfish::mer_dna::CODE_G:
                             case jellyfish::mer_dna::CODE_C:
@@ -189,37 +190,36 @@ int computeBiasFeatures(
              ofile.close();
          });
 
-    bool tryJellyfish = !useStreamingParser;
-
-    std::vector<std::string> readFiles = transcriptFiles;
-    for( auto rf : readFiles ) {
+    for( auto rf : transcriptFiles) {
         std::cerr << "readFile: " << rf << ", ";
     }
     std::cerr << "\n";
 
-    for (auto& readFile : readFiles) {
+    for (auto& readFile : transcriptFiles) {
         std::cerr << "file " << readFile << ": \n";
 
-        namespace bfs = boost::filesystem;
-        bfs::path filePath(readFile);
+        //namespace bfs = boost::filesystem;
+        //bfs::path filePath(readFile);
 
-        char** fnames = new char*[1];// fnames[1];
-        fnames[0] = const_cast<char*>(readFile.c_str());
+        char* pc = new char[readFile.size() + 1];
+        std::strcpy(pc, readFile.c_str());
+        char* fnames[] = {pc};
+
         // Create a jellyfish parser
         const int concurrentFile{1};
 
         using stream_manager = jellyfish::stream_manager<char**>;
         using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
-
         stream_manager streams(fnames, fnames + 1, concurrentFile);
 
         size_t maxReadGroupSize{100};
-        sequence_parser parser(4*numActors, maxReadGroupSize, concurrentFile, streams);
-
+        sequence_parser parser(1*numActors, maxReadGroupSize, concurrentFile, streams);
         computeBiasFeaturesHelper<sequence_parser>(
                 parser, featQueue, numComplete, numActors);
+        delete pc;
     }
 
     std::cerr << "\n";
     outputThread.join();
+    return 0;
 }

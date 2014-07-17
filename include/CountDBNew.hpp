@@ -52,7 +52,7 @@ class CountDBNew {
    // We'll return this invalid id if a kmer is not found in our DB
    size_t INVALID = std::numeric_limits<size_t>::max();
 
-   CountDBNew( std::shared_ptr<PerfectHashIndex>& index ) : 
+   CountDBNew( std::shared_ptr<PerfectHashIndex>& index ) :
       index_(index), counts_( std::vector< AtomicCount >( index->numKeys() ) ),
       length_(0), numLengths_(0) {}
 
@@ -95,7 +95,7 @@ class CountDBNew {
    }
 
    inline Length totalLength() { return length_.load(); }
-   inline Length numLengths() { return numLengths_.load(); } 
+   inline Length numLengths() { return numLengths_.load(); }
 
    inline size_t id(Kmer k) { return index_->index(k); }
 
@@ -126,7 +126,7 @@ class CountDBNew {
    void will_need(uint32_t threadIdx, uint32_t numThreads) {
      auto pageSize = sysconf(_SC_PAGESIZE);
      size_t numPages{0};
-     
+
      auto entriesPerPage = pageSize / sizeof(AtomicCount);
      auto size = counts_.size();
      numPages = (sizeof(AtomicCount) * counts_.size()) / entriesPerPage;
@@ -151,6 +151,7 @@ class CountDBNew {
     size_t numCounts = counts_.size();
     counts.write( reinterpret_cast<char*>(&counts_[0]), sizeof(counts_[0]) * numCounts );
     counts.close();
+    return true;
    }
 
    inline uint32_t kmerLength() { return index_->kmerLength(); }

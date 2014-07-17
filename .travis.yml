@@ -1,0 +1,15 @@
+#whitelist
+branches:
+    only:
+        - develop
+
+language: cpp
+
+compiler: clang
+
+before_install:
+    - sudo apt-get install libboost-dev 
+
+script: mkdir build && cd build && cmake .. && make && make test
+
+

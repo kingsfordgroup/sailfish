@@ -1517,7 +1517,7 @@ public:
         // tolerance threshold
         for ( size_t iter = 0; iter < numIt; ++iter ) {
             std::string jumpBack = "\x1b[A";
-            std::cerr << clearline << "SQUAREM iteraton [" << iter << "]\n";
+            std::cerr << clearline << "SQUAREM iteraton [" << iter << " / max(" << numIt << ")]\n";
             jumpBack += "\x1b[A";
 
           // Theta_1 = EMUpdate(Theta_0)
@@ -1623,7 +1623,8 @@ public:
           if (iter < numIt - 1) { std::cerr << jumpBack; }
 
         }
-
+        KmerQuantity q{0.0};
+        return q;
     }
 
 
