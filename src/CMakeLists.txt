@@ -48,7 +48,7 @@ ${BLAS_LIBRARY_DIR}
 )
 
 if(HAVE_LOGGER)
-    set (LOGGING_LIBS lib_g2logger lib_activeobject)
+    set (LOGGING_LIBS lib_g2logger)
 else()
     set (LOGGING_LIBS )
 endif()
