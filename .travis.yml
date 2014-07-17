@@ -5,7 +5,7 @@ branches:
 
 language: cpp
 
-compiler: clang
+compiler: gcc
 
 before_install:
     - echo "yes" | sudo apt-add-repository ppa:mapnik/boost-backports-1-54
@@ -15,6 +15,10 @@ before_install:
     - sudo apt-get upgrade -qq
     - sudo apt-get install -qq gcc-4.8 g++-4.8
     - sudo apt-get install -qq libboost1.54-all-dev
+
+install:
+    - export CXX="g++-4.8"
+    - export CC="gcc-4.8"
 
 script: mkdir build && cd build && cmake .. && make && make test
 
