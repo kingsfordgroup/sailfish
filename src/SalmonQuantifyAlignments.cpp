@@ -416,13 +416,13 @@ void quantifyLibrary(
         doneParsing = true;
         size_t tnum{0};
         for (auto& t : workers) {
-            fmt::print(stderr, "\r\rkilling thread {} . . . ", tnum++);
+            fmt::print(stderr, "killing thread {} . . . ", tnum++);
             {
                 std::unique_lock<std::mutex> l(cvmutex);
                 workAvailable.notify_all();
             }
             t.join();
-            fmt::print(stderr, "done");
+            fmt::print(stderr, "done\r\r");
         }
         fmt::print(stderr, "\n");
 
