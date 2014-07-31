@@ -1,6 +1,11 @@
 #ifndef ALIGNMENT_GROUP
 #define ALIGNMENT_GROUP
 
+extern "C" {
+#include "htslib/sam.h"
+#include "samtools/samtools.h"
+}
+
 #include <vector>
 #include "SailfishMath.hpp"
 #include "ReadPair.hpp"

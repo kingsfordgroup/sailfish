@@ -1,9 +1,128 @@
 #include "BAMQueue.hpp"
 
+/**Author:  David Robert Nadeau
+* Site:    http://NadeauSoftware.com/
+* License: Creative Commons Attribution 3.0 Unported License
+*          http://creativecommons.org/licenses/by/3.0/deed.en_US
+*/
+
+#if defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+
+#elif defined(__unix__) || defined(__unix) || defined(unix) || (defined(__APPLE__) && defined(__MACH__))
+#include <unistd.h>
+#include <sys/resource.h>
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <mach/mach.h>
+
+#elif (defined(_AIX) || defined(__TOS__AIX__)) || (defined(__sun__) || defined(__sun) || defined(sun) && (defined(__SVR4) || defined(__svr4__)))
+#include <fcntl.h>
+#include <procfs.h>
+
+#elif defined(__linux__) || defined(__linux) || defined(linux) || defined(__gnu_linux__)
+#include <stdio.h>
+
+#endif
+
+#else
+#error "Cannot define getPeakRSS( ) or getCurrentRSS( ) for an unknown OS."
+#endif
+
+
+/**
+ * Returns the peak (maximum so far) resident set size (physical
+ * memory use) measured in bytes, or zero if the value cannot be
+ * determined on this OS.
+ */
+size_t getPeakRSS( )
+{
+#if defined(_WIN32)
+    /* Windows -------------------------------------------------- */
+    PROCESS_MEMORY_COUNTERS info;
+    GetProcessMemoryInfo( GetCurrentProcess( ), &info, sizeof(info) );
+    return (size_t)info.PeakWorkingSetSize;
+
+#elif (defined(_AIX) || defined(__TOS__AIX__)) || (defined(__sun__) || defined(__sun) || defined(sun) && (defined(__SVR4) || defined(__svr4__)))
+    /* AIX and Solaris ------------------------------------------ */
+    struct psinfo psinfo;
+    int fd = -1;
+    if ( (fd = open( "/proc/self/psinfo", O_RDONLY )) == -1 )
+        return (size_t)0L;      /* Can't open? */
+    if ( read( fd, &psinfo, sizeof(psinfo) ) != sizeof(psinfo) )
+    {
+        close( fd );
+        return (size_t)0L;      /* Can't read? */
+    }
+    close( fd );
+    return (size_t)(psinfo.pr_rssize * 1024L);
+
+#elif defined(__unix__) || defined(__unix) || defined(unix) || (defined(__APPLE__) && defined(__MACH__))
+    /* BSD, Linux, and OSX -------------------------------------- */
+    struct rusage rusage;
+    getrusage( RUSAGE_SELF, &rusage );
+#if defined(__APPLE__) && defined(__MACH__)
+    return (size_t)rusage.ru_maxrss;
+#else
+    return (size_t)(rusage.ru_maxrss * 1024L);
+#endif
+
+#else
+    /* Unknown OS ----------------------------------------------- */
+    return (size_t)0L;          /* Unsupported. */
+#endif
+}
+
+
+
+
+
+/**
+ * Returns the current resident set size (physical memory use) measured
+ * in bytes, or zero if the value cannot be determined on this OS.
+ */
+size_t getCurrentRSS( )
+{
+#if defined(_WIN32)
+    /* Windows -------------------------------------------------- */
+    PROCESS_MEMORY_COUNTERS info;
+    GetProcessMemoryInfo( GetCurrentProcess( ), &info, sizeof(info) );
+    return (size_t)info.WorkingSetSize;
+
+#elif defined(__APPLE__) && defined(__MACH__)
+    /* OSX ------------------------------------------------------ */
+    struct mach_task_basic_info info;
+    mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
+    if ( task_info( mach_task_self( ), MACH_TASK_BASIC_INFO,
+                (task_info_t)&info, &infoCount ) != KERN_SUCCESS )
+        return (size_t)0L;      /* Can't access? */
+    return (size_t)info.resident_size;
+
+#elif defined(__linux__) || defined(__linux) || defined(linux) || defined(__gnu_linux__)
+    /* Linux ---------------------------------------------------- */
+    long rss = 0L;
+    FILE* fp = NULL;
+    if ( (fp = fopen( "/proc/self/statm", "r" )) == NULL )
+        return (size_t)0L;      /* Can't open? */
+    if ( fscanf( fp, "%*s%ld", &rss ) != 1 )
+    {
+        fclose( fp );
+        return (size_t)0L;      /* Can't read? */
+    }
+    fclose( fp );
+    return (size_t)rss * (size_t)sysconf( _SC_PAGESIZE);
+
+#else
+    /* AIX, BSD, Solaris, and Unknown OS ------------------------ */
+    return (size_t)0L;          /* Unsupported. */
+#endif
+}
+
 template <typename FragT>
 BAMQueue<FragT>::BAMQueue(const std::string& fname, LibraryFormat& libFmt):
     fname_(fname), libFmt_(libFmt), totalReads_(0),
-    numUnaligned_(0), doneParsing_(false) {
+    numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
 
         size_t capacity{10000000};
         alnStructQueue_.set_capacity(capacity);
@@ -23,28 +142,55 @@ BAMQueue<FragT>::BAMQueue(const std::string& fname, LibraryFormat& libFmt):
                 str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
             };
 
-        std::string readMode = "r";
+        readMode_ = "r";
         if (hasSuffix(fname, ".bam")) {
-            readMode = "rb";
+            readMode_ = "rb";
         }
         //bam_set_num_threads_per(8);
-        fp_ = hts_open(fname_.c_str(), readMode.c_str());
-        hts_set_threads(fp_, 8);
+        fp_ = hts_open(fname_.c_str(), readMode_.c_str());
         hdr_ = sam_hdr_read(fp_);
 }
 
 template <typename FragT>
-BAMQueue<FragT>::~BAMQueue() {
-    parsingThread_->join();
-    sam_close(fp_);
-    //samclose(fp_);
+void BAMQueue<FragT>::reset() {
+  fmt::print(stderr, "Resetting BAMQueue from file [{}] . . .", fname_);
+  parsingThread_->join();
+  hts_close(fp_);
+  fp_ = nullptr;
+  fp_ = hts_open(fname_.c_str(), readMode_.c_str());
+  bam_header_destroy(hdr_);
+  hdr_ = nullptr;
+  hdr_ = sam_hdr_read(fp_);
+  totalReads_ = 0;
+  numUnaligned_ = 0;
+  numMappedReads_ = 0;
+  doneParsing_ = false;
+  batchNum_ = 0;
+  fmt::print(stderr, "done\n");
+}
 
+template <typename FragT>
+BAMQueue<FragT>::~BAMQueue() {
+    fmt::print(stderr, "\nFreeing memory used by read queue . . . ");
+    parsingThread_->join();
+    hts_close(fp_);
+    
+    size_t beforeMem =  getCurrentRSS();
     // Free the structure holding all of the reads
     bam1_t* aln;
-    while(!alnStructQueue_.empty()) { alnStructQueue_.pop(aln); bam_destroy1(aln); }
-    AlignmentGroup<FragT>* grp;
-    while(!alnGroupPool_.empty()) { alnGroupPool_.pop(grp); delete grp; }
+    while(!alnStructQueue_.empty()) { 
+        alnStructQueue_.pop(aln); 
+        bam_destroy1(aln); 
+        aln = nullptr;
+    }
 
+    AlignmentGroup<FragT>* grp;
+    while(!alnGroupPool_.empty()) { alnGroupPool_.pop(grp); delete grp; grp = nullptr; }
+    while(!alnGroupQueue_.empty()) { alnGroupQueue_.pop(grp); delete grp; grp = nullptr; }
+    bam_header_destroy(hdr_);
+    size_t afterMem =  getCurrentRSS();
+    fmt::print(stderr, "done, mem before = {}, mem after = {}, freed = {}\n",
+               beforeMem, afterMem, (beforeMem > afterMem) ? beforeMem - afterMem : 0);
 }
 
 template <typename FragT>
@@ -63,15 +209,15 @@ template <typename FragT>
 void BAMQueue<FragT>::forceEndParsing() { doneParsing_ = true; }
 
 template <typename FragT>
-bam_header_t* BAMQueue<FragT>::header() { return hdr_; } //fp_->header; }
+bam_header_t* BAMQueue<FragT>::header() { return hdr_; } 
 
 template <typename FragT>
 void BAMQueue<FragT>::start() {
     // Depending on the specified library type, start an
     // appropriate parsing thread.
-    parsingThread_ = new std::thread([this]()-> void {
+    parsingThread_.reset(new std::thread([this]()-> void {
             this->fillQueue_();
-    });
+    }));
 }
 
 template <typename FragT>
@@ -93,10 +239,20 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
     while (!haveValidPair) {
 
         bool didRead1 = (sam_read1(fp_, hdr_, rpair.read1) >= 0);
-        if (!didRead1) { alnStructQueue_.push(rpair.read1); alnStructQueue_.push(rpair.read2); return false; }
+        if (!didRead1) {
+            alnStructQueue_.push(rpair.read1); alnStructQueue_.push(rpair.read2); 
+            rpair.read1 = nullptr;
+            rpair.read2 = nullptr;
+            return false; 
+        }
 
         bool didRead2 = (sam_read1(fp_, hdr_, rpair.read2) >= 0);
-        if (!didRead2) { alnStructQueue_.push(rpair.read1); alnStructQueue_.push(rpair.read2); return false; }
+        if (!didRead2) { 
+            alnStructQueue_.push(rpair.read1); alnStructQueue_.push(rpair.read2); 
+            rpair.read1 = nullptr;
+            rpair.read2 = nullptr;
+            return false; 
+        }
 
         bool read1IsValid{false};
         if (rpair.read1->core.flag & BAM_FPROPER_PAIR 
@@ -151,6 +307,14 @@ inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread) {
 }
 
 template <typename FragT>
+size_t BAMQueue<FragT>::numObservedReads(){ return totalReads_; }
+
+template <typename FragT>
+size_t BAMQueue<FragT>::numMappedReads(){ 
+    return numMappedReads_;
+}
+
+template <typename FragT>
 void BAMQueue<FragT>::fillQueue_() {
     size_t n{0};
     //AlignmentGroup* alngroup = new AlignmentGroup;
@@ -174,6 +338,7 @@ void BAMQueue<FragT>::fillQueue_() {
             }
             alngroup->addAlignment(f);
             prevReadName = readName;
+            numMappedReads_++;
         } else {
             alngroup->addAlignment(f);
         }

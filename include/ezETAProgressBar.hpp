@@ -7,7 +7,7 @@ v0.0.0 20110502 rsz Created.
 V1.0.0 20110522 rsz Extended to show eta with growing bar.
 v2.0.0 20110525 rsz Added time elapsed.
 v2.0.1 20111006 rsz Added default constructor value.
-v2.0.2 20130123 rob Switched over to C++11 timer facilities 
+v2.0.2 20130123 rob Switched over to C++11 timer facilities
 */
 
 #ifndef EZ_ETAPROGRESSBAR_H
@@ -37,17 +37,17 @@ private:
 	using duration = std::chrono::duration<size_t, system_clock::period>;
 	using partialDuration = std::chrono::duration<double, system_clock::period>;
 public:
-	ezETAProgressBar(unsigned int _n=0) : n(_n), pct(0), cur(0), width(80) {}
+	ezETAProgressBar(unsigned int _n=0) : n(_n), cur(0), pct(0), width(80) {}
 	void reset( uint64_t _n ) { n = _n; pct = 0; cur = 0; }
-	void start() { 
+	void start() {
 		startTime = system_clock::now();
 		lastCheck = startTime;
-		setPct(0); 
+		setPct(0);
 	}
-	
+
 	void operator++() {
 		if (cur >= n) return;
-		++cur;		
+		++cur;
 		endTime = system_clock::now();
 		if ( (endTime - lastCheck) >= std::chrono::seconds(1) or (cur == n) ) {
 			setPct( static_cast<double>(cur)/n );
@@ -80,35 +80,35 @@ public:
 
 		std::stringstream out(std::stringstream::out);
 		//std::string out;
-		
+
 		if ( t >= days(1) ) {
 			auto numDays = duration_cast<days>(t);
 			out << numDays.count() << "d ";
 			t -= numDays;
 		}
-		
+
 		if ( t >= hours(1) ) {
 			auto numHours = duration_cast<hours>(t);
 			out << numHours.count() << "h ";
 			t -= numHours;
 		}
 
-		if ( t >= minutes(1) ) { 
+		if ( t >= minutes(1) ) {
 			auto numMins = duration_cast<minutes>(t);
 			out << numMins.count() << "m ";
 			t -= numMins;
 		}
-		
+
 		if ( t >= seconds(1) ) {
 			auto numSecs = duration_cast<seconds>(t);
 			out << numSecs.count() << "s";
 		}
-		
+
 		std::string tstring = out.str();
 		if (tstring.empty()) { tstring = "0s"; }
 		return tstring;
 	}
-	
+
 	// Set 0.0-1.0, where 1.0 equals 100%.
 	void setPct(double Pct) {
 		using std::chrono::duration_cast;
@@ -187,7 +187,7 @@ public:
 			out.append(width-effLen,' ');
 		}
 
-			
+
 		out.append("\r");
 		std::cerr << out;
 		std::cerr.flush();

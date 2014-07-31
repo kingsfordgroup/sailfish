@@ -74,12 +74,14 @@ public:
         }
     }
 */
-    void updateCluster(size_t memberTranscript, size_t newCount, double logNewMass) {
+    void updateCluster(size_t memberTranscript, size_t newCount, double logNewMass, bool updateCount) {
         // Use a lock_guard to ensure this is a locked (and exception-safe) operation
         std::lock_guard<std::mutex> lock(clusterMutex_);
         auto clusterID = disjointSets_.find_set(memberTranscript);
         auto& cluster = clusters_[clusterID];
-        cluster.incrementCount(newCount);
+        if (updateCount) {
+            cluster.incrementCount(newCount);
+        }
         cluster.addMass(logNewMass);
     }
 

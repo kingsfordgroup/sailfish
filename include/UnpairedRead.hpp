@@ -9,8 +9,30 @@ extern "C" {
 #include "LibraryFormat.hpp"
 
 struct UnpairedRead {
-   bam1_t* read;
+   bam1_t* read = nullptr;
    double logProb;
+
+   UnpairedRead() : read(nullptr), logProb(sailfish::math::LOG_0) {}
+   UnpairedRead(bam1_t* r, double lp) :
+       read(r), logProb(lp) {}
+
+   UnpairedRead(UnpairedRead&& other) {
+       logProb = other.logProb;
+       std::swap(read, other.read);
+   }
+
+   UnpairedRead& operator=(UnpairedRead&& other) {
+       logProb = other.logProb;
+       std::swap(read, other.read);
+       return *this;
+   }
+
+   UnpairedRead(const UnpairedRead& other) = default;
+
+   UnpairedRead& operator=(UnpairedRead& other) = default;
+
+   ~UnpairedRead() {}
+
 
     inline char* getName() {
         return  bam_get_qname(read);//bam1_qname(read);
@@ -25,7 +47,7 @@ struct UnpairedRead {
    inline int32_t transcriptID() { return read->core.tid; }
 
     inline double logQualProb() {
-        auto q = read->core.qual;
+        int q = read->core.qual;
         //double logP = (q == 255) ? calcQuality(read) : std::log(std::pow(10.0, -q * 0.1));
         double logP = (q == 255) ? sailfish::math::LOG_1 : std::log(std::pow(10.0, -q * 0.1));
         return logP;

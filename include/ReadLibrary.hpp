@@ -137,7 +137,6 @@ private:
     std::vector<std::string> unmatedFilenames_;
     std::vector<std::string> mateOneFilenames_;
     std::vector<std::string> mateTwoFilenames_;
-    bool isPairedEnd_;
 };
 
 #endif // READ_LIBRARY_HPP

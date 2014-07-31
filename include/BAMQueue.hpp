@@ -45,6 +45,11 @@ public:
 
   inline bool getAlignmentGroup(AlignmentGroup<FragT>*& group);
 
+  // Return the number of reads processed so far by the queue
+  size_t numObservedReads();
+  size_t numMappedReads();
+
+  void reset();
 
   tbb::concurrent_bounded_queue<bam1_t*>& getAlignmentStructureQueue();
   tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*>& getAlignmentGroupQueue();
@@ -69,15 +74,15 @@ private:
   //htsFile* fp_ = nullptr;
   size_t totalReads_;
   size_t numUnaligned_;
+  size_t numMappedReads_;
   tbb::concurrent_bounded_queue<bam1_t*> alnStructQueue_;
   tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupPool_;
   boost::lockfree::spsc_queue<AlignmentGroup<FragT>*,
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
   bool doneParsing_;
-  std::thread* parsingThread_ = nullptr;
+  std::unique_ptr<std::thread> parsingThread_;
   size_t batchNum_;
-  double logForgettingMass_;
-  double forgettingFactor_;
+  std::string readMode_;
 };
 
 #include "BAMQueue.tpp"

@@ -35,7 +35,8 @@ extern "C" {
 #include <boost/pending/disjoint_sets.hpp>
 #include <boost/math/distributions/normal.hpp>
 
-#include "AlignmentGroup.hpp"
+#include "ClusterForest.hpp"
+#include "AlignmentLibrary.hpp"
 #include "MiniBatchInfo.hpp"
 #include "BAMQueue.hpp"
 #include "SailfishMath.hpp"
@@ -77,116 +78,19 @@ void scaleBy(std::vector<T>& vec, T scale) {
     std::for_each(vec.begin(), vec.end(), [scale](T& ele)->void { ele *= scale; });
 }
 
-
-/** A forest of transcript clusters */
-class ClusterForest {
-public:
-    ClusterForest(size_t numTranscripts, std::vector<Transcript>& refs) :
-        rank_(std::vector<size_t>(numTranscripts, 0)),
-        parent_(std::vector<size_t>(numTranscripts, 0)),
-        disjointSets_(&rank_[0], &parent_[0]),
-        clusters_(std::vector<TranscriptCluster>(numTranscripts))
-    {
-        // Initially make a unique set for each transcript
-        for(size_t tnum = 0; tnum < numTranscripts; ++tnum) {
-            disjointSets_.make_set(tnum);
-            clusters_[tnum].members_.push_front(tnum);
-            clusters_[tnum].addMass(refs[tnum].mass());
-        }
-    }
-
-    template <typename FragT>
-    void mergeClusters(typename AlignmentBatch<FragT>::iterator start,
-                       typename AlignmentBatch<FragT>::iterator finish) {
-        // Use a lock_guard to ensure this is a locked (and exception-safe) operation
-        std::lock_guard<std::mutex> lock(clusterMutex_);
-        size_t firstCluster, otherCluster;
-        auto firstTranscriptID = start->transcriptID();
-        ++start;
-
-        for (auto it = start; it != finish; ++it) {
-            firstCluster = disjointSets_.find_set(firstTranscriptID);
-            otherCluster = disjointSets_.find_set(it->transcriptID());
-            if (otherCluster != firstCluster)  {
-                disjointSets_.link(firstCluster, otherCluster);
-                auto parentClust = disjointSets_.find_set(it->transcriptID());
-                auto childClust = (parentClust == firstCluster)  ? otherCluster : firstCluster;
-                if (parentClust == firstCluster or parentClust == otherCluster) {
-                    clusters_[parentClust].merge(clusters_[childClust]);
-                    clusters_[childClust].deactivate();
-                } else { std::cerr << "DANGER\n"; }
-            }
-        }
-    }
-
-
-    /*
-    void mergeClusters(AlignmentBatch<ReadPair>::iterator start, AlignmentBatch<ReadPair>::iterator finish) {
-        // Use a lock_guard to ensure this is a locked (and exception-safe) operation
-        std::lock_guard<std::mutex> lock(clusterMutex_);
-        size_t firstCluster, otherCluster;
-        auto firstTranscriptID = start->read1->core.tid;
-        ++start;
-
-        for (auto it = start; it != finish; ++it) {
-            firstCluster = disjointSets_.find_set(firstTranscriptID);
-            otherCluster = disjointSets_.find_set(it->read1->core.tid);
-            if (otherCluster != firstCluster)  {
-                disjointSets_.link(firstCluster, otherCluster);
-                auto parentClust = disjointSets_.find_set(it->read1->core.tid);
-                auto childClust = (parentClust == firstCluster)  ? otherCluster : firstCluster;
-                if (parentClust == firstCluster or parentClust == otherCluster) {
-                    clusters_[parentClust].merge(clusters_[childClust]);
-                    clusters_[childClust].deactivate();
-                } else { std::cerr << "DANGER\n"; }
-            }
-        }
-    }
-*/
-    void updateCluster(size_t memberTranscript, size_t newCount, double logNewMass) {
-        // Use a lock_guard to ensure this is a locked (and exception-safe) operation
-        std::lock_guard<std::mutex> lock(clusterMutex_);
-        auto clusterID = disjointSets_.find_set(memberTranscript);
-        auto& cluster = clusters_[clusterID];
-        cluster.incrementCount(newCount);
-        cluster.addMass(logNewMass);
-    }
-
-    std::vector<TranscriptCluster*> getClusters() {
-        std::vector<TranscriptCluster*> clusters;
-        std::unordered_set<size_t> observedReps;
-        for (size_t i = 0; i < clusters_.size(); ++i) {
-            auto rep = disjointSets_.find_set(i);
-            if (observedReps.find(rep) == observedReps.end()) {
-                if (!clusters_[rep].isActive()) {
-                    std::cerr << "returning a non-active cluster!\n";
-                    std::exit(1);
-                }
-                clusters.push_back(&clusters_[rep]);
-                observedReps.insert(rep);
-            }
-        }
-        return clusters;
-    }
-private:
-    std::vector<size_t> rank_;
-    std::vector<size_t> parent_;
-    boost::disjoint_sets<size_t*, size_t*> disjointSets_;
-    std::vector<TranscriptCluster> clusters_;
-    std::mutex clusterMutex_;
-};
-
 template <typename FragT>
 void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                       std::condition_variable& workAvailable,
                       std::mutex& cvmutex,
-                     std::vector<Transcript>& refs,
-                      ClusterForest& clusterForest, std::atomic<bool>& doneParsing, std::atomic<size_t>& activeBatches,
+                      std::vector<Transcript>& refs,
+                      ClusterForest& clusterForest, std::atomic<bool>& doneParsing,
+                      std::atomic<size_t>& activeBatches,
                       tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
                       tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*>& alignmentGroupQueue,
                       ErrorModel& errMod,
                       FragmentLengthDistribution& fragLengthDist,
                       bool& burnedIn,
+                      bool initialRound,
                       std::atomic<size_t>& processedReads) {
 
     // Seed with a real random value, if available
@@ -202,47 +106,7 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
 
     std::chrono::microseconds sleepTime(1);
     MiniBatchInfo<AlignmentGroup<FragT>>* miniBatch;
-
-    auto calcQuality = [&refs](bam1_t* b) -> double {
-        /*
-        Transcript& ref = refs[b->core.tid];
-        uint32_t offset = b->core.pos;
-
-        uint8_t* readSeq = bam1_seq(b);
-        uint8_t* refSeq = (b->core.strand) ? ref.revSeq : ref.fwdSeq;
-
-        double log10e = 1.0 / 0.43429448190325176;
-        uint32_t* cigarStr = bam1_cigar(b);
-        auto qualStr = bam1_qual(b);
-        double qual = LOG_1;
-        for(size_t i = 0; i < b->core.n_cigar; ++i) {
-            switch (cigarStr[i] & 0xF) {
-            case 0:
-                break;
-            case 8:
-                qual += (static_cast<double>(-qualStr[i]) / 10.0) * log10e;
-                std::cerr << "used quality for case 8\n";
-                break;
-            case 1:
-            case 2:
-                qual += std::log(cigarStr[i] >> 4) + ((static_cast<double>(-qualStr[i]) / 10.0) * log10e);
-                std::cerr << "used quality for case 2\n";
-                break;
-            default:
-                std::cerr << cigarStr[i] << "\n";
-                std::exit(1);
-                break;
-            }
-        }
-        char tag[] = "NM";
-        uint8_t* editDist = bam_aux_get(b, tag);
-        int numMismatch{0};
-        if (editDist) { numMismatch += bam_aux2i(editDist); }
-        return std::exp(-numMismatch / 8.0);
-        */
-        return sailfish::math::LOG_1;
-    };
-
+    bool updateCounts = initialRound;
     size_t numTranscripts = refs.size();
 
     while (!doneParsing) {
@@ -324,15 +188,16 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                         // The alignment probability is the product of a transcript-level term (based on abundance and) an alignment-level
                         // term below which is P(Q_1) * P(Q_2) * P(F | T)
                         double logRefLength = std::log(refLength);
-                        double adjustedTranscriptLength = std::max(refLength - aln.fragLen() + 1, 1.0);
-                        double logStartPosProb = std::log(1.0 / adjustedTranscriptLength);
+                        // double adjustedTranscriptLength = std::max(refLength - aln.fragLen() + 1, 1.0);
+                        // double logStartPosProb = std::log(1.0 / adjustedTranscriptLength);
+
                         // P(Fn | Tn) = Probability of selecting a fragment of this length, given the transcript is t
                         // d(Fn) / sum_x = 1^{lt} d(x)
                         //double logConditionalFragLengthProb = logFragProb  - fragLengthDist.cmf(refLength);
                         //double logProbStartPos = logStartPosProb + logConditionalFragLengthProb;
                         //double qualProb = logProbStartPos + aln.logQualProb();
                         double qualProb = -logRefLength + logFragProb + aln.logQualProb();
-                        double transcriptLogCount = transcript.mass();
+                        double transcriptLogCount = transcript.mass(initialRound);
 
                         if ( transcriptLogCount != LOG_0 ) {
 
@@ -342,7 +207,7 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                             }
 
                             //aln.logProb = (transcriptLogCount - logRefLength) + qualProb + errLike;
-                            aln.logProb = transcriptLogCount + qualProb;
+                            aln.logProb = transcriptLogCount + qualProb + errLike;
 
                             sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
                             if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
@@ -357,10 +222,10 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                     if (sumOfAlignProbs == LOG_0) { std::cerr << "0 probability fragment; skipping\n"; continue; }
                     for (auto& aln : alnGroup->alignments()) {
                         aln.logProb -= sumOfAlignProbs;
-                        auto transcriptID = aln.transcriptID();//aln.read1->core.tid;
-                        auto& transcript = refs[transcriptID];
                         double r = uni(eng);
                         if (!burnedIn and r < std::exp(aln.logProb)) {
+                            //auto transcriptID = aln.transcriptID();
+                            //auto& transcript = refs[transcriptID];
                             //errMod.update(aln, transcript, aln.logProb, logForgettingMass);
                             if (aln.fragType() == ReadType::PAIRED_END) {
                                 double fragLength = aln.fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
@@ -370,11 +235,16 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
                     }
                     // update the single target transcript
                     if (transcriptUnique) {
-                        refs[firstTranscriptID].addUniqueCount(1);
-                        clusterForest.updateCluster(firstTranscriptID, 1, logForgettingMass);
+                        if (updateCounts) {
+                            refs[firstTranscriptID].addUniqueCount(1);
+                        }
+                        clusterForest.updateCluster(firstTranscriptID, 1,
+                                                    logForgettingMass, updateCounts);
                     } else { // or the appropriate clusters
-                        clusterForest.mergeClusters<FragT>(alnGroup->alignments().begin(), alnGroup->alignments().end());
-                        clusterForest.updateCluster(alnGroup->alignments().front().transcriptID(), 1, logForgettingMass);
+                        clusterForest.mergeClusters<FragT>(alnGroup->alignments().begin(),
+                                                           alnGroup->alignments().end());
+                        clusterForest.updateCluster(alnGroup->alignments().front().transcriptID(),
+                                                    1, logForgettingMass, updateCounts);
                     }
 
                     ++batchReads;
@@ -421,7 +291,6 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
             processedReads += batchReads;
             if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
         }
-        //std::this_thread::yield();
     } // nothing left to process
 }
 
@@ -433,134 +302,147 @@ void processMiniBatch(MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
   *
   */
 template <typename FragT>
-void quantifyLibrary(LibraryFormat libFmt,
-            bfs::path& alignmentFile, bfs::path& transcriptFile,
-            bfs::path& outputFile,
-            uint32_t numThreads) {
-
-    std::string fname = alignmentFile.string();
-    BAMQueue<FragT> bq(fname, libFmt);
-    bq.start();
-
-    std::atomic<size_t> i{0};
-    std::vector<Transcript> refs;
-
-    double alpha = 0.005;
-    double sumAlphaInit{LOG_0};
-    bam_header_t* header = bq.header();
-    for (size_t i = 0; i < header->n_targets; ++i) {
-        refs.emplace_back(i, header->target_name[i], header->target_len[i], alpha);
-        sumAlphaInit = logAdd(sumAlphaInit, alpha);//alphas[i]);
-    }
-
-    if (!bfs::exists(transcriptFile)) {
-        std::stringstream ss;
-        ss << "The provided transcript file: " << transcriptFile <<
-            " does not exist!\n";
-        throw std::invalid_argument(ss.str());
-    }
-
-    FASTAParser fp(transcriptFile.string());
-    std::cerr << "populating targets ... ";
-    fp.populateTargets(refs);
-    std::cerr << "done\n";
+void quantifyLibrary(
+        AlignmentLibrary<FragT>& alnLib,
+        bfs::path& outputFile,
+        size_t numRequiredFragments,
+        uint32_t numThreads) {
 
     bool burnedIn{false};
-
     ErrorModel errMod(1.00);
-
+    auto& refs = alnLib.transcripts();
     size_t numTranscripts = refs.size();
+    size_t miniBatchSize{1000};
+    size_t numObservedFragments{0};
 
     ClusterForest clusterForest(numTranscripts, refs);
 
-    std::atomic<bool> doneParsing{false};
     MiniBatchQueue<AlignmentGroup<FragT>> workQueue;
     size_t maxFragLen = 800;
     size_t meanFragLen = 200;
     size_t fragLenStd = 80;
     size_t fragLenKernelN = 4;
     double fragLenKernelP = 0.5;
-    FragmentLengthDistribution fragLengthDist(1.0, maxFragLen, meanFragLen, fragLenStd, fragLenKernelN, fragLenKernelP, 1);
-
-    std::condition_variable workAvailable;
-    std::mutex cvmutex;
-    std::vector<std::thread> workers;
-    std::atomic<size_t> activeBatches{0};
-    std::atomic<size_t> processedReads{0};
-    for (uint32_t i = 0; i < numThreads; ++i) {
-        workers.emplace_back(processMiniBatch<FragT>, std::ref(workQueue),
-                std::ref(workAvailable), std::ref(cvmutex),
-                std::ref(refs), std::ref(clusterForest),
-                std::ref(doneParsing), std::ref(activeBatches),
-                std::ref(bq.getAlignmentStructureQueue()),
-                std::ref(bq.getAlignmentGroupQueue()),
-                std::ref(errMod),
-                std::ref(fragLengthDist),
-                std::ref(burnedIn),
-                std::ref(processedReads));
-    }
-
-    size_t miniBatchSize{1000};
-    size_t batchNum{0};
-    size_t numProc{0};
-
+    FragmentLengthDistribution fragLengthDist(1.0, maxFragLen,
+                                              meanFragLen, fragLenStd,
+                                              fragLenKernelN,
+                                              fragLenKernelP, 1);
     double logForgettingMass{std::log(1.0)};
     double forgettingFactor{0.60};
+    size_t batchNum{0};
+    double numMappedReads{0.0};
+    bool initialRound{true};
 
-    std::vector<AlignmentGroup<FragT>*>* alignments = new std::vector<AlignmentGroup<FragT>*>;
-    alignments->reserve(miniBatchSize);
-    AlignmentGroup<FragT>* ag;
-    while (bq.getAlignmentGroup(ag)) {
-        alignments->push_back(ag);
-        if (alignments->size() >= miniBatchSize) {
-            ++batchNum;
-            if (batchNum > 1) {
-                logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
-                    std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
+    while (numObservedFragments < numRequiredFragments) {
+        if (!initialRound) {
+            if (!alnLib.reset()) {
+                fmt::print(stderr,
+                  "\n\n======== WARNING ========\n"
+                  "The provided alignment file: [{}] "
+                  "is not a regular file and therefore can't be read from "
+                  "more than once.\n\n"
+                  "We observed only {} fragments when we wanted at least {}.\n\n"
+                  "Please consider re-running Salmon with these alignments "
+                  "as a regular file!\n"
+                  "==========================\n\n",
+                  alnLib.alignmentFile(), numObservedFragments, numRequiredFragments);
+                break;
             }
+        }
+        std::atomic<bool> doneParsing{false};
+        std::condition_variable workAvailable;
+        std::mutex cvmutex;
+        std::vector<std::thread> workers;
+        std::atomic<size_t> activeBatches{0};
+        std::atomic<size_t> processedReads{0};
+        for (uint32_t i = 0; i < numThreads; ++i) {
+            workers.emplace_back(processMiniBatch<FragT>,
+                    std::ref(workQueue),
+                    std::ref(workAvailable), std::ref(cvmutex),
+                    std::ref(refs), std::ref(clusterForest),
+                    std::ref(doneParsing), std::ref(activeBatches),
+                    std::ref(alnLib.alignmentStructureQueue()),
+                    std::ref(alnLib.alignmentGroupQueue()),
+                    std::ref(errMod),
+                    std::ref(fragLengthDist),
+                    std::ref(burnedIn),
+                    initialRound,
+                    std::ref(processedReads));
+        }
 
-            MiniBatchInfo<AlignmentGroup<FragT>>* mbi =
-                new MiniBatchInfo<AlignmentGroup<FragT>>(batchNum, alignments, logForgettingMass);
-            workQueue.push(mbi);
+        size_t numProc{0};
+
+        std::vector<AlignmentGroup<FragT>*>* alignments = new std::vector<AlignmentGroup<FragT>*>;
+        alignments->reserve(miniBatchSize);
+        AlignmentGroup<FragT>* ag;
+        while (alnLib.getAlignmentGroup(ag)) {
+            alignments->push_back(ag);
+            if (alignments->size() >= miniBatchSize) {
+                ++batchNum;
+                if (batchNum > 1) {
+                    logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
+                        std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
+                }
+
+                MiniBatchInfo<AlignmentGroup<FragT>>* mbi =
+                    new MiniBatchInfo<AlignmentGroup<FragT>>(batchNum, alignments, logForgettingMass);
+                workQueue.push(mbi);
+                {
+                    std::unique_lock<std::mutex> l(cvmutex);
+                    workAvailable.notify_one();
+                }
+                alignments = new std::vector<AlignmentGroup<FragT>*>;
+                alignments->reserve(miniBatchSize);
+            }
+            if (numProc % 1000000 == 0) {
+                const char RESET_COLOR[] = "\x1b[0m";
+                char green[] = "\x1b[30m";
+                green[3] = '0' + static_cast<char>(fmt::GREEN);
+                char red[] = "\x1b[30m";
+                red[3] = '0' + static_cast<char>(fmt::RED);
+                fmt::print(stderr, "\r\r{}processed{} {} {}reads{}\n", green, red, numProc, green, RESET_COLOR);
+                fmt::print(stderr, "log(forgettingMass) = {}\x1b[A", logForgettingMass);
+            }
+            ++numProc;
+        }
+        std::cerr << "\n";
+        for (auto& aln : *alignments) {
+            aln->alignments().clear();
+            delete aln;
+            aln = nullptr;
+        }
+        delete alignments;
+
+        doneParsing = true;
+        size_t tnum{0};
+        for (auto& t : workers) {
+            fmt::print(stderr, "\r\rkilling thread {} . . . ", tnum++);
             {
                 std::unique_lock<std::mutex> l(cvmutex);
-                workAvailable.notify_one();
+                workAvailable.notify_all();
             }
-            alignments = new std::vector<AlignmentGroup<FragT>*>;
-            alignments->reserve(miniBatchSize);
+            t.join();
+            fmt::print(stderr, "done");
         }
-        if (numProc % 1000000 == 0) {
-            const char RESET_COLOR[] = "\x1b[0m";
-            char green[] = "\x1b[30m";
-            green[3] = '0' + static_cast<char>(fmt::GREEN);
-            char red[] = "\x1b[30m";
-            red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\r\r{}processed{} {} {}reads{}", green, red, numProc, green, RESET_COLOR);
-        }
-        ++numProc;
-    }
-    std::cerr << "\n";
+        fmt::print(stderr, "\n");
 
-    doneParsing = true;
-    size_t tnum{0};
-    for (auto& t : workers) {
-        std::cerr << "killing thread" << tnum++;
-        {
-            std::unique_lock<std::mutex> l(cvmutex);
-            workAvailable.notify_all();
-        }
-        t.join(); std::cerr << " done\n";
+        initialRound = false;
+        numObservedFragments += alnLib.numMappedReads();
+        numMappedReads = alnLib.numMappedReads();
+        fmt::print(stderr, "# observed = {} / # required = {}\n",
+                   numObservedFragments, numRequiredFragments);
     }
 
     std::cerr << "writing output \n";
 
     std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(outputFile.c_str(), "w"), std::fclose);
 
-    fmt::print(output.get(), "# Salmon-Read v 0.01\n");
-    fmt::print(output.get(), "# ClusterID\tName\tLength\tFPKM\tNumReads\n");
+    fmt::print(output.get(), "# Salmon-Alignment v 0.01\n");
+    fmt::print(output.get(), "# Name\tLength\tTPM\tFPKM\tNumReads\n");
 
     const double logBillion = std::log(1000000000.0);
-    const double logNumFragments = std::log(static_cast<double>(numProc));
+    const double million = 1000000.0;
+    const double logNumFragments = std::log(static_cast<double>(numMappedReads));
     auto clusters = clusterForest.getClusters();
     size_t clusterID = 0;
     for(auto cptr : clusters) {
@@ -589,41 +471,45 @@ void quantifyLibrary(LibraryFormat libFmt,
 
         for (auto transcriptID : members) {
             Transcript& t = refs[transcriptID];
-            double logTranscriptMass = t.mass();
-            double logClusterFraction = logTranscriptMass - logClusterMass;
-            /*
-               posterior.push_back(clusterFraction);
-               readCounts.push_back(clusterCount * clusterFraction);
-               */
-            t.projectedCounts = std::exp(logClusterFraction + logClusterCount);
-            requiresProjection |= t.projectedCounts > static_cast<double>(t.totalCounts) or
-                t.projectedCounts < static_cast<double>(t.uniqueCounts);
+            double logTranscriptMass = t.mass(false);
+            if (logTranscriptMass == LOG_0) {
+                t.projectedCounts = 0;
+            } else {
+                double logClusterFraction = logTranscriptMass - logClusterMass;
+                t.projectedCounts = std::exp(logClusterFraction + logClusterCount);
+                requiresProjection |= t.projectedCounts > static_cast<double>(t.totalCounts) or
+                    t.projectedCounts < static_cast<double>(t.uniqueCounts);
+            }
             ++clusterSize;
         }
 
         if (clusterSize > 1 and requiresProjection) {
             cptr->projectToPolytope(refs);
         }
-
-        // Now posterior has the transcript fraction
-        size_t idx = 0;
-        for (auto transcriptID : members) {
-            auto& transcript = refs[transcriptID];
-            double logLength = std::log(transcript.RefLength);
-            double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
-            double count = refs[transcriptID].projectedCounts;
-            double countTotal = refs[transcriptID].totalCounts;
-            double countUnique = refs[transcriptID].uniqueCounts;
-            double fpkm = count > 0 ? fpkmFactor * count : 0.0;
-            fmt::print(output.get(),
-                       "{}\t{}\t{}\t{}\t{}\t{}\n",
-                       transcript.RefName, transcript.RefLength,
-                       fpkm, countTotal, countUnique, count);
-
-            ++idx;
-        }
-
         ++clusterID;
+    }
+
+    auto& transcripts_ = refs;
+    double tfracDenom{0.0};
+    for (auto& transcript : transcripts_) {
+        tfracDenom += (transcript.projectedCounts / numMappedReads) / transcript.RefLength;
+    }
+
+    // Now posterior has the transcript fraction
+    for (auto& transcript : transcripts_) {
+        double logLength = std::log(transcript.RefLength);
+        double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
+        double count = transcript.projectedCounts;
+        //double countTotal = transcripts_[transcriptID].totalCounts;
+        //double countUnique = transcripts_[transcriptID].uniqueCounts;
+        double fpkm = count > 0 ? fpkmFactor * count : 0.0;
+        double npm = (transcript.projectedCounts / numMappedReads);
+        double tfrac = (npm / transcript.RefLength) / tfracDenom;
+        double tpm = tfrac * million;
+
+        fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
+                transcript.RefName, transcript.RefLength,
+                tpm, fpkm, count);
     }
 
     // Write the inferred fragment length distribution
@@ -642,6 +528,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
     bool noBiasCorrect{false};
     uint32_t numThreads{4};
+    size_t requiredObservations{50000000};
 
     po::options_description generic("Sailfish read-quant options");
     generic.add_options()
@@ -657,6 +544,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                             "~6 threads.")
     ("output,o", po::value<std::string>(), "Output quantification directory")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
+                                        "The minimum number of observations (mapped reads) that must be observed before\n"
+                                        "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
+                                        "input file, then it will be read through multiple times.")
     ("gene_map,g", po::value<std::string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
                                         "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
@@ -719,7 +610,6 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             throw std::invalid_argument(ss.str());
         }
 
-        std::string fname(alignmentFile.string());
         bfs::path outputDirectory(vm["output"].as<std::string>());
         // If the path exists
         if (bfs::exists(outputDirectory)) {
@@ -742,16 +632,21 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         }
         // If we made it this far, the output directory exists
         bfs::path outputFile = outputDirectory / "quant.sf";
+        // The transcript file contains the target sequences
         bfs::path transcriptFile(vm["targets"].as<std::string>());
 
         switch (libFmt.type) {
             case ReadType::SINGLE_END:
-                quantifyLibrary<UnpairedRead>(libFmt,
-                        alignmentFile, transcriptFile, outputFile, numThreads);
+                {
+                AlignmentLibrary<UnpairedRead> alnLib(alignmentFile, transcriptFile, libFmt);
+                quantifyLibrary<UnpairedRead>(alnLib, outputFile, requiredObservations, numThreads);
+                }
                 break;
             case ReadType::PAIRED_END:
-                quantifyLibrary<ReadPair>(libFmt,
-                        alignmentFile, transcriptFile, outputFile, numThreads);
+                {
+                AlignmentLibrary<ReadPair> alnLib(alignmentFile, transcriptFile, libFmt);
+                quantifyLibrary<ReadPair>(alnLib, outputFile, requiredObservations, numThreads);
+                }
                 break;
             default:
                 std::cerr << "Cannot quantify library of unknown " <<

@@ -29,11 +29,12 @@ void MiniBatchInfo<AlignmentGroup<ReadPair>>::release(
         tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
         tbb::concurrent_bounded_queue<AlignmentGroup<ReadPair>*>& alignmentGroupQueue) {
     size_t ng{0};
-    for (auto alnGroup : *alignments) {
-        for (auto aln : alnGroup->alignments()) {
+    for (auto& alnGroup : *alignments) {
+        for (auto& aln : alnGroup->alignments()) {
             alignmentStructureQueue.push(aln.read1);
             alignmentStructureQueue.push(aln.read2);
-            //bam_destroy1(aln.read1); bam_destroy1(aln.read2);
+            aln.read1 = nullptr;
+            aln.read2 = nullptr;
         }
         alnGroup->alignments().clear();
         alignmentGroupQueue.push(alnGroup);
@@ -50,10 +51,10 @@ void MiniBatchInfo<AlignmentGroup<UnpairedRead>>::release(
         tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
         tbb::concurrent_bounded_queue<AlignmentGroup<UnpairedRead>*>& alignmentGroupQueue) {
     size_t ng{0};
-    for (auto alnGroup : *alignments) {
-        for (auto aln : alnGroup->alignments()) {
+    for (auto& alnGroup : *alignments) {
+        for (auto& aln : alnGroup->alignments()) {
             alignmentStructureQueue.push(aln.read);
-            //bam_destroy1(aln.read1); bam_destroy1(aln.read2);
+            aln.read = nullptr;
         }
         alnGroup->alignments().clear();
         alignmentGroupQueue.push(alnGroup);

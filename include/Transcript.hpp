@@ -11,7 +11,9 @@
 class Transcript {
 public:
     Transcript(size_t idIn, const char* name, uint32_t len, double alpha = 0.005) :
-        id(idIn), RefName(name), RefLength(len), Sequence(nullptr), mass_(std::log(alpha)), sharedCount_(0.0)  {
+        RefName(name), RefLength(len), id(idIn), Sequence(nullptr),
+        priorMass_(std::log(alpha*len)),
+        mass_(sailfish::math::LOG_0), sharedCount_(0.0)  {
             uniqueCount_.store(0);
         }
 
@@ -89,7 +91,9 @@ public:
         } while (returnedMass != oldMass);
     }
 
-    inline double mass() { return mass_; }
+    inline double mass(bool withPrior=true) {
+        return (withPrior) ? sailfish::math::logAdd(priorMass_, mass_.load()) : mass_.load();
+    }
 
     std::string RefName;
     uint32_t RefLength;
@@ -105,6 +109,7 @@ public:
 private:
     std::atomic<size_t> uniqueCount_;
     std::atomic<size_t> totalCount_;
+    double priorMass_;
     tbb::atomic<double> mass_;
     tbb::atomic<double> sharedCount_;
 };

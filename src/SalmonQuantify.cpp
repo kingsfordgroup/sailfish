@@ -55,8 +55,6 @@ extern "C" {
 #include "bwamem.h"
 #include "kvec.h"
 #include "utils.h"
-#include "kseq.h"
-#include "utils.h"
 }
 
 #include "jellyfish/mer_dna.hpp"
@@ -104,8 +102,6 @@ extern "C" {
 #include "PairSequenceParser.hpp"
 #include "FragmentList.hpp"
 #include "FragmentLengthDistribution.hpp"
-
-//#include "google/dense_hash_map"
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
@@ -250,10 +246,10 @@ void processMiniBatch(
             // update the single target transcript
             if (transcriptUnique) {
                 transcripts[firstTranscriptID].addUniqueCount(1);
-                clusterForest.updateCluster(firstTranscriptID, 1, logForgettingMass);
+                clusterForest.updateCluster(firstTranscriptID, 1, logForgettingMass, true);
             } else { // or the appropriate clusters
                 clusterForest.mergeClusters<Alignment>(alnGroup.begin(), alnGroup.end());
-                clusterForest.updateCluster(alnGroup.front().transcriptID(), 1, logForgettingMass);
+                clusterForest.updateCluster(alnGroup.front().transcriptID(), 1, logForgettingMass, true);
             }
 
             } // end read group
@@ -339,6 +335,7 @@ class TranscriptHitList {
         std::vector<KmerVote> rcVotes;
 
         uint32_t targetID;
+
 
         void addFragMatch(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
             uint32_t votePos = (readPos > tpos) ? 0 : tpos - readPos;
@@ -481,7 +478,8 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                         int splitWidth,
                         double coverageThresh,
                         std::vector<Alignment>& hitList,
-                        uint64_t& hitListCount) {
+                        uint64_t& hitListCount,
+                        std::vector<Transcript>& transcripts) {
 
     uint64_t leftHitCount{0};
 
@@ -625,7 +623,6 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         }
     }
 
-
 }
 
 /**
@@ -643,7 +640,8 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
                         int splitWidth,
                         double coverageThresh,
                         std::vector<Alignment>& hitList,
-                        uint64_t& hitListCount) {
+                        uint64_t& hitListCount,
+                        std::vector<Transcript>& transcripts) {
 
     uint64_t leftHitCount{0};
 
@@ -755,7 +753,7 @@ void processReadsMEM(ParserT* parser,
 
   // Super-MEM iterator
   smem_i *itr = smem_itr_init(idx->bwt);
-  const bwtintv_v *a;
+  const bwtintv_v *a = nullptr;
   int minLen{static_cast<int>(minMEMLength)};
   int minIWidth{static_cast<int>(maxMEMOcc)};
   int splitWidth{0};
@@ -769,8 +767,10 @@ void processReadsMEM(ParserT* parser,
     for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
 
         getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
-                                               minLen, minIWidth, splitWidth, coverageThresh,
-                                               hitLists[i], hitListCount);
+                                               minLen, minIWidth, splitWidth,
+                                               coverageThresh,
+                                               hitLists[i], hitListCount,
+                                               transcripts);
         auto& hitList = hitLists[i];
         totalHits += hitList.size() > 0;
 
@@ -931,13 +931,17 @@ transcript abundance from RNA-seq reads
 
         { // mem-based
             bfs::path indexPath = indexDirectory / "bwaidx";
-            if ((idx = bwa_idx_load(indexPath.string().c_str(), BWA_IDX_BWT|BWA_IDX_BNS)) == 0) return 1;
+            if ((idx = bwa_idx_load(indexPath.string().c_str(), BWA_IDX_BWT|BWA_IDX_BNS)) == 0) {
+                fmt::print(stderr, "Couldn't open index [{}] --- ", indexPath);
+                fmt::print(stderr, "Please make sure that 'salmon index' has been run successfully\n");
+                return 1;
+            }
         }
 
         size_t numRecords = idx->bns->n_seqs;
         std::vector<Transcript> transcripts_tmp;
 
-        std::cerr << "Transcript LUT contained " << numRecords << " records\n";
+        fmt::print(stderr, "Index contained {} targets\n", numRecords);
         //transcripts_.resize(numRecords);
         for (auto i : boost::irange(size_t(0), numRecords)) {
             uint32_t id = i;
@@ -1103,8 +1107,9 @@ transcript abundance from RNA-seq reads
             std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(estFilePath.c_str(), "w"), std::fclose);
 
             fmt::print(output.get(), "# Salmon version {}\n", salmon::version);
-            fmt::print(output.get(), "# Name\tLength\tFPKM\tNumReads\n");
+            fmt::print(output.get(), "# Name\tLength\tTPM\tFPKM\tNumReads\n");
 
+            const double million = 1000000.0;
             const double logBillion = std::log(1000000000.0);
             const double logNumFragments = std::log(static_cast<double>(rn));
             auto clusters = clusterForest.getClusters();
@@ -1141,24 +1146,32 @@ transcript abundance from RNA-seq reads
                     cptr->projectToPolytope(transcripts_);
                 }
 
-                // Now posterior has the transcript fraction
-                size_t tidx = 0;
-                for (auto transcriptID : members) {
-                    auto& transcript = transcripts_[transcriptID];
-                    double logLength = std::log(transcript.RefLength);
-                    double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
-                    double count = transcripts_[transcriptID].projectedCounts;
-                    double countTotal = transcripts_[transcriptID].totalCounts;
-                    double countUnique = transcripts_[transcriptID].uniqueCounts;
-                    double fpkm = count > 0 ? fpkmFactor * count : 0.0;
-                    fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                            transcript.RefName, transcript.RefLength,
-                            fpkm, fpkm, fpkm, count, count);
-                    ++tidx;
-                }
-
                 ++clusterID;
             }
+
+            double tfracDenom{0.0};
+            double numMappedReads = rn;
+            for (auto& transcript : transcripts_) {
+                tfracDenom += (transcript.projectedCounts / numMappedReads) / transcript.RefLength;
+            }
+
+            // Now posterior has the transcript fraction
+            for (auto& transcript : transcripts_) {
+                double logLength = std::log(transcript.RefLength);
+                double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
+                double count = transcript.projectedCounts;
+                //double countTotal = transcripts_[transcriptID].totalCounts;
+                //double countUnique = transcripts_[transcriptID].uniqueCounts;
+                double fpkm = count > 0 ? fpkmFactor * count : 0.0;
+                double npm = (transcript.projectedCounts / numMappedReads);
+                double tfrac = (npm / transcript.RefLength) / tfracDenom;
+                double tpm = tfrac * million;
+
+                fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
+                        transcript.RefName, transcript.RefLength,
+                        tpm, fpkm, count);
+            }
+
         }
 
         // Not ready for read / alignment-based bias correction yet
@@ -1212,5 +1225,3 @@ transcript abundance from RNA-seq reads
 
     return 0;
 }
-
-

@@ -91,7 +91,6 @@ TranscriptGeneMap transcriptToGeneMapFromFeatures( std::vector<GenomicFeature<T>
     unordered_map<string, size_t> geneNameToID;
 
     // To read the input and assign ids
-    size_t transcriptCounter = 0;
     size_t geneCounter = 0;
     string transcript;
     string gene;

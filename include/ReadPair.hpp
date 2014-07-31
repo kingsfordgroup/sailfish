@@ -8,10 +8,40 @@ extern "C" {
 #include "SailfishMath.hpp"
 #include "LibraryFormat.hpp"
 
+#include "format.h"
+
 struct ReadPair {
-    bam1_t* read1;
-    bam1_t* read2;
+    bam1_t* read1 = nullptr;
+    bam1_t* read2 = nullptr;
     double logProb;
+
+    ReadPair():
+        read1(nullptr), read2(nullptr), logProb(sailfish::math::LOG_0) {}
+
+
+    ReadPair(bam1_t* r1, bam1_t* r2, double lp) :
+        read1(r1), read2(r2), logProb(lp) {}
+
+    ReadPair(ReadPair&& other) {
+        logProb = other.logProb;
+        std::swap(read1, other.read1);
+        std::swap(read2, other.read2);
+    }
+
+    ReadPair& operator=(ReadPair&& other) {
+        logProb = other.logProb;
+        std::swap(read1, other.read1);
+        std::swap(read2, other.read2);
+        return *this;
+    }
+
+   ReadPair(const ReadPair& other) = default;
+
+   ReadPair& operator=(ReadPair& other) = default;
+
+
+    ~ReadPair() {}
+
 
     inline char* getName() {
         return bam_get_qname(read1);//bam1_qname(read1);
