@@ -89,11 +89,11 @@ class AlignmentLibrary {
 
     inline bool getAlignmentGroup(AlignmentGroup<FragT>*& ag) { return bq->getAlignmentGroup(ag); }
 
-    inline tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue() {
-        return bq->getAlignmentStructureQueue();
+    inline tbb::concurrent_bounded_queue<FragT*>& fragmentQueue() {
+        return bq->getFragmentQueue();
     }
 
-    inline tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*>& alignmentGroupQueue() {
+    inline tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& alignmentGroupQueue() {
         return bq->getAlignmentGroupQueue();
     }
 

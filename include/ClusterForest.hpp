@@ -53,6 +53,31 @@ public:
     }
 
 
+    template <typename FragT>
+    void mergeClusters(typename std::vector<FragT*>::iterator start,
+                       typename std::vector<FragT*>::iterator finish) {
+        // Use a lock_guard to ensure this is a locked (and exception-safe) operation
+        std::lock_guard<std::mutex> lock(clusterMutex_);
+        size_t firstCluster, otherCluster;
+        auto firstTranscriptID = (*start)->transcriptID();
+        ++start;
+
+        for (auto it = start; it != finish; ++it) {
+            firstCluster = disjointSets_.find_set(firstTranscriptID);
+            otherCluster = disjointSets_.find_set((*it)->transcriptID());
+            if (otherCluster != firstCluster)  {
+                disjointSets_.link(firstCluster, otherCluster);
+                auto parentClust = disjointSets_.find_set((*it)->transcriptID());
+                auto childClust = (parentClust == firstCluster)  ? otherCluster : firstCluster;
+                if (parentClust == firstCluster or parentClust == otherCluster) {
+                    clusters_[parentClust].merge(clusters_[childClust]);
+                    clusters_[childClust].deactivate();
+                } else { std::cerr << "DANGER\n"; }
+            }
+        }
+    }
+
+
     /*
     void mergeClusters(AlignmentBatch<ReadPair>::iterator start, AlignmentBatch<ReadPair>::iterator finish) {
         // Use a lock_guard to ensure this is a locked (and exception-safe) operation

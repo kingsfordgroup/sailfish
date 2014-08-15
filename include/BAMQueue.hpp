@@ -44,7 +44,7 @@ public:
 
   void start();
 
-  inline bool getAlignmentGroup(AlignmentGroup<FragT>*& group);
+  inline bool getAlignmentGroup(AlignmentGroup<FragT*>*& group);
 
   // Return the number of reads processed so far by the queue
   size_t numObservedReads();
@@ -52,8 +52,8 @@ public:
 
   void reset();
 
-  tbb::concurrent_bounded_queue<bam1_t*>& getAlignmentStructureQueue();
-  tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*>& getAlignmentGroupQueue();
+  tbb::concurrent_bounded_queue<FragT*>& getFragmentQueue();
+  tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& getAlignmentGroupQueue();
 
 private:
   size_t popNum{0};
@@ -76,10 +76,10 @@ private:
   size_t totalReads_;
   size_t numUnaligned_;
   size_t numMappedReads_;
-  tbb::concurrent_bounded_queue<bam1_t*> alnStructQueue_;
-  tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupPool_;
+  tbb::concurrent_bounded_queue<FragT*> fragmentQueue_;
+  tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*> alnGroupPool_;
   //tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupQueue_;
-  boost::lockfree::spsc_queue<AlignmentGroup<FragT>*,
+  boost::lockfree::spsc_queue<AlignmentGroup<FragT*>*,
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
   bool doneParsing_;
   std::unique_ptr<std::thread> parsingThread_;

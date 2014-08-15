@@ -12,7 +12,7 @@ struct UnpairedRead {
    bam1_t* read = nullptr;
    double logProb;
 
-   UnpairedRead() : read(nullptr), logProb(sailfish::math::LOG_0) {}
+   UnpairedRead() : read(bam_init1()), logProb(sailfish::math::LOG_0) {}
    UnpairedRead(bam1_t* r, double lp) :
        read(r), logProb(lp) {}
 
@@ -31,7 +31,7 @@ struct UnpairedRead {
 
    UnpairedRead& operator=(UnpairedRead& other) = default;
 
-   ~UnpairedRead() {}
+   ~UnpairedRead() { bam_destroy1(read); }
 
 
     inline char* getName() {

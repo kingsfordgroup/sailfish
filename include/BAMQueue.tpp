@@ -5,16 +5,16 @@ BAMQueue<FragT>::BAMQueue(const std::string& fname, LibraryFormat& libFmt):
     fname_(fname), libFmt_(libFmt), totalReads_(0),
     numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
 
-        size_t capacity{10000000};
-        alnStructQueue_.set_capacity(capacity);
+        size_t capacity{2000000};
+        fragmentQueue_.set_capacity(capacity);
         for (size_t i = 0; i < capacity; ++i) {
-            alnStructQueue_.push(bam_init1());
+            fragmentQueue_.push(new FragT);
         }
 
         size_t groupCapacity = 5000000;
         alnGroupPool_.set_capacity(groupCapacity);
         for (size_t i = 0; i < groupCapacity; ++i) {
-            alnGroupPool_.push(new AlignmentGroup<FragT>);
+            alnGroupPool_.push(new AlignmentGroup<FragT*>);
         }
 
 
@@ -57,14 +57,14 @@ BAMQueue<FragT>::~BAMQueue() {
     hts_close(fp_);
     
     // Free the structure holding all of the reads
-    bam1_t* aln;
-    while(!alnStructQueue_.empty()) { 
-        alnStructQueue_.pop(aln); 
-        bam_destroy1(aln); 
-        aln = nullptr;
+    FragT* frag;
+    while(!fragmentQueue_.empty()) { 
+        fragmentQueue_.pop(frag); 
+        delete frag;
+        frag = nullptr;
     }
 
-    AlignmentGroup<FragT>* grp;
+    AlignmentGroup<FragT*>* grp;
     while(!alnGroupPool_.empty()) { alnGroupPool_.pop(grp); delete grp; grp = nullptr; }
     while(!alnGroupQueue_.empty()) { alnGroupQueue_.pop(grp); delete grp; grp = nullptr; }
     bam_header_destroy(hdr_);
@@ -72,7 +72,7 @@ BAMQueue<FragT>::~BAMQueue() {
 }
 
 template <typename FragT>
-inline bool BAMQueue<FragT>::getAlignmentGroup(AlignmentGroup<FragT>*& group) {
+inline bool BAMQueue<FragT>::getAlignmentGroup(AlignmentGroup<FragT*>*& group) {
     while (!doneParsing_ or !alnGroupQueue_.empty()) {
         if (alnGroupQueue_.pop(group)) {
             return true;
@@ -80,7 +80,6 @@ inline bool BAMQueue<FragT>::getAlignmentGroup(AlignmentGroup<FragT>*& group) {
     }
     return false;
 }
-
 
 
 template <typename FragT>
@@ -91,6 +90,7 @@ bam_header_t* BAMQueue<FragT>::header() { return hdr_; }
 
 template <typename FragT>
 void BAMQueue<FragT>::start() {
+    fmt::print(stderr, "Started parsing\n");
     // Depending on the specified library type, start an
     // appropriate parsing thread.
     parsingThread_.reset(new std::thread([this]()-> void {
@@ -99,36 +99,28 @@ void BAMQueue<FragT>::start() {
 }
 
 template <typename FragT>
-tbb::concurrent_bounded_queue<bam1_t*>& BAMQueue<FragT>::getAlignmentStructureQueue() {
-    return alnStructQueue_;
+tbb::concurrent_bounded_queue<FragT*>& BAMQueue<FragT>::getFragmentQueue() {
+    return fragmentQueue_;
 }
 
 template <typename FragT>
-tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*>& BAMQueue<FragT>::getAlignmentGroupQueue() {
+tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& BAMQueue<FragT>::getAlignmentGroupQueue() {
     return alnGroupPool_;
 }
 
 template <typename FragT>
 inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
     bool haveValidPair{false};
-    alnStructQueue_.pop(rpair.read1);
-    alnStructQueue_.pop(rpair.read2);
 
     while (!haveValidPair) {
 
         bool didRead1 = (sam_read1(fp_, hdr_, rpair.read1) >= 0);
         if (!didRead1) {
-            alnStructQueue_.push(rpair.read1); alnStructQueue_.push(rpair.read2); 
-            rpair.read1 = nullptr;
-            rpair.read2 = nullptr;
             return false; 
         }
 
         bool didRead2 = (sam_read1(fp_, hdr_, rpair.read2) >= 0);
         if (!didRead2) { 
-            alnStructQueue_.push(rpair.read1); alnStructQueue_.push(rpair.read2); 
-            rpair.read1 = nullptr;
-            rpair.read2 = nullptr;
             return false; 
         }
 
@@ -164,11 +156,10 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
 template <typename FragT>
 inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread) {
     bool haveValidRead{false};
-    alnStructQueue_.pop(sread.read);
 
     while (!haveValidRead) {
         bool didRead = (sam_read1(fp_, hdr_, sread.read) >= 0);//(samread(fp_, sread.read) > 0);
-        if (!didRead) { alnStructQueue_.push(sread.read); return false; }
+        if (!didRead) { return false; }
 
         if (!(sread.read->core.flag & BAM_FDUP) and
             !(sread.read->core.flag & BAM_FQCFAIL) and
@@ -196,15 +187,17 @@ template <typename FragT>
 void BAMQueue<FragT>::fillQueue_() {
     size_t n{0};
     //AlignmentGroup* alngroup = new AlignmentGroup;
-    AlignmentGroup<FragT>* alngroup;
+    AlignmentGroup<FragT*>* alngroup;
     alnGroupPool_.pop(alngroup);
-    FragT f;
+    
+    FragT* f;
+    fragmentQueue_.pop(f);
     //ReadPair p = {nullptr, nullptr, LOG_0};
     char* prevReadName = new char[100];
     prevReadName[0] = '\0';
-    while(getFrag_(f) and !doneParsing_) {
+    while(getFrag_(*f) and !doneParsing_) {
 
-        char* readName = f.getName();//bam1_qname(p.read1);
+        char* readName = f->getName();//bam1_qname(p.read1);
         // if this is a new read
         // TODO: (p.read1->core.l_qname != p.read2->core.l_qname)
         if (strcmp(readName, prevReadName) != 0) {
@@ -219,7 +212,8 @@ void BAMQueue<FragT>::fillQueue_() {
             numMappedReads_++;
         } else {
             alngroup->addAlignment(f);
-        }
+       }
+        fragmentQueue_.pop(f);
         ++n;
     }
     doneParsing_ = true;

@@ -16,7 +16,7 @@ struct ReadPair {
     double logProb;
 
     ReadPair():
-        read1(nullptr), read2(nullptr), logProb(sailfish::math::LOG_0) {}
+        read1(bam_init1()), read2(bam_init1()), logProb(sailfish::math::LOG_0) {}
 
 
     ReadPair(bam1_t* r1, bam1_t* r2, double lp) :
@@ -40,7 +40,10 @@ struct ReadPair {
    ReadPair& operator=(ReadPair& other) = default;
 
 
-    ~ReadPair() {}
+    ~ReadPair() {
+        bam_destroy1(read1);
+        bam_destroy1(read2);
+    }
 
 
     inline char* getName() {

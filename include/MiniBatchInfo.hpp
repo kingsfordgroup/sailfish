@@ -19,18 +19,38 @@ class MiniBatchInfo {
         std::vector<AlnGroupT*>* alignments;
         double logForgettingMass;
 
-        void release(tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
-                    tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue);
+        template <typename FragT>
+        void release(tbb::concurrent_bounded_queue<FragT*>& fragmentQueue,
+                    tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue){
+            size_t ng{0};
+            for (auto& alnGroup : *alignments) {
+                for (auto aln : alnGroup->alignments()) {
+                    fragmentQueue.push(aln);
+                    aln = nullptr;
+                }
+                alnGroup->alignments().clear();
+                alignmentGroupQueue.push(alnGroup);
+                //delete alnGroup;
+                alnGroup = nullptr;
+                ++ng;
+            }
+            delete alignments;
+            alignments = nullptr;
+        }
+
+
+
 };
 
-
+/*
 template <>
 void MiniBatchInfo<AlignmentGroup<ReadPair>>::release(
-        tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
+        tbb::concurrent_bounded_queue<ReadPair*>& alignmentStructureQueue,
         tbb::concurrent_bounded_queue<AlignmentGroup<ReadPair>*>& alignmentGroupQueue) {
     size_t ng{0};
     for (auto& alnGroup : *alignments) {
         for (auto& aln : alnGroup->alignments()) {
+
             alignmentStructureQueue.push(aln.read1);
             alignmentStructureQueue.push(aln.read2);
             aln.read1 = nullptr;
@@ -45,26 +65,6 @@ void MiniBatchInfo<AlignmentGroup<ReadPair>>::release(
     delete alignments;
     alignments = nullptr;
 }
-
-template <>
-void MiniBatchInfo<AlignmentGroup<UnpairedRead>>::release(
-        tbb::concurrent_bounded_queue<bam1_t*>& alignmentStructureQueue,
-        tbb::concurrent_bounded_queue<AlignmentGroup<UnpairedRead>*>& alignmentGroupQueue) {
-    size_t ng{0};
-    for (auto& alnGroup : *alignments) {
-        for (auto& aln : alnGroup->alignments()) {
-            alignmentStructureQueue.push(aln.read);
-            aln.read = nullptr;
-        }
-        alnGroup->alignments().clear();
-        alignmentGroupQueue.push(alnGroup);
-        //delete alnGroup;
-        alnGroup = nullptr;
-        ++ng;
-    }
-    delete alignments;
-    alignments = nullptr;
-}
-
+*/
 
 #endif // MINIBATCH_INFO

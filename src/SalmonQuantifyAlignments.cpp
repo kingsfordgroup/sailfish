@@ -82,7 +82,7 @@ void scaleBy(std::vector<T>& vec, T scale) {
 
 template <typename FragT>
 void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
-                      MiniBatchQueue<AlignmentGroup<FragT>>& workQueue,
+                      MiniBatchQueue<AlignmentGroup<FragT*>>& workQueue,
                       std::condition_variable& workAvailable,
                       std::mutex& cvmutex,
                       std::atomic<bool>& doneParsing,
@@ -106,11 +106,11 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
     auto& refs = alnLib.transcripts();
     auto& clusterForest = alnLib.clusterForest();
-    auto& alignmentStructureQueue = alnLib.alignmentStructureQueue();
+    auto& fragmentQueue = alnLib.fragmentQueue();
     auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
 
     std::chrono::microseconds sleepTime(1);
-    MiniBatchInfo<AlignmentGroup<FragT>>* miniBatch;
+    MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch;
     bool updateCounts = initialRound;
     size_t numTranscripts = refs.size();
 
@@ -124,7 +124,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
             ++activeBatches;
             size_t batchReads{0};
             double logForgettingMass = miniBatch->logForgettingMass;
-            std::vector<AlignmentGroup<FragT>*>& alignmentGroups = *(miniBatch->alignments);
+            std::vector<AlignmentGroup<FragT*>*>& alignmentGroups = *(miniBatch->alignments);
 
             using TranscriptID = size_t;
             using HitIDVector = std::vector<size_t>;
@@ -132,12 +132,12 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
             std::unordered_map<TranscriptID, std::vector<FragT*>> hitList;
             for (auto alnGroup : alignmentGroups) {
-                for (auto& a : alnGroup->alignments()) {
-                    auto transcriptID = a.transcriptID();
+                for (auto a : alnGroup->alignments()) {
+                    auto transcriptID = a->transcriptID();
                     if (transcriptID < 0 or transcriptID >= refs.size()) {
                         std::cerr << "Invalid Transcript ID: " << transcriptID << "\n";
                     }
-                    hitList[transcriptID].emplace_back(&a);
+                    hitList[transcriptID].emplace_back(a);
                 }
             }
 
@@ -152,10 +152,10 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                     double sumOfAlignProbs{LOG_0};
                     // update the cluster-level properties
                     bool transcriptUnique{true};
-                    auto firstTranscriptID = alnGroup->alignments().front().transcriptID();
+                    auto firstTranscriptID = alnGroup->alignments().front()->transcriptID();
                     std::unordered_set<size_t> observedTranscripts;
                     for (auto& aln : alnGroup->alignments()) {
-                        auto transcriptID = aln.transcriptID();
+                        auto transcriptID = aln->transcriptID();
                         auto& transcript = refs[transcriptID];
                         transcriptUnique = transcriptUnique and (transcriptID == firstTranscriptID);
 
@@ -164,16 +164,16 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         double logFragProb = sailfish::math::LOG_1;
                         //double fragLength = aln.fragLen();
 
-                        switch (aln.fragType()) {
+                        switch (aln->fragType()) {
                             case ReadType::SINGLE_END:
-                                if (aln.isLeft() and transcript.RefLength - aln.left() < fragLengthDist.maxVal()) {
-                                    logFragProb = fragLengthDist.cmf(transcript.RefLength - aln.left());
-                                } else if (aln.isRight() and aln.right() < fragLengthDist.maxVal()) {
-                                    logFragProb = fragLengthDist.cmf(aln.right());
+                                if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
+                                    logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
+                                } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
+                                    logFragProb = fragLengthDist.cmf(aln->right());
                                 }
                                 break;
                             case ReadType::PAIRED_END:
-                                logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln.fragLen()));
+                                logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
                         }
 
                         // @TODO: handle this case better
@@ -200,7 +200,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         //double logConditionalFragLengthProb = logFragProb  - fragLengthDist.cmf(refLength);
                         //double logProbStartPos = logStartPosProb + logConditionalFragLengthProb;
                         //double qualProb = logProbStartPos + aln.logQualProb();
-                        double qualProb = -logRefLength + logFragProb + aln.logQualProb();
+                        double qualProb = -logRefLength + logFragProb + aln->logQualProb();
                         double transcriptLogCount = transcript.mass(initialRound);
 
                         if ( transcriptLogCount != LOG_0 ) {
@@ -211,28 +211,28 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             }
 
                             //aln.logProb = (transcriptLogCount - logRefLength) + qualProb + errLike;
-                            aln.logProb = transcriptLogCount + qualProb + errLike;
+                            aln->logProb = transcriptLogCount + qualProb + errLike;
 
-                            sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
+                            sumOfAlignProbs = logAdd(sumOfAlignProbs, aln->logProb);
                             if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
                                 refs[transcriptID].addTotalCount(1);
                                 observedTranscripts.insert(transcriptID);
                             }
                         } else {
-                            aln.logProb = LOG_0;
+                            aln->logProb = LOG_0;
                         }
                     }
                     // normalize the hits
                     if (sumOfAlignProbs == LOG_0) { std::cerr << "0 probability fragment; skipping\n"; continue; }
                     for (auto& aln : alnGroup->alignments()) {
-                        aln.logProb -= sumOfAlignProbs;
+                        aln->logProb -= sumOfAlignProbs;
                         double r = uni(eng);
-                        if (!burnedIn and r < std::exp(aln.logProb)) {
+                        if (!burnedIn and r < std::exp(aln->logProb)) {
                             //auto transcriptID = aln.transcriptID();
                             //auto& transcript = refs[transcriptID];
                             //errMod.update(aln, transcript, aln.logProb, logForgettingMass);
-                            if (aln.fragType() == ReadType::PAIRED_END) {
-                                double fragLength = aln.fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
+                            if (aln->fragType() == ReadType::PAIRED_END) {
+                                double fragLength = aln->fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
                             }
                         }
@@ -248,7 +248,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         // ughh . . . C++ still has some very rough edges
                         clusterForest.template mergeClusters<FragT>(alnGroup->alignments().begin(),
                                                            alnGroup->alignments().end());
-                        clusterForest.updateCluster(alnGroup->alignments().front().transcriptID(),
+                        clusterForest.updateCluster(alnGroup->alignments().front()->transcriptID(),
                                                     1, logForgettingMass, updateCounts);
                     }
 
@@ -285,12 +285,8 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                    // unlock the target
                 } // end for
             } // end timer
-            /*
-            if (std::abs(individualTotal - clustTotal) > 1e-5) {
-                std::cerr << "Cluster total = " << clustTotal << ", individual total = " << individualTotal << "\n";
-            }
-            */
-            miniBatch->release(alignmentStructureQueue, alignmentGroupQueue);
+
+            miniBatch->release(fragmentQueue, alignmentGroupQueue);
             delete miniBatch;
             --activeBatches;
             processedReads += batchReads;
@@ -319,7 +315,7 @@ void quantifyLibrary(
     size_t miniBatchSize{1000};
     size_t numObservedFragments{0};
 
-    MiniBatchQueue<AlignmentGroup<FragT>> workQueue;
+    MiniBatchQueue<AlignmentGroup<FragT*>> workQueue;
     size_t maxFragLen = 800;
     size_t meanFragLen = 200;
     size_t fragLenStd = 80;
@@ -372,9 +368,9 @@ void quantifyLibrary(
         size_t numProc{0};
 
         BAMQueue<FragT>& bq = alnLib.getAlignmentGroupQueue();
-        std::vector<AlignmentGroup<FragT>*>* alignments = new std::vector<AlignmentGroup<FragT>*>;
+        std::vector<AlignmentGroup<FragT*>*>* alignments = new std::vector<AlignmentGroup<FragT*>*>;
         alignments->reserve(miniBatchSize);
-        AlignmentGroup<FragT>* ag;
+        AlignmentGroup<FragT*>* ag;
         while (bq.getAlignmentGroup(ag)) {
             alignments->push_back(ag);
             if (alignments->size() >= miniBatchSize) {
@@ -384,14 +380,14 @@ void quantifyLibrary(
                         std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
                 }
 
-                MiniBatchInfo<AlignmentGroup<FragT>>* mbi =
-                    new MiniBatchInfo<AlignmentGroup<FragT>>(batchNum, alignments, logForgettingMass);
+                MiniBatchInfo<AlignmentGroup<FragT*>>* mbi =
+                    new MiniBatchInfo<AlignmentGroup<FragT*>>(batchNum, alignments, logForgettingMass);
                 workQueue.push(mbi);
                 {
                     std::unique_lock<std::mutex> l(cvmutex);
                     workAvailable.notify_one();
                 }
-                alignments = new std::vector<AlignmentGroup<FragT>*>;
+                alignments = new std::vector<AlignmentGroup<FragT*>*>;
                 alignments->reserve(miniBatchSize);
             }
             if (numProc % 1000000 == 0) {
