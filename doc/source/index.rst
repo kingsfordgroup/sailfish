@@ -12,6 +12,7 @@ Contents:
    :maxdepth: 2
 
    building.rst
+   library_type.rst
 
 Indices and tables
 ==================

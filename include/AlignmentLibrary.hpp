@@ -1,12 +1,14 @@
 #ifndef ALIGNMENT_LIBRARY_HPP
 #define ALIGNMENT_LIBRARY_HPP
 
+// samtools / htslib includes
 extern "C" {
 #include "htslib/sam.h"
 #include "samtools/samtools.h"
 }
 
 // Our includes
+#include "ClusterForest.hpp"
 #include "Transcript.hpp"
 #include "BAMQueue.hpp"
 #include "LibraryFormat.hpp"
@@ -21,7 +23,7 @@ extern "C" {
 #include <memory>
 
 /**
-  *  This class represents an library of alignments used to quantify
+  *  This class represents a library of alignments used to quantify
   *  a set of target transcripts.  The AlignmentLibrary contains info
   *  about both the alignment file and the target sequence (transcripts).
   *  It is used to group them together and track information about them
@@ -72,9 +74,12 @@ class AlignmentLibrary {
             FASTAParser fp(transcriptFile.string());
 
             fmt::print(stderr, "Populating targets from aln = {}, fasta = {} . . .",
-                    alignmentFile_, transcriptFile_);
+                       alignmentFile_, transcriptFile_);
             fp.populateTargets(transcripts_);
             fmt::print(stderr, "done\n");
+
+            // Create the cluster forest for this set of transcripts
+            clusters_.reset(new ClusterForest(transcripts_.size(), transcripts_));
 
             // Start parsing the alignments
             bq->start();
@@ -92,8 +97,11 @@ class AlignmentLibrary {
         return bq->getAlignmentGroupQueue();
     }
 
+    inline BAMQueue<FragT>& getAlignmentGroupQueue() { return *bq.get(); }
+
     inline size_t numMappedReads() { return bq->numMappedReads(); }
     const boost::filesystem::path& alignmentFile() { return alignmentFile_; }
+    ClusterForest& clusterForest() { return *clusters_.get(); }
 
     bool reset() {
         namespace bfs = boost::filesystem;
@@ -108,11 +116,41 @@ class AlignmentLibrary {
     }
 
     private:
+    /**
+     * The file from which the alignments will be read.
+     * This can be a SAM or BAM file, and can be a regular
+     * file or a fifo.
+     */
     boost::filesystem::path alignmentFile_;
+    /**
+     * The file from which the transcripts are read.
+     * This is expected to be a FASTA format file.
+     */
     boost::filesystem::path transcriptFile_;
+    /**
+     * Describes the expected format of the sequencing
+     * fragment library.
+     */
     LibraryFormat libFmt_;
+    /**
+     * The targets (transcripts) to be quantified.
+     */
     std::vector<Transcript> transcripts_;
+    /**
+     * A pointer to the queue from which the fragments
+     * will be read.
+     */
     std::unique_ptr<BAMQueue<FragT>> bq;
+    /**
+     * The cluster forest maintains the dynamic relationship
+     * defined by transcripts and reads --- if two transcripts
+     * share an ambiguously mapped read, then they are placed
+     * in the same cluster.
+     */
+    std::unique_ptr<ClusterForest> clusters_;
+    /** Keeps track of the number of passes that have been
+     *  made through the alignment file.
+     */
     size_t quantificationPasses_;
 };
 

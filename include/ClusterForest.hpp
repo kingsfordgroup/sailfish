@@ -1,13 +1,15 @@
 #ifndef __CLUSTER_FOREST_HPP__
 #define __CLUSTER_FOREST_HPP__
 
-#include <vector>
-#include <mutex>
 
 #include <boost/pending/disjoint_sets.hpp>
 
 #include "Transcript.hpp"
 #include "TranscriptCluster.hpp"
+
+#include <unordered_set>
+#include <vector>
+#include <mutex>
 
 /** A forest of transcript clusters */
 class ClusterForest {

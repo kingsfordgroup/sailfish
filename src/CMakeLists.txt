@@ -17,6 +17,7 @@ Salmon.cpp
 BuildSalmonIndex.cpp
 SalmonQuantify.cpp
 FragmentLengthDistribution.cpp 
+SalmonUtils.cpp
 )
 
 set (BUILD_TRANSCRIPT_MAP_SRCS

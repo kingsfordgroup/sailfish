@@ -24,6 +24,7 @@ extern "C" {
 #include "SailfishMath.hpp"
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
+#include "lfringqueue.h"
 
 /**
   * A queue from which to draw BAM alignments.  The queue is thread-safe, and
@@ -77,6 +78,7 @@ private:
   size_t numMappedReads_;
   tbb::concurrent_bounded_queue<bam1_t*> alnStructQueue_;
   tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupPool_;
+  //tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupQueue_;
   boost::lockfree::spsc_queue<AlignmentGroup<FragT>*,
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
   bool doneParsing_;
