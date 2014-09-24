@@ -113,15 +113,12 @@ std::vector<ReadLibrary> extractReadLibraries(boost::program_options::parsed_opt
 			}
 		}
 		if (opt.string_key == "mates1") {
-			std::cerr << "mates1\n";
 			peLibs.back().addMates1(opt.value);
 		}
 		if (opt.string_key == "mates2") {
-			std::cerr << "mates2\n";
 			peLibs.back().addMates2(opt.value);
 		}
 		if (opt.string_key == "unmated_reads") {
-			std::cerr << "unmated\n";
 			seLibs.back().addUnmated(opt.value);
 		}
 	}
@@ -131,18 +128,19 @@ std::vector<ReadLibrary> extractReadLibraries(boost::program_options::parsed_opt
 	for (auto& lib : boost::range::join(seLibs, peLibs)) {
 		if (lib.format().type == ReadType::SINGLE_END) {
 			if (lib.unmated().size() == 0) {
-				std::cerr << "skipping single-end library w/ no reads\n";
+				// Didn't use default single end library type
 				continue;
 			}
 		} else if (lib.format().type == ReadType::PAIRED_END) {
 			if (lib.mates1().size() == 0 or lib.mates2().size() == 0) {
-				std::cerr << "skipping paired-end library w/ no reads\n";
+                // Didn't use default paired-end library type
 				continue;
 			}
 		}
 		libs.push_back(lib);
 	}
-	std::cerr << "there are " << libs.size() << " libs\n";
+    size_t numLibs = libs.size();
+	std::cerr << "there " << ((numLibs > 1) ? "are " : "is ") << libs.size() << ((numLibs > 1) ? " libs\n" : " lib\n");
 	return libs;
 }
 

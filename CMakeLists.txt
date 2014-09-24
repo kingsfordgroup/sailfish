@@ -427,10 +427,10 @@ message("Build system will compile htslib")
 message("==================================================================")
 ExternalProject_Add(libhts
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -L https://github.com/samtools/htslib/archive/0.2.0-rc10.tar.gz -o htslib-0.2.0-rc10.tar.gz &&
-                     tar -xzf htslib-0.2.0-rc10.tar.gz &&
+    DOWNLOAD_COMMAND curl -L https://github.com/samtools/htslib/archive/1.0.tar.gz -o htslib-1.0.tar.gz &&
+                     tar -xzf htslib-1.0.tar.gz &&
                      rm -fr htslib &&
-                     mv -f htslib-0.2.0-rc10 htslib
+                     mv -f htslib-1.0 htslib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/htslib
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""
@@ -443,10 +443,10 @@ message("Build system will compile samtools")
 message("==================================================================")
 ExternalProject_Add(libsamtools
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -L https://github.com/samtools/samtools/archive/0.2.0-rc10.tar.gz -o samtools-0.2.0-rc10.tar.gz &&
-                     tar -xzf samtools-0.2.0-rc10.tar.gz &&
+    DOWNLOAD_COMMAND curl -L https://github.com/samtools/samtools/archive/1.0.tar.gz -o samtools-1.0.tar.gz &&
+                     tar -xzf samtools-1.0.tar.gz &&
                      rm -fr samtools &&
-                     mv -f samtools-0.2.0-rc10 samtools
+                     mv -f samtools-1.0 samtools
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
     CONFIGURE_COMMAND ""
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install

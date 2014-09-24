@@ -8,10 +8,12 @@
 
 #include <memory>
 
+class ReadExperiment;
+
 namespace salmon {
 namespace utils {
-    template <typename FragT>
-    void writeAbundances(AlignmentLibrary<FragT>& alnLib,
+    template <typename AlnLibT>
+    void writeAbundances(AlnLibT& alnLib,
                          boost::filesystem::path& fname,
                          std::string headerComments="");
 }

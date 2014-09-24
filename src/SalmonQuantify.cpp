@@ -96,12 +96,14 @@ extern "C" {
 #include "Transcript.hpp"
 #include "LibraryFormat.hpp"
 #include "SailfishUtils.hpp"
+#include "SalmonUtils.hpp"
 #include "ReadLibrary.hpp"
 #include "SalmonConfig.hpp"
 
 #include "PairSequenceParser.hpp"
 #include "FragmentList.hpp"
 #include "FragmentLengthDistribution.hpp"
+#include "ReadExperiment.hpp"
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
@@ -147,8 +149,10 @@ void processMiniBatch(
         std::vector<Transcript>& transcripts,
         ClusterForest& clusterForest,
         FragmentLengthDistribution& fragLengthDist,
-        std::atomic<uint64_t>& processedReads,
-        std::default_random_engine& randEng
+        std::atomic<uint64_t>& numAssignedFragments,
+        std::default_random_engine& randEng,
+        bool initialRound,
+        bool& burnedIn
         ) {
 
     using sailfish::math::LOG_0;
@@ -160,7 +164,7 @@ void processMiniBatch(
     size_t numReads{batchHits.size()};
     std::uniform_real_distribution<> uni(0.0, 1.0 + std::numeric_limits<double>::min());
 
-    bool burnedIn{false};
+    bool updateCounts = initialRound;
 
     // Build reverse map from transcriptID => hit id
     using HitID = uint32_t;
@@ -215,7 +219,7 @@ void processMiniBatch(
                     sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
 
                     if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
-                        transcripts[transcriptID].addTotalCount(1);
+                        if (updateCounts) { transcripts[transcriptID].addTotalCount(1); }
                         observedTranscripts.insert(transcriptID);
                     }
                 } else {
@@ -245,11 +249,13 @@ void processMiniBatch(
 
             // update the single target transcript
             if (transcriptUnique) {
-                transcripts[firstTranscriptID].addUniqueCount(1);
-                clusterForest.updateCluster(firstTranscriptID, 1, logForgettingMass, true);
+                if (updateCounts) {
+                    transcripts[firstTranscriptID].addUniqueCount(1);
+                }
+                clusterForest.updateCluster(firstTranscriptID, 1, logForgettingMass, updateCounts);
             } else { // or the appropriate clusters
                 clusterForest.mergeClusters<Alignment>(alnGroup.begin(), alnGroup.end());
-                clusterForest.updateCluster(alnGroup.front().transcriptID(), 1, logForgettingMass, true);
+                clusterForest.updateCluster(alnGroup.front().transcriptID(), 1, logForgettingMass, updateCounts);
             }
 
             } // end read group
@@ -282,8 +288,8 @@ void processMiniBatch(
                 transcript.addMass(updateMass);
             } // end for
         } // end timer
-        processedReads += numReads;
-        if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
+        numAssignedFragments += numReads;
+        if (numAssignedFragments >= 5000000 and !burnedIn) { burnedIn = true; }
 }
 
 uint32_t basesCovered(std::vector<uint32_t>& kmerHits) {
@@ -720,9 +726,8 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 // jellyfish::sequence_list (see whole_sequence_parser.hpp).
 template <typename ParserT, typename CoverageCalculator>
 void processReadsMEM(ParserT* parser,
-               std::atomic<uint64_t>& totalHits,
-               std::atomic<uint64_t>& rn,
-               std::atomic<uint64_t>& processedReads,
+               std::atomic<uint64_t>& numObservedFragments,
+               std::atomic<uint64_t>& numAssignedFragments,
                bwaidx_t *idx,
                std::vector<Transcript>& transcripts,
                std::atomic<uint64_t>& batchNum,
@@ -733,7 +738,9 @@ void processReadsMEM(ParserT* parser,
                uint32_t minMEMLength,
                uint32_t maxMEMOcc,
                double coverageThresh,
-	       std::mutex& iomutex
+	           std::mutex& iomutex,
+               bool initialRound,
+               bool& burnedIn
                ) {
   uint64_t count_fwd = 0, count_bwd = 0;
 
@@ -764,7 +771,7 @@ void processReadsMEM(ParserT* parser,
     if(j.is_empty()) break;           // If got nothing, quit
 
     hitLists.resize(j->nb_filled);
-    for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
+    for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read in this batch
 
         getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
                                                minLen, minIWidth, splitWidth,
@@ -772,13 +779,17 @@ void processReadsMEM(ParserT* parser,
                                                hitLists[i], hitListCount,
                                                transcripts);
         auto& hitList = hitLists[i];
-        totalHits += hitList.size() > 0;
 
         locRead++;
-        ++rn;
-        if (rn % 50000 == 0) {
+        ++numObservedFragments;
+        if (numObservedFragments % 50000 == 0) {
     	    iomutex.lock();
-            fmt::print(stderr, "\r\rprocessed {} reads", rn);
+            const char RESET_COLOR[] = "\x1b[0m";
+            char green[] = "\x1b[30m";
+            green[3] = '0' + static_cast<char>(fmt::GREEN);
+            char red[] = "\x1b[30m";
+            red[3] = '0' + static_cast<char>(fmt::RED);
+            fmt::print(stderr, "\r\r{}processed{} {} {}fragments{}", green, red, numObservedFragments, green, RESET_COLOR);
     	    iomutex.unlock();
         }
 
@@ -786,7 +797,6 @@ void processReadsMEM(ParserT* parser,
         if (hitList.size() > 100) { hitList.clear(); }
 
     } // end for i < j->nb_filled
-
 
     auto oldBatchNum = batchNum++;
     if (oldBatchNum > 1) {
@@ -797,10 +807,9 @@ void processReadsMEM(ParserT* parser,
     }
 
     processMiniBatch(logForgettingMass, hitLists, transcripts, clusterForest,
-                     fragLengthDist, processedReads, eng);
+                     fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
   }
   smem_itr_destroy(itr);
-
 }
 
 int performBiasCorrection(boost::filesystem::path featPath,
@@ -812,6 +821,230 @@ int performBiasCorrection(boost::filesystem::path featPath,
                           boost::filesystem::path outPath,
                           size_t numThreads);
 
+void processReadLibrary(
+        ReadLibrary& rl,
+        bwaidx_t* idx,
+        std::vector<Transcript>& transcripts,
+        ClusterForest& clusterForest,
+        std::atomic<uint64_t>& numObservedFragments, // total number of reads we've looked at
+        std::atomic<uint64_t>& numAssignedFragments, // total number of assigned reads
+        std::atomic<uint64_t>& batchNum,
+        bool initialRound,
+        bool& burnedIn,
+        double& logForgettingMass,
+        std::mutex& ffMutex,
+        FragmentLengthDistribution& fragLengthDist,
+        uint32_t minMEMLength,
+        uint32_t maxMEMOcc,
+        double coverageThresh,
+        bool greedyChain,
+        std::mutex& iomutex,
+        size_t numThreads) {
+
+            std::vector<std::thread> threads;
+
+
+            rl.checkValid();
+            // If the read library is paired-end
+            // ------ Paired-end --------
+            if (rl.format().type == ReadType::PAIRED_END) {
+                char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
+                    const_cast<char*>(rl.mates2().front().c_str()) };
+
+                size_t maxReadGroup{1000}; // Number of files to read simultaneously
+                size_t concurrentFile{2}; // Number of reads in each "job"
+                paired_parser parser(4 * numThreads, maxReadGroup, concurrentFile,
+                        readFiles, readFiles + 2);
+
+                for(int i = 0; i < numThreads; ++i)  {
+                    if (greedyChain) {
+                        auto threadFun = [&]() -> void {
+                                    processReadsMEM<paired_parser, TranscriptHitList>(
+                                    &parser,
+                                    numObservedFragments,
+                                    numAssignedFragments,
+                                    idx,
+                                    transcripts,
+                                    batchNum,
+                                    logForgettingMass,
+                                    ffMutex,
+                                    clusterForest,
+                                    fragLengthDist,
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh,
+                                    iomutex,
+                                    initialRound,
+                                    burnedIn);
+                        };
+                        threads.emplace_back(threadFun);
+                    } else {
+                        auto threadFun = [&]() -> void {
+                                    processReadsMEM<paired_parser, FragmentList>(
+                                    &parser,
+                                    std::ref(numObservedFragments),
+                                    std::ref(numAssignedFragments),
+                                    idx,
+                                    std::ref(transcripts),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffMutex),
+                                    std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh,
+                                    std::ref(iomutex),
+                                    initialRound,
+                                    std::ref(burnedIn));
+                        };
+                        threads.emplace_back(threadFun);
+                    }
+                }
+
+                for(int i = 0; i < numThreads; ++i)
+                    threads[i].join();
+
+            } // ------ Single-end --------
+            else if (rl.format().type == ReadType::SINGLE_END) {
+
+                char* readFiles[] = { const_cast<char*>(rl.unmated().front().c_str()) };
+                size_t maxReadGroup{1000}; // Number of files to read simultaneously
+                size_t concurrentFile{1}; // Number of reads in each "job"
+                stream_manager streams( rl.unmated().begin(),
+                        rl.unmated().end(), concurrentFile);
+
+                single_parser parser(4 * numThreads, maxReadGroup, concurrentFile,
+                        streams);
+
+                for(int i = 0; i < numThreads; ++i)  {
+                    if (greedyChain) {
+                        auto threadFun = [&]() -> void {
+                                    processReadsMEM<single_parser, TranscriptHitList>( &parser,
+                                    std::ref(numObservedFragments), std::ref(numAssignedFragments),
+                                    idx,
+                                    std::ref(transcripts),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffMutex),
+                                    std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh,
+                                    std::ref(iomutex),
+                                    initialRound,
+                                    std::ref(burnedIn));
+                        };
+                        threads.emplace_back(threadFun);
+                    } else {
+                        auto threadFun = [&]() -> void {
+                                    processReadsMEM<single_parser, FragmentList>( &parser,
+                                    std::ref(numObservedFragments), std::ref(numAssignedFragments),
+                                    idx,
+                                    std::ref(transcripts),
+                                    std::ref(batchNum),
+                                    std::ref(logForgettingMass),
+                                    std::ref(ffMutex),
+                                    std::ref(clusterForest),
+                                    std::ref(fragLengthDist),
+                                    minMEMLength,
+                                    maxMEMOcc,
+                                    coverageThresh,
+                                    std::ref(iomutex),
+                                    initialRound,
+                                    std::ref(burnedIn));
+                        };
+                        threads.emplace_back(threadFun);
+                    }
+                }
+                for(int i = 0; i < numThreads; ++i)
+                    threads[i].join();
+            } // ------ END Single-end --------
+}
+
+
+
+/**
+  *  Quantify the targets given in the file `transcriptFile` using the
+  *  reads in the given set of `readLibraries`, and write the results
+  *  to the file `outputFile`.  The reads are assumed to be in the format
+  *  specified by `libFmt`.
+  *
+  */
+void quantifyLibrary(
+        ReadExperiment& experiment,
+        bool greedyChain,
+        uint32_t minMEMLength,
+        uint32_t maxMEMOcc,
+        double coverageThresh,
+        size_t numRequiredFragments,
+        uint32_t numQuantThreads) {
+
+    bool burnedIn{false};
+    //ErrorModel errMod(1.00);
+    auto& refs = experiment.transcripts();
+    size_t numTranscripts = refs.size();
+    size_t miniBatchSize{1000};
+    std::atomic<uint64_t> numObservedFragments{0};
+
+    size_t maxFragLen = 800;
+    size_t meanFragLen = 200;
+    size_t fragLenStd = 80;
+    size_t fragLenKernelN = 4;
+    double fragLenKernelP = 0.5;
+    FragmentLengthDistribution fragLengthDist(1.0, maxFragLen,
+                                              meanFragLen, fragLenStd,
+                                              fragLenKernelN,
+                                              fragLenKernelP, 1);
+    double logForgettingMass{std::log(1.0)};
+    double forgettingFactor{0.60};
+    bool initialRound{true};
+
+    std::mutex ffMutex;
+    std::mutex ioMutex;
+
+
+    while (numObservedFragments < numRequiredFragments) {
+        if (!initialRound) {
+            if (!experiment.reset()) {
+                fmt::print(stderr,
+                  "\n\n======== WARNING ========\n"
+                  "One of the provided read files: [{}] "
+                  "is not a regular file and therefore can't be read from "
+                  "more than once.\n\n"
+                  "We observed only {} mapping fragments when we wanted at least {}.\n\n"
+                  "Please consider re-running Salmon with these reads "
+                  "as a regular file!\n"
+                  "==========================\n\n",
+                  experiment.readFilesAsString(), numObservedFragments, numRequiredFragments);
+                break;
+            }
+        }
+
+        auto processReadLibraryCallback =  [&](
+                ReadLibrary& rl, bwaidx_t* idx,
+                std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
+                std::atomic<uint64_t>& numAssignedFragments,
+                std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
+                bool& burnedIn) -> void  {
+                processReadLibrary(rl, idx, transcripts, clusterForest,
+                                   numObservedFragments, numAssignedFragments, batchNum,
+                                   initialRound, burnedIn, logForgettingMass, ffMutex, fragLengthDist,
+                                   minMEMLength, maxMEMOcc, coverageThresh, greedyChain,
+                                   ioMutex, numQuantThreads);
+              };
+
+        // Process all of the reads
+        experiment.processReads(numQuantThreads, processReadLibraryCallback);
+
+        initialRound = false;
+        //numObservedFragments += experiment.numObservedFragments();
+        fmt::print(stderr, "\n# observed = {} / # required = {}\n",
+                   numObservedFragments, numRequiredFragments);
+    }
+}
+
 int salmonQuantify(int argc, char *argv[]) {
     using std::cerr;
     using std::vector;
@@ -820,7 +1053,202 @@ int salmonQuantify(int argc, char *argv[]) {
     namespace po = boost::program_options;
 
     bool noBiasCorrect{false};
-    bool greedyChain{false};
+    bool optChain{false};
+    uint32_t maxThreads = std::thread::hardware_concurrency();
+    uint32_t sampleRate{1};
+    size_t requiredObservations;
+    double coverageThresh;
+    uint32_t minMEMLength, maxMEMOcc;
+    vector<string> unmatedReadFiles;
+    vector<string> mate1ReadFiles;
+    vector<string> mate2ReadFiles;
+
+    po::options_description generic("salmon quant options");
+    generic.add_options()
+    ("version,v", "print version string")
+    ("help,h", "produce help message")
+    ("index,i", po::value<string>(), "sailfish index.")
+    ("libtype,l", po::value<std::string>(), "Format string describing the library type")
+    ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
+     "List of files containing unmated reads of (e.g. single-end reads)")
+    ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),
+        "File containing the #1 mates")
+    ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
+        "File containing the #2 mates")
+    ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
+    //("sample,s", po::value<uint32_t>(&sampleRate)->default_value(1), "Sample rate --- only consider every s-th k-mer in a read.")
+    ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
+                                        "The minimum number of observations (mapped reads) that must be observed before\n"
+                                        "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
+                                        "input file, then it will be read through multiple times.")
+    ("minLen,k", po::value<uint32_t>(&minMEMLength)->default_value(15), "MEMs smaller than this size won't be considered")
+    ("maxOcc,n", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "MEMs occuring more than this many times won't be considered")
+    ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of MEMs to consider it a \"hit\"")
+    ("output,o", po::value<std::string>(), "Output quantification file")
+    ("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greed")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
+                                        "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
+                                        "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
+                                        "should be provided as either a GTF file, or a in a simple tab-delimited format\n"
+                                        "where each line contains the name of a transcript and the gene to which it belongs\n"
+                                        "separated by a tab.  The extension of the file is used to determine how the file\n"
+                                        "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF\n"
+                                        "format; files with any other extension are assumed to be in the simple format");
+
+    po::variables_map vm;
+    try {
+        auto orderedOptions = po::command_line_parser(argc,argv).
+            options(generic).run();
+
+        po::store(orderedOptions, vm);
+
+        if ( vm.count("help") ) {
+            auto hstring = R"(
+Quant
+==========
+Perform streaming SMEM-based estimation of
+transcript abundance from RNA-seq reads
+)";
+            std::cout << hstring << std::endl;
+            std::cout << generic << std::endl;
+            std::exit(1);
+        }
+
+        po::notify(vm);
+
+        std::stringstream commentStream;
+        commentStream << "# salmon (smem-based) v" << salmon::version << "\n";
+        commentStream << "# [ program ] => salmon \n";
+        commentStream << "# [ command ] => quant \n";
+        for (auto& opt : orderedOptions.options) {
+            commentStream << "# [ " << opt.string_key << " ] => {";
+            for (auto& val : opt.value) {
+                commentStream << " " << val;
+            }
+            commentStream << " }\n";
+        }
+        std::string commentString = commentStream.str();
+        fmt::print(stderr, "{}", commentString);
+
+        // Verify the gene_map before we start doing any real work.
+        bfs::path geneMapPath;
+        if (vm.count("gene_map")) {
+            // Make sure the provided file exists
+            geneMapPath = vm["gene_map"].as<std::string>();
+            if (!bfs::exists(geneMapPath)) {
+                std::cerr << "Could not fine transcript <=> gene map file " << geneMapPath << "\n";
+                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file\n";
+                std::exit(1);
+            }
+        }
+
+
+        bool greedyChain = !optChain;
+        bfs::path outputDirectory(vm["output"].as<std::string>());
+        bfs::create_directory(outputDirectory);
+        if (!(bfs::exists(outputDirectory) and bfs::is_directory(outputDirectory))) {
+            std::cerr << "Couldn't create output directory " << outputDirectory << "\n";
+            std::cerr << "exiting\n";
+            std::exit(1);
+        }
+
+        bfs::path indexDirectory(vm["index"].as<string>());
+        bfs::path logDirectory = outputDirectory.parent_path() / "logs";
+
+#if HAVE_LOGGER
+        bfs::create_directory(logDirectory);
+        if (!(bfs::exists(logDirectory) and bfs::is_directory(logDirectory))) {
+            std::cerr << "Couldn't create log directory " << logDirectory << "\n";
+            std::cerr << "exiting\n";
+            std::exit(1);
+        }
+        std::cerr << "writing logs to " << logDirectory.string() << "\n";
+        g2LogWorker logger(argv[0], logDirectory.string());
+        g2::initializeLogging(&logger);
+#endif
+
+        LOG(INFO) << "parsing read library format";
+
+        vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
+        ReadExperiment experiment(readLibraries, indexDirectory);
+        uint32_t nbThreads = vm["threads"].as<uint32_t>();
+
+        quantifyLibrary(experiment, greedyChain, minMEMLength, maxMEMOcc, coverageThresh,
+                        requiredObservations, nbThreads);
+
+        // ---- Get rid of things we no longer need --------
+        // bwa_idx_destroy(idx);
+
+        size_t tnum{0};
+
+        std::cerr << "writing output \n";
+
+        bfs::path estFilePath = outputDirectory / "quant.sf";
+        salmon::utils::writeAbundances(experiment, estFilePath, commentString);
+
+        // Not ready for read / alignment-based bias correction yet
+        if (!noBiasCorrect) {
+            fmt::print(stderr, "Post-hoc bias correction is not yet supported in salmon; disabling\n");
+            noBiasCorrect = true;
+        }
+
+        if (!noBiasCorrect) {
+            // Estimated read length
+            double estimatedReadLength = 36;
+            // Number of k-mers per read
+            double kmersPerRead = 1.0;
+            // Total number of mapped kmers
+            uint64_t mappedKmers= experiment.numMappedReads();
+
+            auto origExpressionFile = estFilePath;
+
+            auto outputDirectory = estFilePath;
+            outputDirectory.remove_filename();
+
+            auto biasFeatPath = indexDirectory / "bias_feats.txt";
+            auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
+            performBiasCorrection(biasFeatPath, estFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
+                    20, biasCorrectedFile, nbThreads);
+
+        }
+
+        /** If the user requested gene-level abundances, then compute those now **/
+        if (vm.count("gene_map")) {
+            try {
+                sailfish::utils::generateGeneLevelEstimates(geneMapPath,
+                                                            outputDirectory,
+                                                            !noBiasCorrect);
+            } catch (std::invalid_argument& e) {
+                fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
+                                   "estimates. The gene-level file(s) may not exist",
+                                   e.what());
+            }
+        }
+
+    } catch (po::error &e) {
+        std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";
+        std::exit(1);
+    } catch (std::exception& e) {
+        std::cerr << "Exception : [" << e.what() << "]\n";
+        std::cerr << argv[0] << " quant was invoked improperly.\n";
+        std::cerr << "For usage information, try " << argv[0] << " quant --help\nExiting.\n";
+    }
+
+
+    return 0;
+}
+
+/*
+int salmonQuantifyOrig(int argc, char *argv[]) {
+    using std::cerr;
+    using std::vector;
+    using std::string;
+    namespace bfs = boost::filesystem;
+    namespace po = boost::program_options;
+
+    bool noBiasCorrect{false};
+    bool optChain{false};
     uint32_t maxThreads = std::thread::hardware_concurrency();
     uint32_t sampleRate{1};
     double coverageThresh;
@@ -847,7 +1275,7 @@ int salmonQuantify(int argc, char *argv[]) {
     ("maxOcc,n", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "MEMs occuring more than this many times won't be considered")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of MEMs to consider it a \"hit\"")
     ("output,o", po::value<std::string>(), "Output quantification file")
-    ("greedyChain,f", po::bool_switch(&greedyChain)->default_value(false), "Chain MEMs greedily rather than optimally")
+    ("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greed")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
                                         "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
@@ -869,7 +1297,7 @@ int salmonQuantify(int argc, char *argv[]) {
             auto hstring = R"(
 Quant
 ==========
-Perform streaming k-mer-group-based estimation of
+Perform streaming SMEM-based estimation of
 transcript abundance from RNA-seq reads
 )";
             std::cout << hstring << std::endl;
@@ -901,6 +1329,7 @@ transcript abundance from RNA-seq reads
         }
 
 
+        bool greedyChain = !optChain;
         bfs::path outputDirectory(vm["output"].as<std::string>());
         bfs::create_directory(outputDirectory);
         if (!(bfs::exists(outputDirectory) and bfs::is_directory(outputDirectory))) {
@@ -927,6 +1356,7 @@ transcript abundance from RNA-seq reads
         LOG(INFO) << "parsing read library format";
 
         vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
+
         bwaidx_t *idx{nullptr};
 
         { // mem-based
@@ -982,7 +1412,6 @@ transcript abundance from RNA-seq reads
         double logForgettingMass{sailfish::math::LOG_1};
         std::mutex ffmutex;
         std::mutex iomutex;
-
 
         uint32_t nbThreads = vm["threads"].as<uint32_t>();
         for (auto& rl : readLibraries) {
@@ -1200,7 +1629,7 @@ transcript abundance from RNA-seq reads
 
         }
 
-        /** If the user requested gene-level abundances, then compute those now **/
+        // If the user requested gene-level abundances, then compute those now
         if (vm.count("gene_map")) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
@@ -1225,3 +1654,4 @@ transcript abundance from RNA-seq reads
 
     return 0;
 }
+*/

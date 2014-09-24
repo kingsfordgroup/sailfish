@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <exception>
+#include <set>
 
 #include <boost/filesystem.hpp>
 
@@ -71,6 +72,49 @@ public:
         return extensionsOK;
     }
 
+    bool isRegularFile() {
+        if (isPairedEnd()) {
+            for (auto& m1 : mateOneFilenames_) {
+                if (!boost::filesystem::is_regular_file(m1)) { return false; }
+            }
+            for (auto& m2: mateTwoFilenames_) {
+                if (!boost::filesystem::is_regular_file(m2)) { return false; }
+            }
+        } else {
+            for (auto& um : unmatedFilenames_) {
+                if (!boost::filesystem::is_regular_file(um)) { return false; }
+            }
+        }
+        return true;
+    }
+
+    std::string readFilesAsString() {
+        std::stringstream sstr;
+        if (isPairedEnd()) {
+            size_t n1 = mateOneFilenames_.size();
+            size_t n2 = mateTwoFilenames_.size();
+            if (n1 == 0 or n2 == 0 or n1 != n2) {
+                sstr << "LIBRARY INVALID --- You must provide #1 and #2 mated read files with a paired-end library type";
+            } else {
+                for (size_t i = 0; i < n1; ++i) {
+                    sstr << "( " << mateOneFilenames_[i] << ", " <<
+                            mateTwoFilenames_[i] << " )";
+                    if (i != n1 - 1) { sstr << ", "; }
+                }
+            }
+        } else { // single end
+            size_t n = unmatedFilenames_.size();
+            if (n == 0) {
+                sstr << "LIBRARY INVALID --- You must provide unmated read files with a single-end library type";
+            } else {
+                for (size_t i = 0; i < n; ++i) {
+                    sstr << unmatedFilenames_[i];
+                    if (i != n - 1) { sstr << ", "; }
+                }
+            }
+        } // end else
+        return sstr.str();
+    }
 
     /**
      * Checks if this read library is valid --- if it's paired-end, it should have mate1/2 reads and the same

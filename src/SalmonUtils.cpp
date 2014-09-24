@@ -2,12 +2,13 @@
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 #include "SailfishMath.hpp"
+#include "ReadExperiment.hpp"
 
 namespace salmon {
 namespace utils {
 
-    template <typename FragT>
-    void writeAbundances(AlignmentLibrary<FragT>& alnLib,
+    template <typename ExpLib>
+    void writeAbundances(ExpLib& alnLib,
                          boost::filesystem::path& fname,
                          std::string headerComments) {
         using sailfish::math::LOG_0;
@@ -94,12 +95,16 @@ namespace utils {
 }
 
 template
-void salmon::utils::writeAbundances<ReadPair>(AlignmentLibrary<ReadPair>& alnLib,
+void salmon::utils::writeAbundances<AlignmentLibrary<ReadPair>>(AlignmentLibrary<ReadPair>& alnLib,
                                               boost::filesystem::path& fname,
                                               std::string headerComments);
 
 template
-void salmon::utils::writeAbundances<UnpairedRead>(AlignmentLibrary<UnpairedRead>& alnLib,
+void salmon::utils::writeAbundances<AlignmentLibrary<UnpairedRead>>(AlignmentLibrary<UnpairedRead>& alnLib,
+                                                  boost::filesystem::path& fname,
+                                                  std::string headerComments);
+template
+void salmon::utils::writeAbundances<ReadExperiment>(ReadExperiment& alnLib,
                                                   boost::filesystem::path& fname,
                                                   std::string headerComments);
 
