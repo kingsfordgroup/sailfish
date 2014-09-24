@@ -24,7 +24,6 @@ extern "C" {
 #include "SailfishMath.hpp"
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
-#include "lfringqueue.h"
 
 /**
   * A queue from which to draw BAM alignments.  The queue is thread-safe, and
