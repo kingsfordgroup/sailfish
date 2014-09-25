@@ -425,10 +425,11 @@ void quantifyLibrary(
 
         initialRound = false;
         numObservedFragments += alnLib.numMappedReads();
-        fmt::print(stderr, "# observed = {} / # required = {}\n",
+        fmt::print(stderr, "# observed = {} / # required = {}\033[F\033[F\033[F\033[F",
                    numObservedFragments, numRequiredFragments);
     }
 
+    fmt::print(stderr, "\n\n\n\n");
     // Write the inferred fragment length distribution
     /*
     bfs::path distFileName = outputFile.parent_path() / "flenDist.txt";
@@ -463,7 +464,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                             "~6 threads.")
     ("output,o", po::value<std::string>(), "Output quantification directory")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
-    ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
+    ("num_required_obs,m", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before\n"
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
                                         "input file, then it will be read through multiple times.")

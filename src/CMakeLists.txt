@@ -86,7 +86,7 @@ ${BLAS_LIBRARY_DIR}
 )
 
 if(HAVE_LOGGER)
-    set (LOGGING_LIBS lib_g2logger_shared)
+    set (LOGGING_LIBS ${GAT_SOURCE_DIR}/external/install/lib/liblib_g2logger.a)
 else()
     set (LOGGING_LIBS )
 endif()
@@ -96,7 +96,8 @@ message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
 # Build the Sailfish library
-add_library(sailfish_core SHARED ${SAILFISH_LIB_SRCS} )
+add_library(sailfish_core STATIC ${SAILFISH_LIB_SRCS} )
+
 # Build the Sailfish executable
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
@@ -107,6 +108,8 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 #set_target_properties(salmon-read PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} -DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp"
 #    LINK_FLAGS "-DHAVE_LIBPTHREAD -D_PBGZF_USE -fopenmp")
 
+#set_target_properties(sailfish_core sailfish salmon PROPERTIES LINK_SEARCH_END_STATIC TRUE)
+
 # Link the executable
 target_link_libraries(sailfish 
     pthread 
@@ -114,8 +117,8 @@ target_link_libraries(sailfish
     gff
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
-    cmph # perfect hashing library
-    jellyfish-2.0 
+    ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     gomp 
     m
     ${TBB_LIBRARIES}
@@ -131,10 +134,10 @@ target_link_libraries(salmon
     clasp
     ${Boost_LIBRARIES} 
     ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    hts
+    ${GAT_SOURCE_DIR}/external/install/lib/libhts.a
     ${ZLIB_LIBRARY} 
-    cmph # perfect hashing library
-    jellyfish-2.0 
+    ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     pthread 
     gomp 
     m

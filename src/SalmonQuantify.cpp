@@ -1040,9 +1040,10 @@ void quantifyLibrary(
 
         initialRound = false;
         //numObservedFragments += experiment.numObservedFragments();
-        fmt::print(stderr, "\n# observed = {} / # required = {}\n",
+        fmt::print(stderr, "\n# observed = {} / # required = {}\033[F",
                    numObservedFragments, numRequiredFragments);
     }
+    fmt::print(stderr, "\n\n");
 }
 
 int salmonQuantify(int argc, char *argv[]) {
@@ -1082,7 +1083,7 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
                                         "input file, then it will be read through multiple times.")
     ("minLen,k", po::value<uint32_t>(&minMEMLength)->default_value(15), "MEMs smaller than this size won't be considered")
-    ("maxOcc,n", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "MEMs occuring more than this many times won't be considered")
+    ("maxOcc,m", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "MEMs occuring more than this many times won't be considered")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of MEMs to consider it a \"hit\"")
     ("output,o", po::value<std::string>(), "Output quantification file")
     ("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greed")

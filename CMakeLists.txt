@@ -20,6 +20,10 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 set (WARNING_IGNORE_FLAGS "-Wno-deprecated-register") 
+
+## Prefer static to dynamic libraries
+SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
+
 ## Set the standard required compile flags
 set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -march=native -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
@@ -129,7 +133,7 @@ endif()
 # Set the latest version and look for what we need
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
-find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
+find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 
 include(ExternalProject)
 
