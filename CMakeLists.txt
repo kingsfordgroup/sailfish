@@ -132,7 +132,7 @@ endif()
 ##
 # Set the latest version and look for what we need
 ##
-set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
+set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 include(ExternalProject)
 
@@ -200,7 +200,7 @@ if (BOOST_RECONFIGURE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer program_options serialization)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 endif()
 
 
