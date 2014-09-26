@@ -190,6 +190,7 @@ endif()
 #  installed Boost to be found by CMake.
 ##
 if (BOOST_RECONFIGURE)
+    message("Executing Boost Reconfiguration")
     unset(Boost_FOUND CACHE)
     unset(Boost_INCLUDE_DIR CACHE)
     unset(Boost_INCLUDE_DIRS CACHE)
