@@ -124,6 +124,7 @@ target_link_libraries(sailfish
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
+    rt
 )
 
 # Link the executable
@@ -144,6 +145,7 @@ target_link_libraries(salmon
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
+    rt
 )
 
 add_dependencies(salmon libbwa)
