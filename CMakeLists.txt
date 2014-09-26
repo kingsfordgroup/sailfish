@@ -112,11 +112,11 @@ if ( DEFINED CUSTOM_BOOST_PATH )
 endif ( DEFINED CUSTOM_BOOST_PATH )
 
 ##
-# We want dyanmic, multithreaded boost libraries
+# We want static, multithreaded boost libraries
 ##
-set (Boost_USE_STATIC_LIBS OFF)
+set (Boost_USE_STATIC_LIBS ON)
 set (Boost_USE_MULTITHREADED ON)
-set (Boost_USE_STATIC_RUNTIME OFF)
+#set (Boost_USE_STATIC_RUNTIME OFF)
 
 # unset(Boost_FOUND CACHE)
 # unset(Boost_INCLUDE_DIR CACHE)
@@ -134,7 +134,7 @@ endif()
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
-
+set(BOOST_BUILD_LIBS "--with-libraries=iostreams,filesystem,system,thread,timer,chrono,program_options,serialization")
 include(ExternalProject)
 
 ##
@@ -158,7 +158,7 @@ elseif(FETCH_BOOST)
         URL http://en.sourceforge.jp/frs/g_redir.php?m=jaist&f=%2Fboost%2Fboost%2F1.55.0%2Fboost_1_55_0.tar.gz
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} --prefix=<INSTALL_DIR>
+        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
         BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 ${BOOST_EXTRA_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
