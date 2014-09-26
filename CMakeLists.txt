@@ -134,7 +134,7 @@ endif()
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
-set(BOOST_BUILD_LIBS "--with-libraries=iostreams,filesystem,system,thread,timer,chrono,program_options,serialization")
+set(BOOST_BUILD_LIBS "--with-libraries=iostreams,filesystem,system,thread,timer,chrono,program_options,serialization,date_time,regex,signals,unit_test_framework")
 include(ExternalProject)
 
 ##
