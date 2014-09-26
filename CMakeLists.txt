@@ -134,7 +134,6 @@ endif()
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
-set(BOOST_BUILD_LIBS "--with-libraries=iostreams,filesystem,system,thread,timer,chrono,program_options,serialization,date_time,regex,signals,unit_test_framework")
 include(ExternalProject)
 
 ##
@@ -159,7 +158,7 @@ elseif(FETCH_BOOST)
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 ${BOOST_EXTRA_FLAGS} install
+        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -j2 ${BOOST_EXTRA_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
