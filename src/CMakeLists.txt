@@ -112,7 +112,6 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 
 # Link the executable
 target_link_libraries(sailfish 
-    pthread 
     sailfish_core 
     gff
     ${Boost_LIBRARIES} 
@@ -125,6 +124,7 @@ target_link_libraries(sailfish
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     rt
+    pthread 
 )
 
 # Link the executable
@@ -139,13 +139,13 @@ target_link_libraries(salmon
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
-    pthread 
     gomp 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     rt
+    pthread
 )
 
 add_dependencies(salmon libbwa)
