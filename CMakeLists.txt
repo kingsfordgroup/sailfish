@@ -167,7 +167,7 @@ elseif(FETCH_BOOST)
     # After we've installed boost, 
     ##
     ExternalProject_Add_Step(libboost reconfigure
-        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DBOOST_WILL_RECONFUGRE=FALSE -DBOOST_RECONFIGURE=TRUE 
+        COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} -DBOOST_WILL_RECONFIGURE=FALSE -DBOOST_RECONFIGURE=TRUE 
         DEPENDEES install
     )
 endif()
