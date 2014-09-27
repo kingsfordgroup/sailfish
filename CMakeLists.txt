@@ -201,13 +201,6 @@ elseif(FETCH_BOOST)
     ##
     SET( RECONFIG_FLAGS ${RECONFIG_FLAGS} "-DBOOST_WILL_RECONFIGURE=FALSE -DBOOST_RECONFIGURE=TRUE -DFETCH_BOOST=FALSE")
     ExternalProject_Add_Step(libboost reconfigure
-        unset(Boost_FOUND CACHE)
-        unset(Boost_INCLUDE_DIR CACHE)
-        unset(Boost_INCLUDE_DIRS CACHE)
-        unset(Boost_LIBRARY_DIRS CACHE) 
-        unset(Boost_LIBRARIES CACHE)
-        unset(BOOST_ROOT CACHE)
-        unset(CMAKE_PREFIX_PATH CACHE)
         COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${RECONFIG_FLAGS}
         DEPENDEES install
     )
