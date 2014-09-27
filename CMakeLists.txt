@@ -175,6 +175,7 @@ if ((NOT Boost_FOUND) AND (NOT FETCH_BOOST))
 elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
     set(BOOST_WILL_RECONFIGURE TRUE)
+    set(FETCH_BOOST FALSE)
     message("Build system will fetch and build Boost")
     message("==================================================================")
     ExternalProject_Add(libboost
