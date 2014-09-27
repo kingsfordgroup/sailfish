@@ -137,6 +137,31 @@ find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer ch
 include(ExternalProject)
 
 ##
+#  If we had to fetch Boost, the reconfigure step will re-run cmake.  The second configuration
+#  pass is executed with the BOOST_RECONFIGURE flag set. This should allow our newly
+#  installed Boost to be found by CMake.
+##
+if (BOOST_RECONFIGURE)
+    message("Executing Boost Reconfiguration")
+    unset(Boost_FOUND CACHE)
+    unset(Boost_INCLUDE_DIR CACHE)
+    unset(Boost_INCLUDE_DIRS CACHE)
+    unset(Boost_LIBRARY_DIRS CACHE) 
+    unset(Boost_LIBRARIES CACHE)
+    unset(BOOST_ROOT CACHE)
+    unset(CMAKE_PREFIX_PATH CACHE)
+    
+    set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+    set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+    set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
+    set(FETCH_BOOST FALSE)
+endif()
+
+
+
+##
 # Either inform the user of how to obtain Boost, or, if they passed in the FETCH_BOOST
 # option, go and grab it for them.
 ##
@@ -183,28 +208,6 @@ if (BOOST_WILL_RECONFIGURE)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)        
     set(Boost_FOUND TRUE)
-endif()
-
-##
-#  If we had to fetch Boost, the reconfigure step will re-run cmake.  The second configuration
-#  pass is executed with the BOOST_RECONFIGURE flag set. This should allow our newly
-#  installed Boost to be found by CMake.
-##
-if (BOOST_RECONFIGURE)
-    message("Executing Boost Reconfiguration")
-    unset(Boost_FOUND CACHE)
-    unset(Boost_INCLUDE_DIR CACHE)
-    unset(Boost_INCLUDE_DIRS CACHE)
-    unset(Boost_LIBRARY_DIRS CACHE) 
-    unset(Boost_LIBRARIES CACHE)
-    unset(BOOST_ROOT CACHE)
-    unset(CMAKE_PREFIX_PATH CACHE)
-    
-    set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-    set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-    set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
-    set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 endif()
 
 
