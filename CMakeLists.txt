@@ -103,6 +103,13 @@ set (GAT_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # Have CMake tell us what it's doing
 set (CMAKE_VERBOSE_MAKEFILE true)
 
+message("XXXXXXX DEBUG INFO: XXXXXXX")
+message("BOOST_WILL_RECONFIGURE = ${BOOST_WILL_RECONFIGURE}")
+message("BOOST_RECONFIGURE = ${BOOSTRECONFIGURE}")
+message("FETCH_BOST = ${FETCH_BOOST}")
+message("XXXXXXX END DEBUG INFO XXXXXXX")
+ 
+
 ##
 # Super-secret override
 ##
