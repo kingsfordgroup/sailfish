@@ -133,7 +133,7 @@ endif()
 # Set the latest version and look for what we need
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55")
-find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
+find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization REQUIRED)
 include(ExternalProject)
 
 ##
@@ -155,7 +155,7 @@ if (BOOST_RECONFIGURE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization REQUIRED)
     set(FETCH_BOOST FALSE)
 endif()
 
@@ -192,8 +192,15 @@ elseif(FETCH_BOOST)
     ##
     # After we've installed boost, 
     ##
-    SET( RECONFIG_FLAGS ${RECONFIG_FLAGS} "-DBOOST_WILL_RECONFIGURE=FALSE -DBOOST_RECONFIGURE=TRUE")
+    SET( RECONFIG_FLAGS ${RECONFIG_FLAGS} "-DBOOST_WILL_RECONFIGURE=FALSE -DBOOST_RECONFIGURE=TRUE -DFETCH_BOOST=FALSE")
     ExternalProject_Add_Step(libboost reconfigure
+        unset(Boost_FOUND CACHE)
+        unset(Boost_INCLUDE_DIR CACHE)
+        unset(Boost_INCLUDE_DIRS CACHE)
+        unset(Boost_LIBRARY_DIRS CACHE) 
+        unset(Boost_LIBRARIES CACHE)
+        unset(BOOST_ROOT CACHE)
+        unset(CMAKE_PREFIX_PATH CACHE)
         COMMAND ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${RECONFIG_FLAGS}
         DEPENDEES install
     )
