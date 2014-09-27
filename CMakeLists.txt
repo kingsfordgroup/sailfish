@@ -105,7 +105,7 @@ set (CMAKE_VERBOSE_MAKEFILE true)
 
 message("XXXXXXX DEBUG INFO: XXXXXXX")
 message("BOOST_WILL_RECONFIGURE = ${BOOST_WILL_RECONFIGURE}")
-message("BOOST_RECONFIGURE = ${BOOSTRECONFIGURE}")
+message("BOOST_RECONFIGURE = ${BOOST_RECONFIGURE}")
 message("FETCH_BOST = ${FETCH_BOOST}")
 message("XXXXXXX END DEBUG INFO XXXXXXX")
  
@@ -140,7 +140,7 @@ endif()
 # Set the latest version and look for what we need
 ##
 set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55")
-find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization REQUIRED)
+find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 include(ExternalProject)
 
 ##
