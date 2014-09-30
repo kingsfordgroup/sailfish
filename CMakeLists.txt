@@ -118,12 +118,6 @@ set (Boost_USE_STATIC_LIBS ON)
 set (Boost_USE_MULTITHREADED ON)
 #set (Boost_USE_STATIC_RUNTIME OFF)
 
-# unset(Boost_FOUND CACHE)
-# unset(Boost_INCLUDE_DIR CACHE)
-# unset(Boost_INCLUDE_DIRS CACHE)
-# unset(Boost_LIBRARY_DIRS CACHE) 
-# message("BOOST_ROOT = ${BOOST_ROOT}")
-
 find_package (ZLIB)
 if (NOT ZLIB_FOUND)
 	message(FATAL_ERROR "zlib must be installed before configuration & building can proceed")
@@ -439,10 +433,10 @@ message("Build system will compile htslib")
 message("==================================================================")
 ExternalProject_Add(libhts
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -L https://github.com/samtools/htslib/archive/1.0.tar.gz -o htslib-1.0.tar.gz &&
-                     tar -xzf htslib-1.0.tar.gz &&
+    DOWNLOAD_COMMAND curl -L https://github.com/samtools/htslib/archive/1.1.tar.gz -o htslib-1.1.tar.gz &&
+                     tar -xzf htslib-1.1.tar.gz &&
                      rm -fr htslib &&
-                     mv -f htslib-1.0 htslib
+                     mv -f htslib-1.1 htslib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/htslib
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""
@@ -455,10 +449,10 @@ message("Build system will compile samtools")
 message("==================================================================")
 ExternalProject_Add(libsamtools
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -L https://github.com/samtools/samtools/archive/1.0.tar.gz -o samtools-1.0.tar.gz &&
-                     tar -xzf samtools-1.0.tar.gz &&
+    DOWNLOAD_COMMAND curl -L https://github.com/samtools/samtools/archive/1.1.tar.gz -o samtools-1.1.tar.gz &&
+                     tar -xzf samtools-1.1.tar.gz &&
                      rm -fr samtools &&
-                     mv -f samtools-1.0 samtools
+                     mv -f samtools-1.1 samtools
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
     CONFIGURE_COMMAND ""
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
