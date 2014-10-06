@@ -4,9 +4,9 @@
 #include <atomic>
 #include <cmath>
 #include <limits>
-#include "tbb/atomic.h"
 #include "SailfishStringUtils.hpp"
 #include "SailfishMath.hpp"
+#include "tbb/atomic.h"
 
 class Transcript {
 public:
@@ -22,6 +22,7 @@ public:
         //std::swap(RefName, other.RefName);
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
+        Sequence = other.Sequence;
         uniqueCount_.store(other.uniqueCount_);
     }
 
@@ -30,6 +31,7 @@ public:
         //std::swap(RefName, other.RefName);
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
+        Sequence = other.Sequence;
         uniqueCount_.store(other.uniqueCount_);
         return *this;
     }
@@ -41,6 +43,11 @@ public:
 
     inline void addUniqueCount(size_t newCount) { uniqueCount_ += newCount; }
     inline void addTotalCount(size_t newCount) { totalCount_ += newCount; }
+
+    inline char charBaseAt(size_t idx,
+                              sailfish::stringtools::strand dir = sailfish::stringtools::strand::forward) {
+        return sailfish::stringtools::samCodeToChar[baseAt(idx, dir)];
+    }
 
     inline uint8_t baseAt(size_t idx,
                           sailfish::stringtools::strand dir = sailfish::stringtools::strand::forward) {
@@ -54,14 +61,14 @@ public:
             if (nibble) {
                 return Sequence[byte] & 0x0F;
             } else {
-                return (Sequence[byte] & 0xF0) >> 4;
+                return ((Sequence[byte] & 0xF0) >> 4) & 0x0F;
             }
             break;
         case strand::reverse:
             if (nibble) {
                 return encodedRevComp[Sequence[byte] & 0x0F];
             } else {
-                return encodedRevComp[(Sequence[byte] & 0xF0) >> 4];
+                return encodedRevComp[((Sequence[byte] & 0xF0) >> 4) & 0x0F];
             }
             break;
         }

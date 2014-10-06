@@ -2,6 +2,7 @@
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 #include "SailfishMath.hpp"
+#include "LibraryFormat.hpp"
 #include "ReadExperiment.hpp"
 
 namespace salmon {
@@ -91,6 +92,58 @@ namespace utils {
         }
 
     }
+
+    LibraryFormat hitType(uint32_t end1Start, bool end1Fwd,
+                          uint32_t end2Start, bool end2Fwd) {
+
+        // If the reads come from opposite strands
+        if (end1Fwd != end2Fwd) {
+            // and if read 1 comes from the forward strand
+            if (end1Fwd) {
+                // then if read 1 start < read 2 start ==> ISF
+                if (end1Start <= end2Start) {
+                    return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::SA);
+                } // otherwise read 2 start < read 1 start ==> OSF
+                else {
+                    return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::SA);
+                }
+            }
+            // and if read 2 comes from the forward strand
+            if (end2Fwd) {
+                // then if read 2 start <= read 1 start ==> ISR
+                if (end2Start <= end1Start) {
+                    return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::AS);
+                } // otherwise, read 2 start > read 1 start ==> OSR
+                else {
+                    return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::AS);
+                }
+            }
+        } else { // Otherwise, the reads come from the same strand
+            if (end1Fwd) { // if it's the forward strand ==> MSF
+                return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::S);
+            } else { // if it's the reverse strand ==> MSR
+                return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::A);
+            }
+        }
+        // SHOULD NOT GET HERE
+        fmt::print(stderr, "WARNING: Could not associate known library type with read!\n");
+        return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::NONE, ReadStrandedness::U);
+    }
+
+
+    LibraryFormat hitType(uint32_t start, bool isForward) {
+        // If the read comes from the forward strand
+        if (isForward) {
+            return LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::S);
+        } else {
+            return LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::S);
+        }
+        // SHOULD NOT GET HERE
+        fmt::print(stderr, "WARNING: Could not associate known library type with read!\n");
+        return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::NONE, ReadStrandedness::U);
+
+    }
+
 }
 }
 

@@ -49,7 +49,7 @@ bool LibraryFormat::check() {
     return valid;
 }
 
-std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
+std::ostream& operator<<(std::ostream& os, const LibraryFormat& lf) {
     os << "Library format { type:";
     switch (lf.type) {
         case ReadType::SINGLE_END:

@@ -58,7 +58,7 @@ class ReadExperiment {
             // ====== Load the transcripts from file
             { // mem-based
                 bfs::path indexPath = indexDirectory / "bwaidx";
-                if ((idx_ = bwa_idx_load(indexPath.string().c_str(), BWA_IDX_BWT|BWA_IDX_BNS)) == 0) {
+                if ((idx_ = bwa_idx_load(indexPath.string().c_str(), BWA_IDX_BWT|BWA_IDX_BNS|BWA_IDX_PAC)) == 0) {
                     fmt::print(stderr, "Couldn't open index [{}] --- ", indexPath);
                     fmt::print(stderr, "Please make sure that 'salmon index' has been run successfully\n");
                     std::exit(1);
@@ -82,30 +82,51 @@ class ReadExperiment {
                     [](const Transcript& t1, const Transcript& t2) -> bool {
                     return t1.id < t2.id;
                     });
-
             double alpha = 0.005;
+            char nucTab[256];
+            nucTab[0] = 'A'; nucTab[1] = 'C'; nucTab[2] = 'G'; nucTab[3] = 'T';
+            for (size_t i = 4; i < 256; ++i) { nucTab[i] = 'N'; }
+
+            // Load the transcript sequence from file
             for (auto& t : transcripts_tmp) {
                 transcripts_.emplace_back(t.id, t.RefName.c_str(), t.RefLength, alpha);
+                /* from BWA */
+                uint8_t* rseq = nullptr;
+                int64_t tstart, tend, compLen, l_pac = idx_->bns->l_pac;
+                tstart  = idx_->bns->anns[t.id].offset;
+                tend = tstart + t.RefLength;
+                rseq = bns_get_seq(l_pac, idx_->pac, tstart, tend, &compLen);
+                if (compLen != t.RefLength) {
+                    fmt::print(stderr,
+                               "For transcript {}, stored length ({}) != computed length ({}) --- index may be corrupt. exiting\n",
+                               t.RefName, compLen, t.RefLength);
+                    std::exit(1);
+                }
+                std::string seq(t.RefLength, ' ');
+                if (rseq != 0) {
+                    for (size_t i = 0; i < compLen; ++i) { seq[i] = nucTab[rseq[i]]; }
+                }
+                transcripts_.back().Sequence = sailfish::stringtools::encodeSequenceInSAM(seq.c_str(), t.RefLength);
+                /*
+                std::cerr << "TS = " << t.RefName << " : \n";
+                std::cerr << seq << "\n VS \n";
+                for (size_t i = 0; i < t.RefLength; ++i) {
+                    std::cerr << transcripts_.back().charBaseAt(i);
+                }
+                std::cerr << "\n\n";
+                */
+                free(rseq);
+                /* end BWA code */
             }
+            // Since we have the de-coded reference sequences, we no longer need
+            // the encoded sequences, so free them.
+            free(idx_->pac); idx_->pac = nullptr;
             transcripts_tmp.clear();
             // ====== Done loading the transcripts from file
-
-            /*
-            FASTAParser fp(transcriptFile.string());
-
-            fmt::print(stderr, "Populating targets from aln = {}, fasta = {} . . .",
-                       alignmentFile_, transcriptFile_);
-            fp.populateTargets(transcripts_);
-            fmt::print(stderr, "done\n");
-            */
 
             // Create the cluster forest for this set of transcripts
             clusters_.reset(new ClusterForest(transcripts_.size(), transcripts_));
         }
-
-    // Free the INDEX
-    // ---- Get rid of things we no longer need --------
-    //bwa_idx_destroy(idx);
 
     std::vector<Transcript>& transcripts() { return transcripts_; }
 
@@ -120,6 +141,11 @@ class ReadExperiment {
                                numAssignedFragments_, batchNum_, numThreads, burnedIn);
         }
         return true;
+    }
+
+    ~ReadExperiment() {
+        // ---- Get rid of things we no longer need --------
+        bwa_idx_destroy(idx_);
     }
 
     ClusterForest& clusterForest() { return *clusters_.get(); }

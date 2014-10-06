@@ -49,10 +49,14 @@ void FragmentList::freeFragList(Container* frags) {
     free(frags);
 }
 
-void FragmentList::computeBestChain_(Container* frags, double& maxScore, uint32_t& bestPos) {
+bool FragmentList::computeBestChain_(Container* frags, double& maxScore, uint32_t& bestPos) {
     double epsilon = 0.0;
     double lambda = 1.0;
     unsigned char chainMode = LIN;
+    // Did we find a chain with a score higher than the original
+    // maxScore parameter?
+    bool updatedMaxScore = false;
+
     /* sort fragments */
     qsort(frags->contspace, bl_containerSize(frags),
             sizeof(slmatch_t), cmp_slmatch_qsort);
@@ -93,6 +97,7 @@ void FragmentList::computeBestChain_(Container* frags, double& maxScore, uint32_
                     if (chain->scr >= maxScore) {
                         maxScore = chain->scr;
                         bestPos = chain->p;
+                        updatedMaxScore = true;
                     }
 
                     /*
@@ -160,14 +165,21 @@ void FragmentList::computeBestChain_(Container* frags, double& maxScore, uint32_
                  ((slmatch_t *) bl_containerGet(info.fragments, i))->subject) */
         } /* END OF for (i = 1; i <= bl_containerSize(info.fragments); i++) */
 
+        return updatedMaxScore;
 
     }
+
+    bool FragmentList::isForward() { return isForward_; }
 
     void FragmentList::computeBestChain() {
         double maxScore = 0.0;
         uint32_t bestPos = 0;
-        computeBestChain_(fragments, maxScore, bestPos);
-        computeBestChain_(fragmentsRC, maxScore, bestPos);
+
+        // we don't need the return value from the first call
+        static_cast<void>(computeBestChain_(fragments, maxScore, bestPos));
+        bool reverseIsBest = computeBestChain_(fragmentsRC, maxScore, bestPos);
+        isForward_ = not reverseIsBest;
+
         bestHitScore = maxScore;
         bestHitPos = bestPos;
     }

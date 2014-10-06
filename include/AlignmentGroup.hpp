@@ -13,9 +13,15 @@ extern "C" {
 template <typename FragT>
 class AlignmentGroup {
     public:
-        AlignmentGroup(){ alignments_.reserve(10); }
-        std::vector<FragT>& alignments() { return alignments_; }
+        AlignmentGroup() : read_(nullptr) { alignments_.reserve(10); }
+
+        void setRead(std::string* r) { read_ = r; }
+        std::string* read() { return read_; }
+
+        inline std::vector<FragT>& alignments() { return alignments_; }
         void addAlignment(FragT p) { alignments_.push_back(p);}
+        inline size_t numAlignments() { return alignments_.size(); }
+        inline size_t size() { return numAlignments(); }
         /*
         void addAlignment(bam1_t* r) {
             alignments_.push_back({r, sailfish::math::LOG_0});
@@ -24,8 +30,8 @@ class AlignmentGroup {
             alignments_.push_back({r1, r2, sailfish::math::LOG_0});
         }
         */
-        size_t size() { return alignments_.size(); }
     private:
         std::vector<FragT> alignments_;
+        std::string* read_;
 };
 #endif // ALIGNMENT_GROUP
