@@ -52,6 +52,7 @@
 extern "C" {
 #include "bwa.h"
 #include "bwamem.h"
+#include "ksort.h"
 #include "kvec.h"
 #include "utils.h"
 }
@@ -111,7 +112,75 @@ extern "C" {
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
+/******* STUFF THAT IS STATIC IN BWAMEM THAT WE NEED HERE --- Just re-define it *************/
+#define intv_lt(a, b) ((a).info < (b).info)
+KSORT_INIT(mem_intv, bwtintv_t, intv_lt)
 
+typedef struct {
+    bwtintv_v mem, mem1, *tmpv[2];
+} smem_aux_t;
+
+static smem_aux_t *smem_aux_init()
+{
+    smem_aux_t *a;
+    a = static_cast<smem_aux_t*>(calloc(1, sizeof(smem_aux_t)));
+    a->tmpv[0] = static_cast<bwtintv_v*>(calloc(1, sizeof(bwtintv_v)));
+    a->tmpv[1] = static_cast<bwtintv_v*>(calloc(1, sizeof(bwtintv_v)));
+    return a;
+}
+
+static void smem_aux_destroy(smem_aux_t *a)
+{
+    free(a->tmpv[0]->a); free(a->tmpv[0]);
+    free(a->tmpv[1]->a); free(a->tmpv[1]);
+    free(a->mem.a); free(a->mem1.a);
+    free(a);
+}
+
+void mem_collect_intv(const mem_opt_t *opt, const bwt_t *bwt, int len, const uint8_t *seq, smem_aux_t *a)
+{
+    int i, k, x = 0, old_n;
+    int start_width = (opt->flag & MEM_F_SELF_OVLP)? 2 : 1;
+    int split_len = (int)(opt->min_seed_len * opt->split_factor + .499);
+    a->mem.n = 0;
+    // first pass: find all SMEMs
+    while (x < len) {
+        if (seq[x] < 4) {
+            x = bwt_smem1a(bwt, len, seq, x, start_width, split_len, opt->max_mem_intv, &a->mem1, a->tmpv);
+            for (i = 0; i < a->mem1.n; ++i) {
+                bwtintv_t *p = &a->mem1.a[i];
+                int slen = (uint32_t)p->info - (p->info>>32); // seed length
+                if (slen >= opt->min_seed_len) {
+                    kv_push(bwtintv_t, a->mem, *p);
+                }
+            }
+        } else ++x;
+    }
+    // second pass: find MEMs inside a long SMEM
+    if (opt->max_mem_intv > 0) goto sort_intv;
+    old_n = a->mem.n;
+    for (k = 0; k < old_n; ++k) {
+        bwtintv_t *p = &a->mem.a[k];
+        int start = p->info>>32, end = (int32_t)p->info;
+        if (end - start < split_len || p->x[2] > opt->split_width) continue;
+        // The new MEM must cover this position in the query sequence
+        int covPos = (start + end) >> 1;
+        // The new MEM should be at least as frequent as the SMEM that contains it
+        bwt_smem1(bwt, len, seq, covPos, p->x[2]+1, &a->mem1, a->tmpv);
+        for (i = 0; i < a->mem1.n; ++i) {
+            bwtintv_t *p = &a->mem1.a[i];
+            int slen = (uint32_t)p->info - (p->info>>32); // seed length
+            if ( slen >= opt->min_seed_len) {
+                kv_push(bwtintv_t, a->mem, *p);
+            }
+        }
+    }
+    // sort
+sort_intv:
+    ks_introsort(mem_intv, a->mem.n, a->mem.a);
+}
+
+/******* END OF STUFF THAT IS STATIC IN BWAMEM THAT WE NEED HERE --- Just re-define it *************/
 using paired_parser = pair_sequence_parser<char**>;
 using stream_manager = jellyfish::stream_manager<std::vector<std::string>::const_iterator>;
 using single_parser = jellyfish::whole_sequence_parser<stream_manager>;
@@ -268,6 +337,10 @@ void processMiniBatch(
                     // given orientations.
                     double logAlignCompatProb = logAlignFormatProb(aln.libFormat(), expectedLibraryFormat);
 
+                    //test without this stuff
+                    logFragProb = LOG_1;
+                    logAlignCompatProb = LOG_1;
+
                     //aln.logProb = std::log(aln.kmerCount) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
                     //aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
                     aln.logProb = (transcriptLogCount - logRefLength) + logFragProb + logAlignCompatProb;// + qualProb + errLike;
@@ -377,8 +450,12 @@ class KmerVote {
         int32_t votePos{0};
         uint32_t readPos{0};
         uint32_t voteLen{0};
+        /*
+        std::string str(){
+            return "<" + votePos  + ", "  + readPos  + ", "  + voteLen + ">";
+        }
+        */
 };
-
 class MatchFragment {
     public:
         MatchFragment(uint32_t refStart_, uint32_t queryStart_, uint32_t length_) :
@@ -413,8 +490,9 @@ class TranscriptHitList {
             votes.emplace_back(votePos, readPos, voteLen);
         }
 
-        void addFragMatchRC(uint32_t tpos, uint32_t readPos, uint32_t voteLen) {
-            int32_t votePos = static_cast<int32_t>(tpos) - (readPos + 1);
+        void addFragMatchRC(uint32_t tpos, uint32_t readPos, uint32_t voteLen, uint32_t readLen) {
+            //int32_t votePos = static_cast<int32_t>(tpos) - (readPos) + voteLen;
+            int32_t votePos = static_cast<int32_t>(tpos) - (readLen - readPos);
             rcVotes.emplace_back(votePos, readPos, voteLen);
         }
 
@@ -522,7 +600,8 @@ class TranscriptHitList {
 
 
         inline uint32_t numSampledHits_(Transcript& transcript, std::string& readIn,
-                                        int32_t votePos, bool isRC, uint32_t numTries) {
+                                        int32_t votePos, int32_t posInRead, int32_t voteLen, bool isRC, uint32_t numTries) {
+
 
             // The read starts at this position in the transcript (may be negative!)
             int32_t readStart = votePos;
@@ -530,62 +609,119 @@ class TranscriptHitList {
             int32_t readLen = readIn.length();
             // Pointer to the sequence of the read
             const char* read = readIn.c_str();
+            // Don't mess around with unsigned arithmetic here
+            int32_t tlen = transcript.RefLength;
+
             // If the read starts before the first base of the transcript,
             // trim off the initial overhang  and correct the other variables
             if (readStart < 0) {
-                uint32_t correction = -readStart;
-                read += correction;
-                readLen -= correction;
-                readStart = 0;
+                if (isRC) {
+                    uint32_t correction = -readStart;
+                    //std::cerr << "readLen = " << readLen << ", posInRead = " << posInRead << ", voteLen = " << voteLen << ", correction = " << correction << "\n";
+                    //std::cerr << "tlen = " << tlen << ", votePos = " << votePos << "\n";
+                    read += correction;
+                    readLen -= correction;
+                    posInRead -= correction;
+                    readStart = 0;
+                } else {
+                    uint32_t correction = -readStart;
+                    read += correction;
+                    readLen -= correction;
+                    posInRead -= correction;
+                    readStart = 0;
+                }
             }
             // If the read hangs off the end of the transcript,
             // shorten its effective length.
-            if (readStart + readLen >= transcript.RefLength) {
-                readLen = transcript.RefLength - (readStart + 1);
+            if (readStart + readLen >= tlen) {
+                if (isRC) {
+                    uint32_t correction = (readStart + readLen) - transcript.RefLength + 1;
+                    //std::cerr << "Trimming RC hit: correction = " << correction << "\n";
+                    //std::cerr << "untrimmed read : "  << read << "\n";
+                    read += correction;
+                    readLen -= correction;
+                    if (voteLen > readLen) { voteLen = readLen; }
+                    posInRead = 0;
+                } else {
+                    readLen = tlen - (readStart + 1);
+                    voteLen = std::max(voteLen, readLen - (posInRead + voteLen));
+                }
+            }
+            // Finally, clip any reverse complement reads starting at 0
+            if (isRC) {
+
+                if (voteLen > readStart) {
+                    readLen -= (readLen - (posInRead + voteLen));
+                }
+
             }
 
             // If the read is too short, it's not useful
-            if (readLen <= 6) { return 0; }
+            if (readLen <= 15) { return 0; }
             // The step between sample centers (given the number of samples we're going to take)
             double step = (readLen - 1) / static_cast<double>(numTries-1);
             // The strand of the transcript from which we'll extract sequence
             auto dir = (isRC) ? sailfish::stringtools::strand::reverse :
                                 sailfish::stringtools::strand::forward;
 
-            /*
-            if (readStart > 100000) {
-                std::cerr << "SUSPICIOUS READ START!!!!\n";
-                std::cerr << "INFO: votePos = " << votePos << ", readStart = " << readStart << ", readLen = " << readLen << ", tran len = " << transcript.RefLength << "\n";
-            }
-            */
+            bool superVerbose{false};
 
-            /*
-            std::stringstream ss;
-            ss << "Supposed hit " << (isRC ? "RC" : "") << "\n";
-            ss << "info: votePos = " << votePos << ", readStart = " << readStart << ", readLen = " << readLen << ", tran len = " << transcript.RefLength << ", step = " << step << "\n";
-            if (readStart + readLen > transcript.RefLength) {
-                ss << "ERROR!!!\n";
-                std::cerr << "[[" << ss.str() << "]]";
-                std::exit(1);
-            } else {
-                std::cerr << ss.str();
-            }
-            ss << "T : ";
-            try {
-            for ( size_t j = 0; j < readLen; ++j) {
-                if (isRC) {
-                    ss << transcript.charBaseAt(readStart+readLen-j,dir);
-                } else {
-                    ss << transcript.charBaseAt(readStart+j);
+            if (superVerbose) {
+                std::stringstream ss;
+                ss << "Supposed hit " << (isRC ? "RC" : "") << "\n";
+                ss << "info: votePos = " << votePos << ", posInRead = " << posInRead
+                    << ", voteLen = " << voteLen << ", readLen = " << readLen
+                    << ", tran len = " << tlen << ", step = " << step << "\n";
+                if (readStart + readLen > tlen ) {
+                    ss << "ERROR!!!\n";
+                    std::cerr << "[[" << ss.str() << "]]";
+                    std::exit(1);
                 }
+                ss << "Transcript name = " << transcript.RefName << "\n";
+                ss << "T : ";
+                try {
+                    for ( size_t j = 0; j < readLen; ++j) {
+                        if (isRC) {
+                            if (j == posInRead) {
+                                char red[] = "\x1b[30m";
+                                red[3] = '0' + static_cast<char>(fmt::RED);
+                                ss << red;
+                            }
+
+                            if (j == posInRead + voteLen) {
+                                const char RESET_COLOR[] = "\x1b[0m";
+                                ss << RESET_COLOR;
+                            }
+                            ss << transcript.charBaseAt(readStart+readLen-j,dir);
+                        } else {
+                            if (j == posInRead ) {
+                                char red[] = "\x1b[30m";
+                                red[3] = '0' + static_cast<char>(fmt::RED);
+                                ss << red;
+                            }
+
+                            if (j == posInRead + voteLen) {
+                                const char RESET_COLOR[] = "\x1b[0m";
+                                ss << RESET_COLOR;
+                            }
+
+                            ss << transcript.charBaseAt(readStart+j);
+                        }
+                    }
+                    ss << "\n";
+                    char red[] = "\x1b[30m";
+                    red[3] = '0' + static_cast<char>(fmt::RED);
+                    const char RESET_COLOR[] = "\x1b[0m";
+
+                    ss << "R : " << std::string(read, posInRead) << red << std::string(read + posInRead, voteLen) << RESET_COLOR;
+                    if (readLen > posInRead + voteLen) { ss << std::string(read + posInRead + voteLen); }
+                    ss << "\n\n";
+                } catch (std::exception& e) {
+                    std::cerr << "EXCEPTION !!!!!! " << e.what() << "\n";
+                }
+                std::cerr << ss.str() << "\n";
+                ss.clear();
             }
-            ss << "\n";
-            ss << "R : " << read << "\n";
-            std::cerr << ss.str() << "\n";
-            } catch (std::exception& e) {
-                std::cerr << "EXCEPTION !!!!!! " << e.what() << "\n";
-            }
-            */
 
             // The index of the current sample within the read
             int32_t readIndex = 0;
@@ -621,7 +757,7 @@ class TranscriptHitList {
                     // and sample position it implies within the read
                     int readPos = readIndex + offset;
 
-                    if (readStart + readPos >= transcript.RefLength) {
+                    if (readStart + readPos >= tlen) {
                         std::cerr  << "offset = " << offset << ", readPos = " << readPos << ", readStart = " << readStart << ", readStart + readPos = " << readStart + readPos << ", tlen = " << transcript.RefLength << "\n";
                     }
 
@@ -657,8 +793,10 @@ class TranscriptHitList {
             int32_t prevPos = -std::numeric_limits<int32_t>::max();
             for (size_t j = 0; j < nvotes; ++j) {
                 int32_t votePos = sVotes[j].votePos;
+                int32_t posInRead = sVotes[j].readPos;
+                int32_t voteLen = sVotes[j].voteLen;
                 if (prevPos == votePos) { continue; }
-                auto numHits = numSampledHits_(transcript, read, votePos, isRC, numSamp);
+                auto numHits = numSampledHits_(transcript, read, votePos, posInRead, voteLen, isRC, numSamp);
                 hitCounts.push_back({votePos, numHits});
                 prevPos = votePos;
             }
@@ -673,7 +811,10 @@ class TranscriptHitList {
                     accumHits += hitCounts[idx2].nhits;
                     ++idx2;
                 }
+
                 double score = static_cast<double>(accumHits) / numSamp;
+                score *= (read.length() / 76.0);
+
                 if (score > maxClusterScore) {
                     maxClusterCount = accumHits;
                     maxClusterScore = score;
@@ -682,6 +823,7 @@ class TranscriptHitList {
                 }
                 accumHits = 0;
                 ++hitIdx;
+                hitLoc = hitCounts[hitIdx].loc;
             }
 
             return updatedMaxScore;
@@ -710,8 +852,8 @@ class TranscriptHitList {
             double maxClusterScore{0.0};
 
             // we don't need the return value from the first call
-            static_cast<void>(computeBestLoc3_(votes, transcript, read, false, maxClusterPos, maxClusterCount, maxClusterScore));
-            bool revIsBest = computeBestLoc3_(rcVotes, transcript, read, true, maxClusterPos, maxClusterCount, maxClusterScore);
+            static_cast<void>(computeBestLoc_(votes, transcript, read, false, maxClusterPos, maxClusterCount, maxClusterScore));
+            bool revIsBest = computeBestLoc_(rcVotes, transcript, read, true, maxClusterPos, maxClusterCount, maxClusterScore);
             isForward_ = not revIsBest;
 
             bestHitPos = maxClusterPos;
@@ -723,114 +865,235 @@ class TranscriptHitList {
 
         bool isForward() { return isForward_; }
 
-        /*
-        inline uint32_t numRandHits_(Transcript& t, std::string& read,
-                                     bool isRC,
-                                     uint32_t votePos, uint32_t readPos,
-                                     uint32_t voteLen, uint32_t readLen,
-                                     uint32_t numTries) {
-
-            uint32_t transcriptOffset = votePos;
-            uint32_t start1 = 0;
-            uint32_t end1 = readPos;
-            uint32_t start2 = readPos + voteLen;
-            uint32_t end2 = start1 + readLen;
-            uint32_t len1 = end1 - start1;
-            uint32_t len2 = end2 - start2;
-            uint32_t numSamp1 = 0;
-            if (len2 == 0) {
-                numSamp1 = numTries;
-                numSamp2 = 0;
-            }
-
-            numSamp1 = std::round(numTries * (static_cast<double>(len1) / (len1+len2)));
-            uint32_t step1 = std::floor(static_cast<double>(len1) / numSamp1);
-
-            numSamp2 = numTries - numSamp1;
-            uint32_t step2 = std::floor(static_cast<double>(len2) / numSamp2);
-
-            uint32_t readIndex = start1;
-            uint32_t transcriptIndex = start1 + offset;
-            for (size_t i = 0; i < numSamp1; ++i) {
-                numMatches += (isRC) ?
-                              (transcript.charBaseAt(transcriptIndex) == sailfish::stringtools::charRC[read[readLen - readIndex]]) :
-                              (transcript.charBaseAt(transcriptIndex) == read[readIndex]);
-                readIndex += step1;
-                transcriptIndex += step1;
-            }
-
-            readIndex = start2;
-            transcriptIndex = start2 + offset;
-            for (size_t i = 0; i < numSamp2; ++i) {
-                numMatches += (isRC) ? () :
-                              (transcript.charBaseAt(transcriptIndex) == sailfish::stringtools::charRC[read[readLen - readIndex]]) :
-                              (transcript.charBaseAt(transcriptIndex) == read[readIndex]);
-                readIndex += step2;
-                transcriptIndex += step2;
-            }
-
-            return numMatches;
-        }
-
-        bool computeBestPosition_(std::vector<KmerVote>& sVotes,
-                                  Transcript& target,
-                                  std::string& read,
-                                  bool isRC,
-                                  uint32_t& maxClusterPos,
-                                  uint32_t& maxClusterCount) {
-
-            bool updatedMaxScore{false};
-            if (sVotes.size() == 0) { return updatedMaxScore; }
-
-            boost::container::flat_map<uint32_t, uint32_t> hitMap;
-            uint32_t readLen = read.length();
-            for (size_t j = 0; j < sVotes.size(); ++j) {
-                uint32_t votePos = sVotes[j].votePos;
-                uint32_t readPos = sVotes[j].readPos;
-                uint32_t voteLen = sVotes[j].voteLen;
-                uint32_t currCount = voteLen;
-
-                if (currCount < readLen) {
-                    currCount += numRandHits_(target, read, votePos, readPos, voteLen, readLen, 15);
-                }
-                hitMap[votePos] += currCount;
-                auto newNumHits = hitMap[votePos];
-
-                if (newNumHits > maxClusterCount) {
-                    maxClusterCount = newNumHits;
-                    maxClusterPos = votePos;
-                    updatedMaxScore = true;
-                }
-            }
-            return updatedMaxScore;
-        }
-
-        bool computeBestPosition(Transcript& target, std::string& read) {
-            using sailfish::math::LOG_0;
-
-            uint32_t maxHitPos{0};
-            uint32_t maxHitCount{0};
-            double maxHitScore{LOG_0};
-
-            // we don't need the return value from the first call
-            static_cast<void>(computeBestPosition_(votes, target, read, maxHitPos, maxHitCount));
-            bool revIsBest = computeBestPosition_(rcVotes, target, read, maxHitPos, maxHitCount);
-            isForward_ = not revIsBest;
-
-            bestHitPos = maxClusterPos;
-            bestHitCount = maxClusterCount;
-            bestHitScore = -std::log(std::exp(0.25, bestHitCount));
-
-            return true;
-        }
-        */
 };
+
+template <typename CoverageCalculator>
+inline void collectHitsForReadOld(const bwaidx_t *idx, const bwtintv_v* a,
+                        smem_i* itr,
+                        int minLen,
+                        int minIWidth, int splitWidth, const uint8_t* read, uint32_t readLen,
+                        std::unordered_map<uint64_t, CoverageCalculator>& hits) {
+
+        smem_set_query(itr, readLen, read);
+        // while there are more matches on the query
+        while ((a = smem_next(itr)) != 0) {
+
+            for (size_t mi = 0; mi < a->n; ++mi) {
+                bwtintv_t *p = &a->a[mi];
+                uint32_t qstart = static_cast<uint32_t>(p->info>>32);
+                uint32_t qend = static_cast<uint32_t>(p->info);
+                if ((qend - qstart) < minLen) continue;
+
+                if ( p->x[2] <= minIWidth) {
+                    for (bwtint_t k = 0; k < p->x[2]; ++k) {
+                        uint32_t queryStart = qstart;
+                        bwtint_t pos;
+                        int len, isRev, refID;
+                        len = static_cast<uint32_t>(p->info) - (p->info >> 32);
+                        //pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
+
+                        int64_t tempPos = bwt_sa(idx->bwt, p->x[0] + k);
+                        int64_t refEnd = tempPos + len;
+                        if (tempPos < idx->bns->l_pac and refEnd >= idx->bns->l_pac) { continue; }
+                        if (tempPos >= idx->bns->l_pac) {
+                            tempPos = refEnd - 1;
+                        }
+                        pos = bns_depos(idx->bns, tempPos, &isRev);
+                        // Get the ID of the reference sequence in which it occurs
+                        refID = bns_intv2rid(idx->bns, tempPos, tempPos + len);
+                        if (refID < 0) { continue; } // bridging multiple reference sequences or the forward-reverse boundary;
+
+
+
+                        // If the hit is to the reverse strand
+                        if (isRev) {
+                            //pos -= len - 1;
+                            pos -= static_cast<int64_t>(readLen - qstart + 1) - qstart;
+                        }
+                        //bns_cnt_ambi(idx->bns, pos, len, &refID);
+                        long hitLoc = static_cast<long>(pos) - idx->bns->anns[refID].offset;
+
+                        if (isRev) {
+                            //queryStart = readLen - qend;
+                            hits[refID].addFragMatchRC(hitLoc, queryStart, len, readLen);
+                        } else {
+                            hits[refID].addFragMatch(hitLoc, queryStart, len);
+                        }
+                    } // for k
+                } // if <= minIWidth
+
+            } // for mi
+        } // for all query matches
+    }
+
+template <typename CoverageCalculator>
+inline void collectHitsForRead(const bwaidx_t *idx, const bwtintv_v* a, smem_aux_t* auxHits,
+                        mem_opt_t* memOptions, int minLen,
+                        int minIWidth, int splitWidth, const uint8_t* read, uint32_t readLen,
+                        std::unordered_map<uint64_t, CoverageCalculator>& hits) {
+
+    mem_collect_intv(memOptions, idx->bwt, readLen, read, auxHits);
+
+    // For each MEM
+    for (int i = 0; i < auxHits->mem.n; ++i ) {
+        // A pointer to the interval of the MEMs occurences
+        bwtintv_t* p = &auxHits->mem.a[i];
+        // The start and end positions in the query string (i.e. read) of the MEM
+        int qstart = p->info>>32;
+        uint32_t qend = static_cast<uint32_t>(p->info);
+        int step, count, slen = (qend - qstart); // seed length
+
+        int64_t k;
+        step = p->x[2] > memOptions->max_occ? p->x[2] / memOptions->max_occ : 1;
+        // For every occurrence of the MEM
+        for (k = count = 0; k < p->x[2] && count < memOptions->max_occ; k += step, ++count) {
+            bwtint_t pos;
+            bwtint_t startPos, endPos;
+            int len, isRev, isRevStart, isRevEnd, refID, refIDStart, refIDEnd;
+            int queryStart = qstart;
+            len = slen;
+            uint32_t rlen = readLen;
+
+            // Get the position in the reference index of this MEM occurrence
+            int64_t refStart = bwt_sa(idx->bwt, p->x[0] + k);
+
+            pos = startPos = bns_depos(idx->bns, refStart, &isRevStart);
+            endPos = bns_depos(idx->bns, refStart + slen - 1, &isRevEnd);
+            // If we span the forward/reverse boundary, discard the hit
+            if (isRevStart != isRevEnd) {
+                continue;
+            }
+            // Otherwise, isRevStart = isRevEnd so just assign isRev = isRevStart
+            isRev = isRevStart;
+
+            // If the hit is reversed --- swap the start and end
+            if (isRev) {
+                if (endPos > startPos) {
+                    std::cerr << "DANGER WILL ROBINSON! Hit is supposedly reversed, but startPos = " << startPos << " < endPos = " << endPos << "\n";
+                }
+                auto temp = startPos;
+                startPos = endPos;
+                endPos = temp;
+            }
+            // Get the ID of the reference sequence in which it occurs
+            refID = refIDStart = bns_pos2rid(idx->bns, startPos);
+            refIDEnd = bns_pos2rid(idx->bns, endPos);
+
+            if (refID < 0) { continue; } // bridging multiple reference sequences or the forward-reverse boundary;
+
+            //if (refIDStart != refIDEnd) { continue; }
+
+            auto tlen = idx->bns->anns[refID].len;
+            // The refence sequence-relative (e.g. transcript-relative) position of the MEM
+            long hitLoc = static_cast<long>(isRev ? endPos : startPos) - idx->bns->anns[refID].offset;
+
+            if ((refIDStart != refIDEnd) ) {
+                // If a seed spans two transcripts
+
+//                continue;
+
+                if (!isRev) {
+                    // length of hit in t1
+                    auto len1 = tlen - hitLoc;
+                    // length of hit in t2
+                    auto len2 = slen - len1;
+                    if (std::max(len1, len2) < memOptions->min_seed_len) { continue; }
+
+                    //std::cerr << "Seed spans two transcripts! --- attempting to split: \n";
+
+                    // If it's going forward, we have a situation like this
+                    // packed transcripts: t1 ===========|t2|==========>
+                    // hit:                          |==========>
+
+                    //std::cerr << "\t hit is in the forward direction: ";
+                    //std::cerr << "t1 part has length " << len1 << ", t2 part has length " << len2 << "\n";
+
+                    // If the part in t1 is larger then just cut off the rest
+                    if (len1 >= len2) {
+                        slen = len1;
+                        int32_t votePos = static_cast<int32_t>(hitLoc) - queryStart;
+                        //std::cerr << "\t\t t1 (of length " << tlen << ") has larger hit --- new hit length = " << len1 << "; starts at pos " << queryStart << " in the read (votePos will be " << votePos << ")\n";
+                    } else {
+                        // Otherwise, make the hit be in t2.
+                        // Because the hit spans the boundary where t2 begins,
+                        // the new seed begins matching at position 0 of
+                        // transcript t2
+                        hitLoc = 0;
+                        slen = len2;
+                        // The seed originally started at position q, now it starts  len1 characters to the  right of that
+                        queryStart += len1;
+                        refID = refIDEnd;
+                        int32_t votePos = static_cast<int32_t>(hitLoc) - queryStart;
+                        tlen = idx->bns->anns[refID].len;
+                        //std::cerr << "\t\t t2 (of length " << tlen << ") has larger hit --- new hit length = " << len2 << "; starts at pos " << queryStart << " in the read (votePos will be " << votePos << ")\n";
+                    }
+                } else {
+                    //std::cerr << "\t hit is in the reverse direction: ";
+
+                    // If it's going in the reverse direction, we have a situation like this
+                    // packed transcripts: t1 <===========|t2|<==========
+                    // hit:                          X======Y>======Z>
+                    // Which means we have
+                    // packed transcripts: t1 <===========|t2|<==========
+                    // hit:                          <Z=====Y<======X
+                    // length of hit in t1
+                    /*
+                    std::cerr << "\n\n";
+                    std::cerr << "startPos = " << startPos << ", endPos = " << endPos << ", offset[refIDStart] = "
+                              <<  idx->bns->anns[refIDStart].offset << ", offset[refIDEnd] = " << idx->bns->anns[refIDEnd].offset << "\n";
+                    std::cerr << "\n\n";
+                    */
+                    auto len2 = endPos - idx->bns->anns[refIDEnd].offset;
+                    auto len1 = slen - len2;
+                    if (std::max(len1, len2) < memOptions->min_seed_len) { continue; }
+                    //std::cerr << "t1 part has length " << len1 << ", t2 part has length " << len2 << "\n\n";
+                    if (len1 >= len2) {
+                        slen = len1;
+                        hitLoc = tlen - len2;
+                        queryStart += len2;
+                        rlen -= len2;
+                        //rlen = hitLoc + queryStart;
+                        int32_t votePos = static_cast<int32_t>(hitLoc) - (rlen - queryStart);
+                        //std::cerr << "\t\t t1 (hitLoc: " << hitLoc << ") (of length " << tlen << ") has larger hit --- new hit length = " << len1 << "; starts at pos " << queryStart << " in the read (votePos will be " << votePos << ")\n";
+                    } else {
+                        slen = len2;
+                        refID = bns_pos2rid(idx->bns, endPos);
+                        tlen = idx->bns->anns[refID].len;
+                        hitLoc = len2;
+                        //rlen -= len1;
+                        //rlen -= (queryStart + len2);
+                        rlen = hitLoc + queryStart;
+                        int32_t votePos = static_cast<int32_t>(hitLoc) - (rlen - queryStart);
+                        //std::cerr << "\t\t t2 (of length " << tlen << ") (hitLoc: " << hitLoc << ") has larger hit --- new hit length = " << len2 << "; starts at pos " << queryStart << " in the read (votePos will be " << votePos << ")\n";
+                    }
+                }
+
+            } else {
+                if (refIDEnd < 0) {
+                    std::cerr << "REFID still fucked up!\n";
+                    std::cerr << "hit is " << (isRev ? "REVERSE" : "FORWARD") << "\n";
+                    std::cerr << "hitLoc = " << hitLoc << ", len = " << slen << ", refID = " << refID << ", refLen = " << idx->bns->anns[refID].len << "\n";
+                }
+            }
+
+
+
+            if (isRev) {
+                hits[refID].addFragMatchRC(hitLoc, queryStart , slen, rlen);
+            } else {
+                hits[refID].addFragMatch(hitLoc, queryStart, slen);
+            }
+        } // for k
+    }
+}
 
 template <typename CoverageCalculator>
 void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& frag,
                         bwaidx_t *idx,
                         smem_i *itr,
                         const bwtintv_v *a,
+                        smem_aux_t* auxHits,
+                        mem_opt_t* memOptions,
                         int minLen,
                         int minIWidth,
                         int splitWidth,
@@ -840,19 +1103,11 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
                         uint64_t& hitListCount,
                         std::vector<Transcript>& transcripts) {
 
-    uint64_t leftHitCount{0};
-
-    //std::unordered_map<uint64_t, TranscriptHitList> leftHits;
-    //std::unordered_map<uint64_t, TranscriptHitList> rightHits;
-
-    //std::unordered_map<uint64_t, CoverageCalculator> leftHits;
-    //std::unordered_map<uint64_t, CoverageCalculator> rightHits;
-
-
     std::unordered_map<uint64_t, CoverageCalculator> leftHits;
+    std::unordered_map<uint64_t, CoverageCalculator> leftHitsOld;
+
     std::unordered_map<uint64_t, CoverageCalculator> rightHits;
-    //leftHits.set_empty_key(std::numeric_limits<uint64_t>::max());
-    //rightHits.set_empty_key(std::numeric_limits<uint64_t>::max());
+    std::unordered_map<uint64_t, CoverageCalculator> rightHitsOld;
 
     uint32_t leftReadLength{0};
     uint32_t rightReadLength{0};
@@ -868,45 +1123,18 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
             readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
         }
 
-        char* readPtr = const_cast<char*>(readStr.c_str());
+        /*
+        collectHitsForReadOld(idx, a, itr,
+                        minLen,
+                        minIWidth, splitWidth, reinterpret_cast<const uint8_t*>(readStr.c_str()), readLen,
+                        leftHits);
 
-        smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
-
-        // while there are more matches on the query
-        while ((a = smem_next(itr)) != 0) {
-        //while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
-
-            for (size_t mi = 0; mi < a->n; ++mi) {
-                bwtintv_t *p = &a->a[mi];
-                if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
-                uint32_t qstart = static_cast<uint32_t>(p->info>>32);
-                uint32_t qend = static_cast<uint32_t>(p->info);
-                // long numHits = static_cast<long>(p->x[2]);
-
-                if ( p->x[2] <= minIWidth) {
-                    for (bwtint_t k = 0; k < p->x[2]; ++k) {
-                        bwtint_t pos;
-                        int len, isRev, refID;
-                        len = static_cast<uint32_t>(p->info - (p->info >> 32));
-                        pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
-                        // If the hit is to the reverse strand
-                        if (isRev) {
-                            pos -= len - 1;
-                        }
-                        bns_cnt_ambi(idx->bns, pos, len, &refID);
-                        long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset);
-
-                        if (isRev) {
-                            qstart = leftReadLength - qend;
-                            leftHits[refID].addFragMatchRC(hitLoc, qstart, len);
-                        } else {
-                            leftHits[refID].addFragMatch(hitLoc, qstart, len);
-                        }
-                    } // for k
-                } // if <= minIWidth
-
-            } // for mi
-        } // for all query matches
+                        */
+        collectHitsForRead(idx, a, auxHits,
+                            memOptions, minLen,
+                            minIWidth, splitWidth, reinterpret_cast<const uint8_t*>(readStr.c_str()),
+                            readLen,
+                            leftHits);
     }
 
     //---------- End 2 ----------------------//
@@ -920,46 +1148,33 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
             readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
         }
 
-        char* readPtr = const_cast<char*>(readStr.c_str());
-        smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
+        /*
+        collectHitsForReadOld(idx, a, itr,
+                        minLen,
+                        minIWidth, splitWidth, reinterpret_cast<const uint8_t*>(readStr.c_str()), readLen,
+                        rightHits);
 
-        // while there are more matches on the query
-        while ((a = smem_next(itr)) != 0) {
-        //while ((a = smem_next(itr, minLen<<1, splitWidth)) != 0) {
-            for (size_t mi = 0; mi < a->n; ++mi) {
-                bwtintv_t *p = &a->a[mi];
-                if (static_cast<uint32_t>(p->info) - (p->info>>32) < minLen) continue;
-                uint32_t qstart = static_cast<uint32_t>(p->info>>32);
-                uint32_t qend = static_cast<uint32_t>(p->info);
-                // long numHits = static_cast<long>(p->x[2]);
-
-                if ( p->x[2] <= minIWidth) {
-                    for (bwtint_t k = 0; k < p->x[2]; ++k) {
-                        bwtint_t pos;
-                        int len, isRev, refID;
-                        len = static_cast<uint32_t>(p->info - (p->info >> 32));
-                        pos = bns_depos(idx->bns, bwt_sa(idx->bwt, p->x[0] + k), &isRev);
-                        if (isRev) { pos -= len - 1; }
-                        bns_cnt_ambi(idx->bns, pos, len, &refID);
-                        long hitLoc = static_cast<long>(pos - idx->bns->anns[refID].offset);
-
-                        if (isRev) {
-                            qstart = rightReadLength - qend;
-                            rightHits[refID].addFragMatchRC(hitLoc, qstart, len);
-                        } else {
-                            rightHits[refID].addFragMatch(hitLoc, qstart, len);
-                        }
-                    } // for k
-                } // if <= minIWidth
-
-            } // for mi
-        } // for all query matches
-
-    } // end right
+                        */
+        collectHitsForRead(idx, a, auxHits,
+                            memOptions, minLen,
+                            minIWidth, splitWidth, reinterpret_cast<const uint8_t*>(readStr.c_str()),
+                            readLen,
+                            rightHits);
+     } // end right
 
     size_t readHits{0};
     auto& alnList = hitList.alignments();
     alnList.clear();
+
+    //std::cerr << "leftHits.size() = " << leftHits.size() << ", leftHitsOld.size() = " << leftHitsOld.size() <<
+    //             "rightHits.size() = " << rightHits.size() << ", rightHitsOld.size() = "<< rightHitsOld.size() << "\n";
+
+    double cutoffLeft{ coverageThresh };//* leftReadLength};
+    double cutoffRight{ coverageThresh };//* rightReadLength};
+
+    uint64_t leftHitCount{0};
+    uint64_t leftHitOldCount{0};
+    size_t readHitsOld{0};
 
     for (auto& tHitList : leftHits) {
         // Coverage score
@@ -967,13 +1182,47 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         tHitList.second.computeBestChain(t, frag.first.seq);
         ++leftHitCount;
     }
-
-    double cutoffLeft{ coverageThresh };//* leftReadLength};
-    double cutoffRight{ coverageThresh };//* rightReadLength};
-
-
     for (auto& tHitList : rightHits) {
+
         auto it = leftHits.find(tHitList.first);
+        // Coverage score
+        if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
+            Transcript& t = transcripts[tHitList.first];
+            tHitList.second.computeBestChain(t, frag.second.seq);
+            if (tHitList.second.bestHitScore < cutoffRight) { continue; }
+
+            auto end1Start = it->second.bestHitPos;
+            auto end2Start = tHitList.second.bestHitPos;
+
+            double score = (it->second.bestHitScore + tHitList.second.bestHitScore) * 0.5;
+            uint32_t fragLength = std::abs(static_cast<int32_t>(end1Start) -
+                                           static_cast<int32_t>(end2Start)) + rightReadLength;
+
+            //std::cerr << "end1Start = " << end1Start << ", end2Start = " << end2Start << "\n";
+            //std::cerr << "fragLength = " << fragLength << "\n";
+            bool end1IsForward = it->second.isForward();
+            bool end2IsForward = tHitList.second.isForward();
+
+            auto fmt = salmon::utils::hitType(it->second.bestHitPos, end1IsForward, tHitList.second.bestHitPos, end2IsForward);
+
+            alnList.emplace_back(tHitList.first, fmt, score, fragLength);
+            ++readHits;
+            ++hitListCount;
+        }
+    }
+
+/*
+    alnList.clear();
+
+    for (auto& tHitList : leftHitsOld) {
+        // Coverage score
+        Transcript& t = transcripts[tHitList.first];
+        tHitList.second.computeBestChain(t, frag.first.seq);
+        ++leftHitOldCount;
+    }
+
+    for (auto& tHitList : rightHitsOld) {
+        auto it = leftHitsOld.find(tHitList.first);
         // Coverage score
         if (it != leftHits.end() and it->second.bestHitScore >= cutoffLeft) {
             Transcript& t = transcripts[tHitList.first];
@@ -993,10 +1242,41 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
             auto fmt = salmon::utils::hitType(it->second.bestHitPos, end1IsForward, tHitList.second.bestHitPos, end2IsForward);
 
             alnList.emplace_back(tHitList.first, fmt, score, fragLength);
-            readHits += score;
-            ++hitListCount;
+            ++readHitsOld;
         }
     }
+
+    if (leftHitCount < leftHitOldCount or readHits < readHitsOld) {
+        std::cerr << "leftHits.size() = " << leftHits.size() << ", leftHitsOld.size() = " << leftHitsOld.size() <<
+                     "righHits.size() = " << rightHits.size() << ", rightHitsOld.size() = " << rightHitsOld.size() << "\n";
+
+        std::cerr << "leftHits = [";
+        for (auto& hit : leftHits ) {
+            std::cerr << hit.first << ", ";
+        }std::cerr << "]\n";
+
+
+        std::cerr << "rightHits = [";
+        for (auto& hit : rightHits) {
+            std::cerr << hit.first << ", ";
+        }std::cerr << "]\n";
+
+        std::cerr << "leftHitsOld = [";
+        for (auto& hit : leftHitsOld) {
+            std::cerr << hit.first << ", ";
+        }std::cerr << "]\n";
+
+
+        std::cerr << "rightHitsOld = [";
+        for (auto& hit : rightHitsOld) {
+            std::cerr << hit.first << ", ";
+        }std::cerr << "]\n";
+
+
+        std::cerr << "leftHitCount = " << leftHitCount << ", leftHitOldCount = " << leftHitOldCount <<
+                     ", readHits = " << readHits << ", readHitsOld = "<< readHitsOld << "\n";
+    }*/
+
 
 }
 
@@ -1010,6 +1290,8 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
                         bwaidx_t *idx,
                         smem_i *itr,
                         const bwtintv_v *a,
+                        smem_aux_t* auxHits,
+                        mem_opt_t* memOptions,
                         int minLen,
                         int minIWidth,
                         int splitWidth,
@@ -1039,6 +1321,7 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 
         char* readPtr = const_cast<char*>(readStr.c_str());
 
+        /*
         smem_set_query(itr, readLen, reinterpret_cast<uint8_t*>(readPtr));
 
         // while there are more matches on the query
@@ -1071,6 +1354,14 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 
             } // for mi
         } // for all query matches
+
+        */
+        collectHitsForRead(idx, a, auxHits,
+                            memOptions, minLen,
+                            minIWidth, splitWidth, reinterpret_cast<const uint8_t*>(readStr.c_str()),
+                            readLen,
+                            hits);
+
     }
 
     size_t readHits{0};
@@ -1082,7 +1373,10 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
         // Coverage score
         Transcript& t = transcripts[tHitList.first];
         tHitList.second.computeBestChain(t, frag.seq);
+        // DEBUG -- process ALL HITS
+        //if (true) {
         if (tHitList.second.bestHitScore >= cutoff) {
+
             double score = tHitList.second.bestHitScore;
             bool isForward = tHitList.second.isForward();
 
@@ -1105,6 +1399,7 @@ void processReadsMEM(ParserT* parser,
                const ReadLibrary& rl,
                std::atomic<uint64_t>& numObservedFragments,
                std::atomic<uint64_t>& numAssignedFragments,
+               std::atomic<uint64_t>& validHits,
                bwaidx_t *idx,
                std::vector<Transcript>& transcripts,
                std::atomic<uint64_t>& batchNum,
@@ -1112,6 +1407,7 @@ void processReadsMEM(ParserT* parser,
                std::mutex& ffMutex,
                ClusterForest& clusterForest,
                FragmentLengthDistribution& fragLengthDist,
+               mem_opt_t* memOptions,
                uint32_t minMEMLength,
                uint32_t maxMEMOcc,
                double coverageThresh,
@@ -1131,6 +1427,7 @@ void processReadsMEM(ParserT* parser,
 
   std::vector<AlignmentGroup<SMEMAlignment>> hitLists;
   //std::vector<std::vector<Alignment>> hitLists;
+  uint64_t prevObservedFrags{1};
   hitLists.resize(5000);
 
   uint64_t leftHitCount{0};
@@ -1139,6 +1436,8 @@ void processReadsMEM(ParserT* parser,
   // Super-MEM iterator
   smem_i *itr = smem_itr_init(idx->bwt);
   const bwtintv_v *a = nullptr;
+  smem_aux_t* auxHits = smem_aux_init();
+
   int minLen{static_cast<int>(minMEMLength)};
   int minIWidth{static_cast<int>(maxMEMOcc)};
   int splitWidth{0};
@@ -1156,12 +1455,15 @@ void processReadsMEM(ParserT* parser,
         //hitLists[i].setRead(&j->data[i]);
 
         getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
+                                                auxHits,
+                                                memOptions,
                                                minLen, minIWidth, splitWidth,
                                                coverageThresh,
                                                hitLists[i], hitListCount,
                                                transcripts);
         auto& hitList = hitLists[i];
 
+        validHits += hitList.size();
         locRead++;
         ++numObservedFragments;
         if (numObservedFragments % 50000 == 0) {
@@ -1171,7 +1473,8 @@ void processReadsMEM(ParserT* parser,
             green[3] = '0' + static_cast<char>(fmt::GREEN);
             char red[] = "\x1b[30m";
             red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\r\r{}processed{} {} {}fragments{}", green, red, numObservedFragments, green, RESET_COLOR);
+            fmt::print(stderr, "\033[F\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+            fmt::print(stderr, "hits per frag:  {}", validHits / static_cast<float>(prevObservedFrags));
     	    iomutex.unlock();
         }
 
@@ -1188,11 +1491,12 @@ void processReadsMEM(ParserT* parser,
         ffMutex.unlock();
     }
 
+    prevObservedFrags = numObservedFragments;
     processMiniBatch(logForgettingMass, rl, hitLists, transcripts, clusterForest,
                      fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
-
     // At this point, the parser can re-claim the strings
   }
+  smem_aux_destroy(auxHits);
   smem_itr_destroy(itr);
 }
 
@@ -1218,6 +1522,7 @@ void processReadLibrary(
         double& logForgettingMass,
         std::mutex& ffMutex,
         FragmentLengthDistribution& fragLengthDist,
+        mem_opt_t* memOptions,
         uint32_t minMEMLength,
         uint32_t maxMEMOcc,
         double coverageThresh,
@@ -1227,6 +1532,7 @@ void processReadLibrary(
 
             std::vector<std::thread> threads;
 
+            std::atomic<uint64_t> numValidHits{0};
             rl.checkValid();
             // If the read library is paired-end
             // ------ Paired-end --------
@@ -1247,6 +1553,7 @@ void processReadLibrary(
                                     rl,
                                     numObservedFragments,
                                     numAssignedFragments,
+                                    numValidHits,
                                     idx,
                                     transcripts,
                                     batchNum,
@@ -1254,6 +1561,7 @@ void processReadLibrary(
                                     ffMutex,
                                     clusterForest,
                                     fragLengthDist,
+                                    memOptions,
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
@@ -1277,6 +1585,7 @@ void processReadLibrary(
                                     ffMutex,
                                     clusterForest,
                                     fragLengthDist,
+                                    memOptions,
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
@@ -1311,6 +1620,7 @@ void processReadLibrary(
                                     rl,
                                     numObservedFragments,
                                     numAssignedFragments,
+                                    numValidHits,
                                     idx,
                                     transcripts,
                                     batchNum,
@@ -1318,6 +1628,7 @@ void processReadLibrary(
                                     ffMutex,
                                     clusterForest,
                                     fragLengthDist,
+                                    memOptions,
                                     minMEMLength,
                                     maxMEMOcc,
                                     coverageThresh,
@@ -1368,6 +1679,7 @@ void processReadLibrary(
 void quantifyLibrary(
         ReadExperiment& experiment,
         bool greedyChain,
+        mem_opt_t* memOptions,
         uint32_t minMEMLength,
         uint32_t maxMEMOcc,
         double coverageThresh,
@@ -1426,7 +1738,7 @@ void quantifyLibrary(
                 processReadLibrary(rl, idx, transcripts, clusterForest,
                                    numObservedFragments, numAssignedFragments, batchNum,
                                    initialRound, burnedIn, logForgettingMass, ffMutex, fragLengthDist,
-                                   minMEMLength, maxMEMOcc, coverageThresh, greedyChain,
+                                   memOptions, minMEMLength, maxMEMOcc, coverageThresh, greedyChain,
                                    ioMutex, numQuantThreads);
               };
 
@@ -1455,6 +1767,7 @@ int salmonQuantify(int argc, char *argv[]) {
     bool optChain{false};
     uint32_t maxThreads = std::thread::hardware_concurrency();
     uint32_t sampleRate{1};
+    uint32_t splitWidth{0};
     size_t requiredObservations;
     double coverageThresh;
     uint32_t minMEMLength, maxMEMOcc;
@@ -1480,11 +1793,12 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "The minimum number of observations (mapped reads) that must be observed before "
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
                                         "input file, then it will be read through multiple times.")
-    ("minLen,k", po::value<uint32_t>(&minMEMLength)->default_value(15), "SMEMs smaller than this size won't be considered")
-    ("maxOcc,m", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "SMEMs occuring more than this many times won't be considered")
-    ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\"")
-    ("output,o", po::value<std::string>(), "Output quantification file")
-    ("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greed")
+    ("minLen,k", po::value<uint32_t>(&minMEMLength)->default_value(19), "(S)MEMs smaller than this size won't be considered.")
+    ("maxOcc,m", po::value<uint32_t>(&maxMEMOcc)->default_value(100), "(S)MEMs occuring more than this many times won't be considered.")
+    ("splitWidth,s", po::value<uint32_t>(&splitWidth)->default_value(1), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs.")
+    ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
+    ("output,o", po::value<std::string>(), "Output quantification file.")
+    //("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greedily")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
                                         "Salmon will output both quant.sf and quant.genes.sf files, where the latter "
@@ -1493,7 +1807,7 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "where each line contains the name of a transcript and the gene to which it belongs "
                                         "separated by a tab.  The extension of the file is used to determine how the file "
                                         "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
-                                        "format; files with any other extension are assumed to be in the simple format");
+                                        "format; files with any other extension are assumed to be in the simple format.");
 
     po::variables_map vm;
     try {
@@ -1573,9 +1887,16 @@ transcript abundance from RNA-seq reads
         ReadExperiment experiment(readLibraries, indexDirectory);
         uint32_t nbThreads = vm["threads"].as<uint32_t>();
 
-        quantifyLibrary(experiment, greedyChain, minMEMLength, maxMEMOcc, coverageThresh,
+        mem_opt_t* memOptions = mem_opt_init();
+        memOptions->min_seed_len = minMEMLength;
+        memOptions->max_occ = maxMEMOcc;
+        memOptions->split_width  =  splitWidth;
+        memOptions->split_factor = 1.5;
+
+        quantifyLibrary(experiment, greedyChain, memOptions, minMEMLength, maxMEMOcc, coverageThresh,
                         requiredObservations, nbThreads);
 
+        free(memOptions);
         size_t tnum{0};
 
         std::cerr << "writing output \n";
