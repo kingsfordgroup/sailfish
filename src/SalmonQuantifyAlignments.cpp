@@ -50,6 +50,7 @@ extern "C" {
 #include "SailfishUtils.hpp"
 #include "SalmonUtils.hpp"
 #include "SalmonConfig.hpp"
+#include "SalmonOpts.hpp"
 
 namespace bfs = boost::filesystem;
 using sailfish::math::LOG_0;
@@ -88,6 +89,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                       std::atomic<bool>& doneParsing,
                       std::atomic<size_t>& activeBatches,
                       ErrorModel& errMod,
+                      const SalmonOpts& salmonOpts,
                       FragmentLengthDistribution& fragLengthDist,
                       bool& burnedIn,
                       bool initialRound,
@@ -164,16 +166,18 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         double logFragProb = sailfish::math::LOG_1;
                         //double fragLength = aln.fragLen();
 
-                        switch (aln->fragType()) {
-                            case ReadType::SINGLE_END:
-                                if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
-                                    logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
-                                } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
-                                    logFragProb = fragLengthDist.cmf(aln->right());
-                                }
-                                break;
-                            case ReadType::PAIRED_END:
-                                logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
+                        if (salmonOpts.useFragLenDist) {
+                            switch (aln->fragType()) {
+                                case ReadType::SINGLE_END:
+                                    if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
+                                        logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
+                                    } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
+                                        logFragProb = fragLengthDist.cmf(aln->right());
+                                    }
+                                    break;
+                                case ReadType::PAIRED_END:
+                                    logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
+                            }
                         }
 
                         // @TODO: handle this case better
@@ -306,7 +310,8 @@ template <typename FragT>
 void quantifyLibrary(
         AlignmentLibrary<FragT>& alnLib,
         size_t numRequiredFragments,
-        uint32_t numQuantThreads) {
+        uint32_t numQuantThreads,
+        const SalmonOpts& salmonOpts) {
 
     bool burnedIn{false};
     ErrorModel errMod(1.00);
@@ -359,6 +364,7 @@ void quantifyLibrary(
                     std::ref(workAvailable), std::ref(cvmutex),
                     std::ref(doneParsing), std::ref(activeBatches),
                     std::ref(errMod),
+                    std::ref(salmonOpts),
                     std::ref(fragLengthDist),
                     std::ref(burnedIn),
                     initialRound,
@@ -446,6 +452,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     namespace po = boost::program_options;
     namespace bfs = boost::filesystem;
 
+    SalmonOpts sopt;
+
     bool noBiasCorrect{false};
     uint32_t numThreads{6};
     size_t requiredObservations{50000000};
@@ -454,15 +462,24 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("libtype,l", po::value<std::string>(), "Format string describing the library type")
-    ("alignments,a", po::value<std::string>(), "input alignment (BAM) file")
-    ("targets,t", po::value<std::string>(), "FASTA format file containing target transcripts")
+    ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
+    ("alignments,a", po::value<std::string>()->required(), "input alignment (BAM) file")
+    ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts")
     ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
                                             "The alignment-based quantification mode of salmon is usually I/O bound\n"
                                             "so until there is a faster multi-threaded SAM/BAM parser to feed the \n"
                                             "quantification threads, one should not expect much of a speed-up beyond \n"
                                             "~6 threads.")
-    ("output,o", po::value<std::string>(), "Output quantification directory")
+    ("useReadCompat,e", po::bool_switch(&(sopt.useReadCompat))->default_value(false), "[Currently Experimental] : "
+                        "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
+                        "example, fragments with an incorrect relative oritenation with respect  to the provided library "
+                        "format string will be assigned a 0 probability.")
+    ("useFragLenDist,d", po::bool_switch(&(sopt.useFragLenDist))->default_value(false), "[Currently Experimental] : "
+                        "Consider concordance with the learned fragment length distribution when trying to determing "
+                        "the probability that a fragment has originated from a specified location.  Fragments with "
+                        "unlikely lengths will be assigned a smaller relative probability than those with more likely "
+                        "lengths.")
+    ("output,o", po::value<std::string>()->required(), "Output quantification directory")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("num_required_obs,m", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before\n"
@@ -579,7 +596,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             case ReadType::SINGLE_END:
                 {
                     AlignmentLibrary<UnpairedRead> alnLib(alignmentFile, transcriptFile, libFmt);
-                    quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads);
+                    quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "writing output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
                 }
@@ -587,7 +604,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             case ReadType::PAIRED_END:
                 {
                     AlignmentLibrary<ReadPair> alnLib(alignmentFile, transcriptFile, libFmt);
-                    quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads);
+                    quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "writing output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
                 }

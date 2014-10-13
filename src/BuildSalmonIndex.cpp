@@ -76,8 +76,8 @@ int salmonIndex(int argc, char* argv[]) {
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("transcripts,t", po::value<string>(), "Transcript fasta file.")
-    ("index,i", po::value<string>(), "sailfish index.")
+    ("transcripts,t", po::value<string>()->required(), "Transcript fasta file.")
+    ("index,i", po::value<string>()->required(), "Salmon index.")
     ;
 
     po::variables_map vm;

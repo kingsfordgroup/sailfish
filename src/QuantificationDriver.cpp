@@ -484,8 +484,8 @@ int mainQuantify( int argc, char *argv[] ) {
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("index,i", po::value<string>(), "Sailfish index [output of the \"Sailfish index\" command")
-    ("libtype,l", po::value<vector<string>>(), "Format string describing the library type")
+    ("index,i", po::value<string>()->required(), "Sailfish index [output of the \"Sailfish index\" command")
+    ("libtype,l", po::value<vector<string>>()->required(), "Format string describing the library type")
     //("libtype,l", po::value<string>(), "Format string describing the library type")
     ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
      "List of files containing unmated reads of (e.g. single-end reads)")
@@ -501,7 +501,7 @@ int mainQuantify( int argc, char *argv[] ) {
     ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.0),
      "transcripts with an abundance (KPKM) lower than this value will be reported at zero.")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
-    ("out,o", po::value<string>(), "Basename of file where estimates are written")
+    ("out,o", po::value<string>()->required(), "Basename of file where estimates are written")
     ("iterations,n", po::value<size_t>(&iterations)->default_value(1000), "number of iterations to run the optimzation")
     ("delta,d", po::value<double>(&maxDelta)->default_value(5e-3), "consider the optimization to have converged if the relative change in \n"
                                                            "the estimated abundance of all transcripts is below this threshold")

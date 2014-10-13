@@ -109,38 +109,11 @@ extern "C" {
 #include "FragmentList.hpp"
 #include "FragmentLengthDistribution.hpp"
 #include "ReadExperiment.hpp"
+#include "SalmonOpts.hpp"
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
 
-/**
-  * A structure to hold some common options used
-  * by Salmon so that we don't have to pass them
-  * all around as separate arguments.
-  */
-struct SalmonOpts {
-    // The options below are adopted from the mem_opt_t structure of BWA
-    /*
-    int maxOccurences; // maximum number of allowable occurences of (S)MEM
-    int minSeedOccurences; // try to split a seed into smaller seeds if it occurs
-                           // fewer than this many times.
-    int minSeedLen; // A seed must be at least this long.
-    float splitFactor; // Split a seed if it's longer than splitFactor * minSeedLen.
-    int flag; // Used by bwa
-    bool maxMEMIntervals; // If true, don't split (S)MEMs into MEMs
-    */
-
-    SalmonOpts() : splitSpanningSeeds(false), useFragLenDist(false),
-                   useReadCompat(false){}
-    bool splitSpanningSeeds; // Attempt to split seeds that span multiple transcripts.
-
-    bool useFragLenDist; // Give a fragment assignment a likelihood based on an emperically
-                         // observed fragment length distribution.
-
-    bool useReadCompat; // Give a fragment assignment a likelihood based on the compatibility
-                        // between the manner in which it mapped and the expected read
-                        // librarry format.
-};
 
 /******* STUFF THAT IS STATIC IN BWAMEM THAT WE NEED HERE --- Just re-define it *************/
 #define intv_lt(a, b) ((a).info < (b).info)
@@ -347,7 +320,7 @@ void processMiniBatch(
                     }
 
                     double logFragProb = (salmonOpts.useFragLenDist) ?
-                                         ((aln.fragLength() == 0) ? LOG_1 : fragLengthDist.pmf(static_cast<size_t>(aln.fragLength()))) :
+                                         ((aln.fragLength() > 0) ? fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) : LOG_1) :
                                          LOG_1;
                     // The probability that the fragments align to the given strands in the
                     // given orientations.
@@ -1592,8 +1565,8 @@ int salmonQuantify(int argc, char *argv[]) {
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("index,i", po::value<string>(), "Salmon index")
-    ("libtype,l", po::value<std::string>(), "Format string describing the library type")
+    ("index,i", po::value<string>()->required(), "Salmon index")
+    ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
     ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
      "List of files containing unmated reads of (e.g. single-end reads)")
     ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),
@@ -1610,7 +1583,6 @@ int salmonQuantify(int argc, char *argv[]) {
                         "the probability that a fragment has originated from a specified location.  Fragments with "
                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
                         "lengths.")
-    //("sample,s", po::value<uint32_t>(&sampleRate)->default_value(1), "Sample rate --- only consider every s-th k-mer in a read.")
     ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before "
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
@@ -1623,7 +1595,7 @@ int salmonQuantify(int argc, char *argv[]) {
     ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
-    ("output,o", po::value<std::string>(), "Output quantification file.")
+    ("output,o", po::value<std::string>()->required(), "Output quantification file.")
     //("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greedily")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "

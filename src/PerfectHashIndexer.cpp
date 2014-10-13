@@ -259,10 +259,10 @@ int mainIndex( int argc, char *argv[] ) {
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("transcripts,t", po::value<std::vector<string>>()->multitoken(), "Transcript fasta file(s)." )
+    ("transcripts,t", po::value<std::vector<string>>()->multitoken()->required(), "Transcript fasta file(s)." )
     ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("kmerSize,k", po::value<uint32_t>()->required(), "Kmer size.")
-    ("out,o", po::value<string>(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
+    ("out,o", po::value<string>()->required(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
 
       //("canonical,c", po::bool_switch(), "Passing this flag in forces all processing to be done on canonical kmers.\n"
       //                                       "This means transcripts will be mapped to their canonical kmer multiset and\n"
