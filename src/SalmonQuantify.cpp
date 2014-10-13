@@ -130,8 +130,16 @@ struct SalmonOpts {
     bool maxMEMIntervals; // If true, don't split (S)MEMs into MEMs
     */
 
-    SalmonOpts() : splitSpanningSeeds(false) {}
+    SalmonOpts() : splitSpanningSeeds(false), useFragLenDist(false),
+                   useReadCompat(false){}
     bool splitSpanningSeeds; // Attempt to split seeds that span multiple transcripts.
+
+    bool useFragLenDist; // Give a fragment assignment a likelihood based on an emperically
+                         // observed fragment length distribution.
+
+    bool useReadCompat; // Give a fragment assignment a likelihood based on the compatibility
+                        // between the manner in which it mapped and the expected read
+                        // librarry format.
 };
 
 /******* STUFF THAT IS STATIC IN BWAMEM THAT WE NEED HERE --- Just re-define it *************/
@@ -266,6 +274,7 @@ inline double logAlignFormatProb(const LibraryFormat observed, const LibraryForm
 void processMiniBatch(
         double logForgettingMass,
         const ReadLibrary& readLib,
+        const SalmonOpts& salmonOpts,
         std::vector<AlignmentGroup<SMEMAlignment>>& batchHits,
         std::vector<Transcript>& transcripts,
         ClusterForest& clusterForest,
@@ -337,14 +346,14 @@ void processMiniBatch(
                         //errLike = errMod.logLikelihood(aln, transcript);
                     }
 
-                    double logFragProb = (aln.fragLength() == 0) ? LOG_1 : fragLengthDist.pmf(static_cast<size_t>(aln.fragLength()));
+                    double logFragProb = (salmonOpts.useFragLenDist) ?
+                                         ((aln.fragLength() == 0) ? LOG_1 : fragLengthDist.pmf(static_cast<size_t>(aln.fragLength()))) :
+                                         LOG_1;
                     // The probability that the fragments align to the given strands in the
                     // given orientations.
-                    double logAlignCompatProb = logAlignFormatProb(aln.libFormat(), expectedLibraryFormat);
-
-                    //test without this stuff
-                    logFragProb = LOG_1;
-                    logAlignCompatProb = LOG_1;
+                    double logAlignCompatProb = (salmonOpts.useReadCompat) ?
+                                                (logAlignFormatProb(aln.libFormat(), expectedLibraryFormat)) :
+                                                LOG_1;
 
                     //aln.logProb = std::log(aln.kmerCount) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
                     //aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
@@ -1301,7 +1310,7 @@ void processReadsMEM(ParserT* parser,
     }
 
     prevObservedFrags = numObservedFragments;
-    processMiniBatch(logForgettingMass, rl, hitLists, transcripts, clusterForest,
+    processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
                      fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
     // At this point, the parser can re-claim the strings
   }
@@ -1592,6 +1601,15 @@ int salmonQuantify(int argc, char *argv[]) {
     ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
         "File containing the #2 mates")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
+    ("useReadCompat,e", po::bool_switch(&(sopt.useReadCompat))->default_value(false), "[Currently Experimental] : "
+                        "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
+                        "example, fragments with an incorrect relative oritenation with respect  to the provided library "
+                        "format string will be assigned a 0 probability.")
+    ("useFragLenDist,d", po::bool_switch(&(sopt.useFragLenDist))->default_value(false), "[Currently Experimental] : "
+                        "Consider concordance with the learned fragment length distribution when trying to determing "
+                        "the probability that a fragment has originated from a specified location.  Fragments with "
+                        "unlikely lengths will be assigned a smaller relative probability than those with more likely "
+                        "lengths.")
     //("sample,s", po::value<uint32_t>(&sampleRate)->default_value(1), "Sample rate --- only consider every s-th k-mer in a read.")
     ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before "
@@ -1599,7 +1617,9 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "input file, then it will be read through multiple times.")
     ("minLen,k", po::value<int>(&(memOptions->min_seed_len))->default_value(19), "(S)MEMs smaller than this size won't be considered.")
     ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(100), "(S)MEMs occuring more than this many times won't be considered.")
-    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(1), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs.")
+    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(0), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
+                                        "The default value will not split (S)MEMs, a higher value will result in more MEMs being explore and, thus, will "
+                                        "result in increased running time.")
     ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
