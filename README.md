@@ -1,5 +1,5 @@
 [![Build Status](https://travis-ci.org/kingsfordgroup/sailfish.svg?branch=develop)](https://travis-ci.org/kingsfordgroup/sailfish)
-[![Doc. Badge](https://readthedocs.org/projects/sailfish/?badge=develop)](http://sailfish.readthedocs.org)
+[![Documentation Status](https://readthedocs.org/projects/sailfish/badge/?version=develop)](https://readthedocs.org/projects/sailfish/?badge=develop)
 
 Documentation
 ==============
