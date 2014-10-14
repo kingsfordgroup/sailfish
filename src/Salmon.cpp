@@ -84,7 +84,7 @@ int dualModeMessage() {
     salmon quant has two modes --- one quantifies expression using raw reads
     and the other makes use of already-aligned reads (in BAM/SAM format).
     which algorithm is used depends on the arguments passed to salmon quant.
-    If you provide salmon with alignments '-a|--alignments' then the
+    If you provide salmon with alignments '-a [ --alignments ]' then the
     alignment-based algorithm will be used, otherwise the algorithm for
     quantifying from raw reads will be used.
 
