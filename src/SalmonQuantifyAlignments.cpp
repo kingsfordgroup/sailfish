@@ -449,6 +449,7 @@ void quantifyLibrary(
 int salmonAlignmentQuantify(int argc, char* argv[]) {
     using std::cerr;
     using std::vector;
+    using std::string;
     namespace po = boost::program_options;
     namespace bfs = boost::filesystem;
 
@@ -463,7 +464,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
-    ("alignments,a", po::value<std::string>()->required(), "input alignment (BAM) file")
+    //("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s)")
+    ("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
     ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts")
     ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
                                             "The alignment-based quantification mode of salmon is usually I/O bound\n"
@@ -549,6 +551,23 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                 " does not exist!\n";
             throw std::invalid_argument(ss.str());
         }
+
+        /*
+        vector<string> alignmentFileNames = vm["alignments"].as<vector<string>>();
+        vector<bfs::path> alignmentFiles;
+        for (auto& alignmentFileName : alignmentFiles) {
+            bfs::path alignmentFile(alignmentFileName);//vm["alignments"].as<std::string>());
+            std::cerr << vm["alignments"].as<std::string>() << "!!!!\n";
+            if (!bfs::exists(alignmentFile)) {
+                std::stringstream ss;
+                ss << "The provided alignment file: " << alignmentFile <<
+                    " does not exist!\n";
+                throw std::invalid_argument(ss.str());
+            } else {
+                alignmentFiles.push_back(alignmentFile);
+            }
+        }
+        */
 
         std::string libFmtStr = vm["libtype"].as<std::string>();
         LibraryFormat libFmt = sailfish::utils::parseLibraryFormatStringNew(libFmtStr);
