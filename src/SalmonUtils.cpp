@@ -5,8 +5,51 @@
 #include "LibraryFormat.hpp"
 #include "ReadExperiment.hpp"
 
+extern "C" {
+    #include "htslib/sam.h"
+    #include "samtools/samtools.h"
+}
+
 namespace salmon {
 namespace utils {
+
+    bool headersAreConsistent(bam_header_t* h1, bam_header_t* h2) {
+
+        bool consistent{true};
+        // Both files must contain the same number of targets
+        if (h1->n_targets != h2->n_targets) { consistent = false; }
+
+        // Check each target to ensure that the name and length are the same.
+        size_t i = 0;
+        size_t n = h1->n_targets;
+        while (consistent and i < n) {
+            size_t l1 = h1->target_len[i];
+            size_t l2 = h2->target_len[i];
+            consistent = (l1 == l2) and
+                         (strncmp(h1->target_name[i], h2->target_name[i], l1) == 0);
+            ++i;
+        }
+
+        return consistent;
+    }
+
+    bool headersAreConsistent(std::vector<bam_header_t*>& headers) {
+        if (headers.size() == 1) { return true; }
+
+        // Ensure that all of the headers are consistent (i.e. the same), by
+        // comparing each with the first.
+        bool consistent{true};
+        auto itFirst = headers.begin();
+        auto it = itFirst + 1;
+        while (it != headers.end()) {
+            if (!headersAreConsistent(*itFirst, *it)) {
+                consistent = false;
+                break;
+            }
+        }
+        return consistent;
+    }
+
 
     template <typename ExpLib>
     void writeAbundances(ExpLib& alnLib,

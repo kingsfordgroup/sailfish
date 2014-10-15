@@ -544,6 +544,9 @@ int mainQuantify( int argc, char *argv[] ) {
             }
         }
 
+        vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
+
+        /*
         vector<ReadLibrary> readLibraries;
         for (auto& opt : orderedOptions.options) {
             if (opt.string_key == "libtype") {
@@ -564,6 +567,7 @@ int mainQuantify( int argc, char *argv[] ) {
                 readLibraries.back().addUnmated(opt.value);
             }
         }
+        */
 
         for (auto& rl : readLibraries) { rl.checkValid(); }
         /*

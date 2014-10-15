@@ -466,6 +466,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
     //("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s)")
     ("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
+    ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(200), "Reads \"mapping\" to more than this many places won't be considered.")
     ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts")
     ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
                                             "The alignment-based quantification mode of salmon is usually I/O bound\n"

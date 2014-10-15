@@ -1351,7 +1351,6 @@ private:
 
                   }
 
-                  /*
                   // M-Step
                   // If we've seen all of the k-mers that appear in this transcript,
                   // then we can compute it's new estimated abundance
@@ -1361,7 +1360,7 @@ private:
                       meansOut[tid] = priorAlpha + trans.totalMass;
                       trans.updated.store(0);
                   }
-                  */
+
                 }
 
               ++completedJobs;
@@ -1371,6 +1370,7 @@ private:
           // wait for all kmer groups to be processed
           pbthread.join();
 
+          /*
           tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(meansIn.size())),
                   // for each kmer group
                   [&completedJobs, &meansIn, &rho, &meansOut, priorAlpha, reqNumJobs, this](const BlockedIndexRange& range) -> void {
@@ -1381,6 +1381,7 @@ private:
                        }
                   });
 
+          */
           // Make the output a proper probability vector
           normalize_(meansOut);
     }
@@ -1569,8 +1570,8 @@ public:
             [&r, &v, alphaS, &means0, &meansPrime](const BlockedIndexRange& range) -> void {
               for (auto tid = range.begin(); tid != range.end(); ++tid) {
                // Looking into Nick Bray's problem
-               //  meansPrime[tid] = std::max(means0[tid] * 0.1, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
-               meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+               meansPrime[tid] = std::max(means0[tid] * 0.1, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
+               //meansPrime[tid] = std::max(0.0, means0[tid] + 2*alphaS*r[tid] + (alphaS*alphaS)*v[tid]);
               }
             }
           );

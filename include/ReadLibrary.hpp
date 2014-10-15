@@ -147,6 +147,10 @@ public:
 
         // Check if the user tried to pass in non-fast{a,q} files.  If so,
         // throw an exception with the appropriate error messages.
+        // NOTE: This check currently does nothing useful for non-regular files
+        // (i.e. named-pipes).  If the user passed in a non-regular file, we should
+        // have some other mechanism to check if it's of an expected format and provide
+        // a reasonable error message otherwise.
         readsOK = readsOK && checkFileExtensions_(mateOneFilenames_, errorStream);
         readsOK = readsOK && checkFileExtensions_(mateTwoFilenames_, errorStream);
         readsOK = readsOK && checkFileExtensions_(unmatedFilenames_, errorStream);

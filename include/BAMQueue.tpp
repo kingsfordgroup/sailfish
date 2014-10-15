@@ -23,6 +23,18 @@ BAMQueue<FragT>::BAMQueue(const std::string& fname, LibraryFormat& libFmt):
                 str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
             };
 
+/*
+    for (auto& fname : fnames_) {
+        readMode_ = "r";
+        if (hasSuffix(fname, ".bam")) {
+            readMode_ = "rb";
+        }
+        //bam_set_num_threads_per(8);
+        fps_.emplace_back(hts_open(fname_.c_str(), readMode_.c_str()));
+        hdr_ = sam_hdr_read(fp_);
+    }
+    */
+
         readMode_ = "r";
         if (hasSuffix(fname, ".bam")) {
             readMode_ = "rb";

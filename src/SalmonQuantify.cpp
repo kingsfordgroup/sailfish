@@ -1269,8 +1269,8 @@ void processReadsMEM(ParserT* parser,
     	    iomutex.unlock();
         }
 
-        // If the read mapped to > 100 places, discard it
-        if (hitList.size() > 100) { hitList.alignments().clear(); }
+        // If the read mapped to > maxReadOccs places, discard it
+        if (hitList.size() > salmonOpts.maxReadOccs ) { hitList.alignments().clear(); }
 
     } // end for i < j->nb_filled
 
@@ -1588,7 +1588,8 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
                                         "input file, then it will be read through multiple times.")
     ("minLen,k", po::value<int>(&(memOptions->min_seed_len))->default_value(19), "(S)MEMs smaller than this size won't be considered.")
-    ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(100), "(S)MEMs occuring more than this many times won't be considered.")
+    ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(200), "(S)MEMs occuring more than this many times won't be considered.")
+    ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(100), "Reads \"mapping\" to more than this many places won't be considered.")
     ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(0), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
                                         "The default value will not split (S)MEMs, a higher value will result in more MEMs being explore and, thus, will "
                                         "result in increased running time.")
@@ -1596,7 +1597,6 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
     ("output,o", po::value<std::string>()->required(), "Output quantification file.")
-    //("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greedily")
     ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
                                         "Salmon will output both quant.sf and quant.genes.sf files, where the latter "
@@ -1606,6 +1606,7 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "separated by a tab.  The extension of the file is used to determine how the file "
                                         "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
                                         "format; files with any other extension are assumed to be in the simple format.");
+    //("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greedily")
 
     po::variables_map vm;
     try {

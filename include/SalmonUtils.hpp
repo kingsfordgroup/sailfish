@@ -13,6 +13,9 @@ class LibraryFormat;
 
 namespace salmon {
 namespace utils {
+    bool headersAreConsistent(bam_header_t* h1, bam_header_t* h2);
+    bool headersAreConsistent(std::vector<bam_header_t*>& headers);
+
     template <typename AlnLibT>
     void writeAbundances(AlnLibT& alnLib,
                          boost::filesystem::path& fname,

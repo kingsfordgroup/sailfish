@@ -19,7 +19,7 @@ struct SalmonOpts {
     */
 
     SalmonOpts() : splitSpanningSeeds(false), useFragLenDist(false),
-                   useReadCompat(false){}
+                   useReadCompat(false), maxReadOccs(200) {}
     bool splitSpanningSeeds; // Attempt to split seeds that span multiple transcripts.
 
     bool useFragLenDist; // Give a fragment assignment a likelihood based on an emperically
@@ -28,6 +28,8 @@ struct SalmonOpts {
     bool useReadCompat; // Give a fragment assignment a likelihood based on the compatibility
                         // between the manner in which it mapped and the expected read
                         // librarry format.
+
+    uint32_t maxReadOccs; // Discard reads  mapping to more than this many places.
 };
 
 #endif // SALMON_OPTS_HPP
