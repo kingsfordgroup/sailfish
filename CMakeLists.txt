@@ -433,7 +433,7 @@ message("Build system will compile htslib")
 message("==================================================================")
 ExternalProject_Add(libhts
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -L https://github.com/samtools/htslib/archive/1.1.tar.gz -o htslib-1.1.tar.gz &&
+    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/htslib/archive/1.1.tar.gz -o htslib-1.1.tar.gz &&
                      tar -xzf htslib-1.1.tar.gz &&
                      rm -fr htslib &&
                      mv -f htslib-1.1 htslib
@@ -449,7 +449,7 @@ message("Build system will compile samtools")
 message("==================================================================")
 ExternalProject_Add(libsamtools
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -L https://github.com/samtools/samtools/archive/1.1.tar.gz -o samtools-1.1.tar.gz &&
+    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/samtools/archive/1.1.tar.gz -o samtools-1.1.tar.gz &&
                      tar -xzf samtools-1.1.tar.gz &&
                      rm -fr samtools &&
                      mv -f samtools-1.1 samtools
