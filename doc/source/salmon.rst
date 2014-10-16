@@ -2,7 +2,7 @@ Salmon
 ================
 
 Salmon is a tool for transcript quantification from RNA-seq data.  It
-requires a set of target transcripts (either from a reference or _de-novo_
+requires a set of target transcripts (either from a reference or *de-novo*
 assembly) to quantify.  All you need to run Salmon is a fasta file containing
 your reference transcripts and a (set of) fasta/fastq file(s) containing your
 reads.  Optinonally, Salmon can make use of pre-compued alignments (in the 
@@ -50,15 +50,14 @@ mode, and a description of each, run ``salmon quant --help-alignment``.
 
 .. topic:: Multiple alignment files
     
-    Currently, salmon assumes that the alignment records for all of the reads 
-    corresponding to a single sample appear in the same .bam/.sam file.  This 
-    means that if you have multiple .bam/.sam files with aligned reads from the
-    *same sample* that you wish to use together for quantification, you must
-    first merge the files.  This limitation is temporary and will be removed 
-    soon so that multiple different alignment files can be provided for a
-    single sample (though they should all be with respect to the same target
-    transcripts).
-
+    If your alignments for the sample you want to quantify appear in multiple 
+    .bam/.sam files, then you can simply provide the salmon ``-a`` parameter 
+    with a (space-separated) list of these files.  Salmon will automatically 
+    read through these one after the other quantifying transcripts using the 
+    alignments contained therein.  However, it is currently the case that these
+    separate files must (1) all be of the same library type and (2) all be
+    aligned with respect to the same reference (i.e. the @SQ records in the 
+    header sections must be identical).
 
 Read-based mode
 ---------------

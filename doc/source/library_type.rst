@@ -1,3 +1,4 @@
+.. _FragLibType:
 Fragment Library Types
 ======================
 
