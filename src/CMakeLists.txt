@@ -292,7 +292,7 @@ install(DIRECTORY
 # install(FILES ${Boost_LIBRARIES}
 # 	           DESTINATION ${INSTALL_LIB_DIR})
 
-install(TARGETS sailfish sailfish_core
+install(TARGETS salmon sailfish sailfish_core
                 RUNTIME DESTINATION bin 
                 LIBRARY DESTINATION lib
                 ARCHIVE DESTINATION lib
