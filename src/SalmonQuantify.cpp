@@ -105,6 +105,7 @@ extern "C" {
 #include "ReadLibrary.hpp"
 #include "SalmonConfig.hpp"
 
+#include "AlignmentGroup.hpp"
 #include "PairSequenceParser.hpp"
 #include "FragmentList.hpp"
 #include "FragmentLengthDistribution.hpp"

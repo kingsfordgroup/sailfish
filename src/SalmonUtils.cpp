@@ -1,14 +1,10 @@
 #include "SalmonUtils.hpp"
+#include "AlignmentLibrary.hpp"
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 #include "SailfishMath.hpp"
 #include "LibraryFormat.hpp"
 #include "ReadExperiment.hpp"
-
-extern "C" {
-    #include "htslib/sam.h"
-    #include "samtools/samtools.h"
-}
 
 namespace salmon {
 namespace utils {
@@ -33,15 +29,15 @@ namespace utils {
         return consistent;
     }
 
-    bool headersAreConsistent(std::vector<bam_header_t*>& headers) {
+    bool headersAreConsistent(std::vector<bam_header_t*>&& headers) {
         if (headers.size() == 1) { return true; }
 
         // Ensure that all of the headers are consistent (i.e. the same), by
         // comparing each with the first.
         bool consistent{true};
         auto itFirst = headers.begin();
-        auto it = itFirst + 1;
-        while (it != headers.end()) {
+        auto it = itFirst;
+        while (++it != headers.end()) {
             if (!headersAreConsistent(*itFirst, *it)) {
                 consistent = false;
                 break;

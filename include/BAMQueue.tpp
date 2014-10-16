@@ -1,8 +1,9 @@
 #include "BAMQueue.hpp"
 
 template <typename FragT>
-BAMQueue<FragT>::BAMQueue(const std::string& fname, LibraryFormat& libFmt):
-    fname_(fname), libFmt_(libFmt), totalReads_(0),
+BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt):
+    files_(std::vector<AlignmentFile>()),
+    libFmt_(libFmt), totalReads_(0),
     numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
 
         size_t capacity{2000000};
@@ -17,43 +18,31 @@ BAMQueue<FragT>::BAMQueue(const std::string& fname, LibraryFormat& libFmt):
             alnGroupPool_.push(new AlignmentGroup<FragT*>);
         }
 
-
-        auto hasSuffix = [](const std::string &str, const std::string &suffix) -> bool {
-                return str.size() >= suffix.size() &&
-                str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
-            };
-
-/*
-    for (auto& fname : fnames_) {
-        readMode_ = "r";
-        if (hasSuffix(fname, ".bam")) {
-            readMode_ = "rb";
+        for (auto& fname : fnames) {
+            readMode_ = "r";
+            if (fname.extension() == ".bam") {
+                readMode_ = "rb";
+            }
+            auto* fp = hts_open(fname.c_str(), readMode_.c_str());
+            files_.push_back({fname, fp, sam_hdr_read(fp)});
         }
-        //bam_set_num_threads_per(8);
-        fps_.emplace_back(hts_open(fname_.c_str(), readMode_.c_str()));
-        hdr_ = sam_hdr_read(fp_);
-    }
-    */
-
-        readMode_ = "r";
-        if (hasSuffix(fname, ".bam")) {
-            readMode_ = "rb";
-        }
-        //bam_set_num_threads_per(8);
-        fp_ = hts_open(fname_.c_str(), readMode_.c_str());
-        hdr_ = sam_hdr_read(fp_);
 }
 
 template <typename FragT>
 void BAMQueue<FragT>::reset() {
   fmt::print(stderr, "Resetting BAMQueue from file [{}] . . .", fname_);
   parsingThread_->join();
-  hts_close(fp_);
-  fp_ = nullptr;
-  fp_ = hts_open(fname_.c_str(), readMode_.c_str());
-  bam_header_destroy(hdr_);
-  hdr_ = nullptr;
-  hdr_ = sam_hdr_read(fp_);
+  for (auto& file : files_) {
+    // re-open the file
+    hts_close(file.fp); 
+    file.fp = nullptr;
+    readMode_ = (file.fileName.extension() == ".bam") ? "rb" : "r";
+    file.fp = hts_open(file.fileName.c_str(), readMode_.c_str());
+    // re-obtain the header
+    bam_header_destroy(file.header); 
+    file.header = nullptr;
+    file.header = sam_hdr_read(file.fp);
+  }
   totalReads_ = 0;
   numUnaligned_ = 0;
   numMappedReads_ = 0;
@@ -66,8 +55,15 @@ template <typename FragT>
 BAMQueue<FragT>::~BAMQueue() {
     fmt::print(stderr, "\nFreeing memory used by read queue . . . ");
     parsingThread_->join();
-    hts_close(fp_);
-    
+    for (auto& file : files_) {
+        // close the file 
+        hts_close(file.fp); 
+        file.fp = nullptr;
+        // destroy the header
+        bam_header_destroy(file.header); 
+        file.header= nullptr;
+    }
+
     // Free the structure holding all of the reads
     FragT* frag;
     while(!fragmentQueue_.empty()) { 
@@ -79,7 +75,6 @@ BAMQueue<FragT>::~BAMQueue() {
     AlignmentGroup<FragT*>* grp;
     while(!alnGroupPool_.empty()) { alnGroupPool_.pop(grp); delete grp; grp = nullptr; }
     while(!alnGroupQueue_.empty()) { alnGroupQueue_.pop(grp); delete grp; grp = nullptr; }
-    bam_header_destroy(hdr_);
     fmt::print(stderr, "done\n");
 }
 
@@ -98,7 +93,16 @@ template <typename FragT>
 void BAMQueue<FragT>::forceEndParsing() { doneParsing_ = true; }
 
 template <typename FragT>
-bam_header_t* BAMQueue<FragT>::header() { return hdr_; } 
+bam_header_t* BAMQueue<FragT>::header() { return files_.front().header; } 
+
+template <typename FragT>
+std::vector<bam_header_t*> BAMQueue<FragT>::headers() { 
+    std::vector<bam_header_t*> hs;
+    for (auto& file : files_) {
+        hs.push_back(file.header);
+    }
+    return hs;
+}
 
 template <typename FragT>
 void BAMQueue<FragT>::start() {
@@ -124,16 +128,22 @@ template <typename FragT>
 inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
     bool haveValidPair{false};
 
-    while (!haveValidPair) {
-
+       while (!haveValidPair) {
         bool didRead1 = (sam_read1(fp_, hdr_, rpair.read1) >= 0);
-        if (!didRead1) {
-            return false; 
-        }
-
         bool didRead2 = (sam_read1(fp_, hdr_, rpair.read2) >= 0);
-        if (!didRead2) { 
-            return false; 
+        // If we didn't get a read, then we've exhausted this file
+        // NOTE: Not sure about the *or* condition here. In some cases,
+        // we may be discarding a single read, but it won't be properly
+        // paired anyway.  Figure out what the right thing is to do 
+        // here.
+        if (!didRead1 or !didRead2) { 
+            currFile_++;
+            // If this is the last file, then we're done
+            if (currFile_ == files_.end()) { return false; }
+            // Otherwise, start parsing the next file.
+            fp_ = currFile_->fp;
+            hdr_ = currFile_->header;
+            continue;
         }
 
         bool read1IsValid{false};
@@ -170,8 +180,16 @@ inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread) {
     bool haveValidRead{false};
 
     while (!haveValidRead) {
-        bool didRead = (sam_read1(fp_, hdr_, sread.read) >= 0);//(samread(fp_, sread.read) > 0);
-        if (!didRead) { return false; }
+        bool didRead = (sam_read1(fp_, hdr_, sread.read) >= 0);
+        // If we didn't get a read, then we've exhausted this file
+        if (!didRead) { 
+            currFile_++;
+            // If this is the last file, then we're done
+            if (currFile_ == files_.end()) { return false; }
+            // Otherwise, start parsing the next file.
+            fp_ = currFile_->fp;
+            hdr_ = currFile_->header;
+        }
 
         if (!(sread.read->core.flag & BAM_FDUP) and
             !(sread.read->core.flag & BAM_FQCFAIL) and
@@ -201,7 +219,11 @@ void BAMQueue<FragT>::fillQueue_() {
     //AlignmentGroup* alngroup = new AlignmentGroup;
     AlignmentGroup<FragT*>* alngroup;
     alnGroupPool_.pop(alngroup);
-    
+     
+    currFile_ = files_.begin();
+    fp_ = currFile_->fp;
+    hdr_ = currFile_->header;
+
     FragT* f;
     fragmentQueue_.pop(f);
     //ReadPair p = {nullptr, nullptr, LOG_0};
@@ -228,6 +250,9 @@ void BAMQueue<FragT>::fillQueue_() {
         fragmentQueue_.pop(f);
         ++n;
     }
+    currFile_ = files_.end();
+    fp_ = nullptr;
+    hdr_ = nullptr;
     doneParsing_ = true;
     return;
 }

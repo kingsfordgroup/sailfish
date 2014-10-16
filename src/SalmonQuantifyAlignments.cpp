@@ -340,14 +340,14 @@ void quantifyLibrary(
             if (!alnLib.reset()) {
                 fmt::print(stderr,
                   "\n\n======== WARNING ========\n"
-                  "The provided alignment file: [{}] "
+                  "A provided alignment file "
                   "is not a regular file and therefore can't be read from "
                   "more than once.\n\n"
                   "We observed only {} fragments when we wanted at least {}.\n\n"
                   "Please consider re-running Salmon with these alignments "
                   "as a regular file!\n"
                   "==========================\n\n",
-                  alnLib.alignmentFile(), numObservedFragments, numRequiredFragments);
+                  numObservedFragments, numRequiredFragments);
                 break;
             }
         }
@@ -464,8 +464,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
-    //("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s)")
-    ("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
+    ("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s)")
+    //("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
     ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(200), "Reads \"mapping\" to more than this many places won't be considered.")
     ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts")
     ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
@@ -544,21 +544,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             }
         }
 
-        bfs::path alignmentFile(vm["alignments"].as<std::string>());
-        std::cerr << vm["alignments"].as<std::string>() << "!!!!\n";
-        if (!bfs::exists(alignmentFile)) {
-            std::stringstream ss;
-            ss << "The provided alignment file: " << alignmentFile <<
-                " does not exist!\n";
-            throw std::invalid_argument(ss.str());
-        }
-
-        /*
         vector<string> alignmentFileNames = vm["alignments"].as<vector<string>>();
         vector<bfs::path> alignmentFiles;
-        for (auto& alignmentFileName : alignmentFiles) {
+        for (auto& alignmentFileName : alignmentFileNames) {
             bfs::path alignmentFile(alignmentFileName);//vm["alignments"].as<std::string>());
-            std::cerr << vm["alignments"].as<std::string>() << "!!!!\n";
             if (!bfs::exists(alignmentFile)) {
                 std::stringstream ss;
                 ss << "The provided alignment file: " << alignmentFile <<
@@ -568,7 +557,6 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                 alignmentFiles.push_back(alignmentFile);
             }
         }
-        */
 
         std::string libFmtStr = vm["libtype"].as<std::string>();
         LibraryFormat libFmt = sailfish::utils::parseLibraryFormatStringNew(libFmtStr);
@@ -615,17 +603,17 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         switch (libFmt.type) {
             case ReadType::SINGLE_END:
                 {
-                    AlignmentLibrary<UnpairedRead> alnLib(alignmentFile, transcriptFile, libFmt);
+                    AlignmentLibrary<UnpairedRead> alnLib(alignmentFiles, transcriptFile, libFmt);
                     quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
-                    fmt::print(stderr, "writing output \n");
+                    fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
                 }
                 break;
             case ReadType::PAIRED_END:
                 {
-                    AlignmentLibrary<ReadPair> alnLib(alignmentFile, transcriptFile, libFmt);
+                    AlignmentLibrary<ReadPair> alnLib(alignmentFiles, transcriptFile, libFmt);
                     quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
-                    fmt::print(stderr, "writing output \n");
+                    fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
                 }
                 break;
@@ -684,9 +672,9 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         std::cerr << "============\n";
         std::cerr << "Exception : [" << e.what() << "]\n";
         std::cerr << "============\n";
-        std::cerr << argv[0] << " read-quant was invoked improperly.\n";
+        std::cerr << argv[0] << " alignment-quant was invoked improperly.\n";
         std::cerr << "For usage information, " <<
-            "try " << argv[0] << " read-quant --help\nExiting.\n";
+            "try " << argv[0] << " quant --help-alignments\nExiting.\n";
     }
     return 0;
 }

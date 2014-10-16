@@ -11,6 +11,7 @@ extern "C" {
 #include "ClusterForest.hpp"
 #include "Transcript.hpp"
 #include "BAMQueue.hpp"
+#include "SalmonUtils.hpp"
 #include "LibraryFormat.hpp"
 #include "AlignmentGroup.hpp"
 #include "FASTAParser.hpp"
@@ -34,10 +35,10 @@ class AlignmentLibrary {
 
     public:
 
-    AlignmentLibrary(const boost::filesystem::path& alnFile,
+    AlignmentLibrary(std::vector<boost::filesystem::path>& alnFiles,
                      const boost::filesystem::path& transcriptFile,
                      LibraryFormat libFmt) :
-        alignmentFile_(alnFile),
+        alignmentFiles_(alnFiles),
         transcriptFile_(transcriptFile),
         libFmt_(libFmt),
         transcripts_(std::vector<Transcript>()),
@@ -45,12 +46,15 @@ class AlignmentLibrary {
             namespace bfs = boost::filesystem;
 
             // Make sure the alignment file exists.
-            if (!bfs::exists(alignmentFile_)) {
-                std::stringstream ss;
-                ss << "The provided alignment file: " << alignmentFile_ <<
-                    " does not exist!\n";
-                throw std::invalid_argument(ss.str());
+            for (auto& alignmentFile : alignmentFiles_) {
+                if (!bfs::exists(alignmentFile)) {
+                    std::stringstream ss;
+                    ss << "The provided alignment file: " << alignmentFile <<
+                        " does not exist!\n";
+                    throw std::invalid_argument(ss.str());
+                }
             }
+
 
             // Make sure the transcript file exists.
             if (!bfs::exists(transcriptFile_)) {
@@ -61,8 +65,18 @@ class AlignmentLibrary {
             }
 
             // The alignment file existed, so create the alignment queue
-            std::string fname = alignmentFile_.string();
-            bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(fname, libFmt_));
+            bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(alnFiles, libFmt_));
+
+            std::cerr << "Checking that provided alignment files have consistent headers . . . ";
+            if (! salmon::utils::headersAreConsistent(bq->headers()) ) {
+                std::stringstream ss;
+                ss << "\nThe multiple alignment files provided had inconsistent headers.\n";
+                ss << "Currently, we require that if multiple SAM/BAM files are provided,\n";
+                ss << "they must have identical @SQ records.\n";
+                throw std::invalid_argument(ss.str());
+            }
+            std::cerr << "done\n";
+
             bam_header_t* header = bq->header();
 
             // The transcript file existed, so load up the transcripts
@@ -74,7 +88,7 @@ class AlignmentLibrary {
             FASTAParser fp(transcriptFile.string());
 
             fmt::print(stderr, "Populating targets from aln = {}, fasta = {} . . .",
-                       alignmentFile_, transcriptFile_);
+                       alnFiles.front(), transcriptFile_);
             fp.populateTargets(transcripts_);
             fmt::print(stderr, "done\n");
 
@@ -100,15 +114,20 @@ class AlignmentLibrary {
     inline BAMQueue<FragT>& getAlignmentGroupQueue() { return *bq.get(); }
 
     inline size_t numMappedReads() { return bq->numMappedReads(); }
-    const boost::filesystem::path& alignmentFile() { return alignmentFile_; }
+
+    //const boost::filesystem::path& alignmentFile() { return alignmentFile_; }
+
     ClusterForest& clusterForest() { return *clusters_.get(); }
 
     bool reset() {
         namespace bfs = boost::filesystem;
-        if (!bfs::is_regular_file(alignmentFile_)) {
-            return false;
+
+        for (auto& alignmentFile : alignmentFiles_) {
+            if (!bfs::is_regular_file(alignmentFile)) {
+                return false;
+            }
         }
-        std::string fname = alignmentFile_.string();
+
         bq->reset();
         bq->start();
         quantificationPasses_++;
@@ -121,7 +140,7 @@ class AlignmentLibrary {
      * This can be a SAM or BAM file, and can be a regular
      * file or a fifo.
      */
-    boost::filesystem::path alignmentFile_;
+    std::vector<boost::filesystem::path> alignmentFiles_;
     /**
      * The file from which the transcripts are read.
      * This is expected to be a FASTA format file.

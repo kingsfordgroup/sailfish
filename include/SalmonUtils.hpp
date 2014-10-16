@@ -1,7 +1,10 @@
 #ifndef __SALMON_UTILS_HPP__
 #define __SALMON_UTILS_HPP__
 
-#include "AlignmentLibrary.hpp"
+extern "C" {
+    #include "samtools/bam.h"
+}
+
 #include "format.h"
 
 #include <boost/filesystem.hpp>
@@ -13,8 +16,10 @@ class LibraryFormat;
 
 namespace salmon {
 namespace utils {
+
     bool headersAreConsistent(bam_header_t* h1, bam_header_t* h2);
-    bool headersAreConsistent(std::vector<bam_header_t*>& headers);
+
+    bool headersAreConsistent(std::vector<bam_header_t*>&& headers);
 
     template <typename AlnLibT>
     void writeAbundances(AlnLibT& alnLib,

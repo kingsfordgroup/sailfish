@@ -25,6 +25,16 @@ extern "C" {
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 
+
+/**
+  * Simple structure holding info about the alignment file.
+  */
+struct AlignmentFile {
+    boost::filesystem::path fileName;
+    samFile* fp;
+    bam_header_t* header;
+};
+
 /**
   * A queue from which to draw BAM alignments.  The queue is thread-safe, and
   * can be written to and read from multiple threads.
@@ -35,11 +45,13 @@ extern "C" {
 template <typename FragT>
 class BAMQueue {
 public:
-  BAMQueue(const std::string& fname, LibraryFormat& libFmt);
+  BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt);
   ~BAMQueue();
   void forceEndParsing();
 
   bam_header_t* header();
+
+  std::vector<bam_header_t*> headers();
 
   void start();
 
@@ -67,10 +79,14 @@ private:
   inline bool getFrag_(UnpairedRead& sread);
 
 private:
+  std::vector<AlignmentFile> files_;
   std::string fname_;
   LibraryFormat libFmt_;
+
+  std::vector<AlignmentFile>::iterator currFile_;
   samFile* fp_ = nullptr;
-  bam_hdr_t* hdr_ = nullptr;
+  bam_header_t* hdr_ = nullptr;
+
   //htsFile* fp_ = nullptr;
   size_t totalReads_;
   size_t numUnaligned_;
