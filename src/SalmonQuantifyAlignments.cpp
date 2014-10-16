@@ -461,13 +461,13 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
     po::options_description generic("salmon quant options");
     generic.add_options()
-    ("version,v", "print version string")
-    ("help,h", "produce help message")
-    ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
-    ("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s)")
+    ("version,v", "print version string.")
+    ("help,h", "produce help message.")
+    ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type.")
+    ("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s).")
     //("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
     ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(200), "Reads \"mapping\" to more than this many places won't be considered.")
-    ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts")
+    ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts.")
     ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
                                             "The alignment-based quantification mode of salmon is usually I/O bound\n"
                                             "so until there is a faster multi-threaded SAM/BAM parser to feed the \n"
@@ -482,8 +482,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "the probability that a fragment has originated from a specified location.  Fragments with "
                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
                         "lengths.")
-    ("output,o", po::value<std::string>()->required(), "Output quantification directory")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("output,o", po::value<std::string>()->required(), "Output quantification directory.")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
     ("num_required_obs,m", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before\n"
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
@@ -495,7 +495,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                         "where each line contains the name of a transcript and the gene to which it belongs\n"
                                         "separated by a tab.  The extension of the file is used to determine how the file\n"
                                         "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF\n"
-                                        "format; files with any other extension are assumed to be in the simple format");
+                                        "format; files with any other extension are assumed to be in the simple format.");
 
     po::variables_map vm;
     try {

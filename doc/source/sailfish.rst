@@ -6,7 +6,7 @@ requires a set of target transcripts (either from a reference or *de-novo*
 assembly) to quantify.  All you need to run sailfish is a fasta file containing
 your reference transcripts and a (set of) fasta/fastq file(s) containing your
 reads.  Sailfish runs in two phases; indexing and quantification.  The indexing
-step is independent of the reads, and only need to be run one for a particular
+step is independent of the reads, and only needs to be run once for a particular
 set of reference transcripts and choice of k (the k-mer size). The
 quantification step, obviously, is specific to the set of RNA-seq reads and is
 thus run more frequently. For a more complete description of all available

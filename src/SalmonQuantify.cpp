@@ -1598,7 +1598,7 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
     ("output,o", po::value<std::string>()->required(), "Output quantification file.")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
                                         "Salmon will output both quant.sf and quant.genes.sf files, where the latter "
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping "

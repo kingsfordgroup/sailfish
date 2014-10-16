@@ -482,32 +482,32 @@ int mainQuantify( int argc, char *argv[] ) {
     // format string: (T|TYPE)=(SE|PE):(O|ORIENTATION)=(>>|<>|><):(S|STRAND)=(AS|SA|S|A|U)
     po::options_description generic("Sailfish quant options");
     generic.add_options()
-    ("version,v", "print version string")
-    ("help,h", "produce help message")
-    ("index,i", po::value<string>()->required(), "Sailfish index [output of the \"Sailfish index\" command")
-    ("libtype,l", po::value<vector<string>>()->required(), "Format string describing the library type")
+    ("version,v", "print version string.")
+    ("help,h", "produce help message.")
+    ("index,i", po::value<string>()->required(), "Sailfish index [output of the \"Sailfish index\" command.")
+    ("libtype,l", po::value<vector<string>>()->required(), "Format string describing the library type.")
     //("libtype,l", po::value<string>(), "Format string describing the library type")
     ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
-     "List of files containing unmated reads of (e.g. single-end reads)")
+     "List of files containing unmated reads of (e.g. single-end reads).")
     // ("forward,F", po::value<vector<string>>(&fwdReadFiles)->multitoken(),
     //  "List of files containing reads oriented in the \"sense\" direction")
     // ("reverse,R", po::value<vector<string>>(&revReadFiles)->multitoken(),
     //  "List of files containing reads oriented in the \"anti-sense\" direction")
     ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),
-        "File containing the #1 mates")
+        "File containing the #1 mates.")
     ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
-        "File containing the #2 mates")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+        "File containing the #2 mates.")
+    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
     ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.0),
      "transcripts with an abundance (KPKM) lower than this value will be reported at zero.")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
-    ("out,o", po::value<string>()->required(), "Basename of file where estimates are written")
-    ("iterations,n", po::value<size_t>(&iterations)->default_value(1000), "number of iterations to run the optimzation")
+    ("out,o", po::value<string>()->required(), "Basename of file where estimates are written.")
+    ("iterations,n", po::value<size_t>(&iterations)->default_value(1000), "number of iterations to run the optimzation.")
     ("delta,d", po::value<double>(&maxDelta)->default_value(5e-3), "consider the optimization to have converged if the relative change in \n"
-                                                           "the estimated abundance of all transcripts is below this threshold")
-    ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers")
+                                                           "the estimated abundance of all transcripts is below this threshold.")
+    ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers.")
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
-    ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded")
+    ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded.")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
                                         "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
@@ -515,7 +515,7 @@ int mainQuantify( int argc, char *argv[] ) {
                                         "where each line contains the name of a transcript and the gene to which it belongs\n"
                                         "separated by a tab.  The extension of the file is used to determine how the file\n"
                                         "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF\n"
-                                        "format; files with any other extension are assumed to be in the simple format")
+                                        "format; files with any other extension are assumed to be in the simple format.")
     ;
 
     po::variables_map vm;
