@@ -17,7 +17,7 @@ if (INDEX_RESULT)
     message(FATAL_ERROR "Error running ${INDEX_COMMAND}")
 endif()
 
-set(QUANT_COMMAND ${TOPLEVEL_DIR}/build/src/sailfish quant -i sample_index --no_bias_correct -l "T=PE:O=><:S=U" -1 reads_1.fastq -2 reads_2.fastq -o sample_quant)
+set(QUANT_COMMAND ${TOPLEVEL_DIR}/build/src/sailfish quant -i sample_index --no_bias_correct -l IU -1 reads_1.fastq -2 reads_2.fastq -o sample_quant)
 execute_process(COMMAND ${QUANT_COMMAND}
 	            WORKING_DIRECTORY ${TOPLEVEL_DIR}/sample_data
 	            RESULT_VARIABLE QUANT_RESULT
