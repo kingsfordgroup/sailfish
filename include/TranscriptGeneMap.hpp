@@ -131,6 +131,19 @@ public:
     inline std::string geneName( Index transcriptID ) {
         return _geneNames[_transcriptsToGenes[transcriptID]];
     }
+    inline std::string geneName (const std::string& transcriptName,
+                                 bool complain=true) {
+        auto tid = findTranscriptID(transcriptName);
+        if (tid != INVALID) {
+            return geneName(tid);
+        } else {
+            std::cerr << "WARNING: couldn't find transcript named ["
+                      << transcriptName << "]; returning transcript "
+                      << " as it's own gene\n";
+            return transcriptName;
+        }
+    }
+
     inline std::string transcriptName( Index transcriptID ) {
         return _transcriptNames[transcriptID];
     }
