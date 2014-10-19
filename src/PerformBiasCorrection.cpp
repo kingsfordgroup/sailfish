@@ -106,6 +106,39 @@ struct ExpressionResults {
         std::unordered_map<std::string, TranscriptResult> expressions;
 };
 
+ExpressionResults parseSalmonFile(const bfs::path& expFile, double& numMappedReads) {
+        numMappedReads = 0.0;
+
+        std::ifstream ifile(expFile.string());
+        ExpressionResults res;
+        while(!ifile.eof()) {
+
+                if (ifile.peek() == '#') {
+                        std::string comment;
+                        std::getline(ifile, comment);
+                        res.comments.emplace_back(comment);
+                } else {
+                        std::string tname;
+                        TranscriptResult tr;
+                        ifile >> tname;
+                        ifile >> tr.length;
+                        ifile >> tr.tpm;
+                        ifile >> tr.rpkm;
+                        ifile >> tr.approxCount;
+                        numMappedReads += tr.approxCount;
+                        res.expressions[tname] = tr;
+                        // eat the newline
+                        char nline; ifile.get(nline);
+                }
+
+                if (ifile.peek() == EOF) { break; }
+        }
+
+        return res;
+}
+
+
+
 ExpressionResults parseSailfishFile(const bfs::path& expFile) {
         std::ifstream ifile(expFile.string());
         ExpressionResults res;
@@ -489,3 +522,247 @@ int performBiasCorrection(
         ofile.close();
     return 0;
 }
+
+
+int performBiasCorrectionSalmon(
+        bfs::path featureFile,
+        bfs::path expressionFile,
+        bfs::path outputFile,
+        size_t numThreads) {
+
+        using shark::PCA;
+
+        auto features = parseFeatureFile(featureFile);
+        std::cerr << "parsed " << features.size() << " features\n";
+
+        double numMappedReads = 0.0;
+        auto salmonRes = parseSalmonFile(expressionFile, numMappedReads);
+        std::cerr << "parsed " << salmonRes.expressions.size() << " expression values\n";
+
+        std::vector<size_t> retainedRows;
+        std::vector<double> retainedTPMs;
+        std::vector<std::string> retainedNames;
+
+        double minLTPM, maxLTPM;
+        minLTPM = std::numeric_limits<double>::max();
+        maxLTPM = -minLTPM;
+
+        for (auto i : boost::irange(size_t{0}, features.size())) {
+                auto& tname = features[i].name;
+                auto tpm = salmonRes.expressions[tname].tpm; //
+                shark::RealVector v(1);
+
+                if ( tpm >= 1.0 ) {
+                        retainedRows.emplace_back(i);
+                        retainedNames.push_back(tname);
+                        v(0) = std::log(tpm);
+                        retainedTPMs.push_back(v(0));
+                        minLTPM = std::min(minLTPM, v(0));
+                        maxLTPM = std::max(maxLTPM, v(0));
+                }
+        }
+
+
+        //Pca pca;
+
+        std::vector<shark::RealVector> featMat;
+        std::vector<float> pcavec;
+        size_t fnum = 0;
+        for (auto r : retainedRows) {
+                auto& f = features[r];
+                shark::RealVector v(17);
+                std::vector<double> fv(17);
+                fv[0] = f.gcContent;
+                v(0) = f.gcContent;
+                pcavec.push_back(f.gcContent);
+                for (auto i : boost::irange(size_t{0}, f.diNucleotides.size())) {
+                        v(i+1) = f.diNucleotides[i];
+                        fv[i+1] = f.diNucleotides[i];
+                        pcavec.push_back(f.diNucleotides[i]);
+                }
+                featMat.emplace_back(v);
+                ++fnum;
+        }
+
+        /*
+        std::cerr << "solving . . . ";
+        pca.Calculate(pcavec, retainedRows.size(), 17, true, false, false);
+        std::cerr << "done\n";
+        size_t numRetained = pca.thresh95();
+        std::cerr << "numRetained = " << numRetained << "\n";
+        std::vector<float> sdevs = pca.sd();
+        std::cerr << "sdevs.size() " << sdevs.size() << "\n";
+        */
+
+        shark::UnlabeledData<shark::RealVector> Xsub = shark::createDataFromRange(featMat);
+
+        PCA pcao(Xsub, true);
+        auto evals = pcao.eigenvalues();
+        double totalVariance = 0.0;
+        for ( auto e : evals ) { std::cerr << e << "\n"; totalVariance += e; }
+        std::cerr << "totalVariance: " << totalVariance << "\n";
+        double varCutoff = 0.95;
+        double varSum = 0.0;
+        size_t dimCutoff = 0;
+        size_t currentDim = 0;
+        for ( auto e : evals ) {
+                ++currentDim;
+                varSum += e;
+                std::cerr << "ev: " << e <<  "\n";
+                if (varSum / totalVariance >= varCutoff) {
+                        dimCutoff = currentDim;
+                        break;
+                }
+
+        }
+        std::cerr << varCutoff * 100.0 << "% of the variance is explained by " << dimCutoff << " dimensions\n";
+        /*
+        std::vector<float> scores = pca.scores();
+        std::cerr << "score.size() " << scores.size() << "\n";
+        std::cerr << "pts * dimes = " << retainedRows.size() * dimCutoff << "\n";
+        */
+
+        shark::LinearModel<> enc;
+        pcao.encoder(enc, dimCutoff);
+        auto encodedXsub = enc(Xsub);
+
+        //shark::UnlabeledData<shark::RealVector> X(18, features.size());
+        Data train;
+        train.set_size(retainedRows.size(), dimCutoff+1);
+
+        //size_t le = 0;
+        size_t c = 0;
+        for (auto r : retainedRows) {
+                train.X[c][0] = std::log(static_cast<double>(features[r].length));
+
+                for (auto j : boost::irange(size_t{1}, dimCutoff+1)) {
+                        train.X[c][j] = encodedXsub.element(c)(j-1);
+                        //train.X[c][j] = scores[le];
+                        //train2.X[c][j] = scores[le];
+                        //++le;
+                        //std::cerr << "Train [" << c <<"][" << j        << "] = " << train.X[c][j] << "\n";
+                }
+                //le += (17 - dimCutoff);
+                train.y[c] = retainedTPMs[c];
+                ++c;
+        }
+
+        /** Random Forest Regression **/
+        size_t minDepth = 5;
+        auto reg = std::unique_ptr<RandomForestRegressor>(new RandomForestRegressor(
+                500,
+                train.n_features,
+                5, // max tree depth
+                1, // min_samples_leaf
+                1.0, // features ratio
+                true, // bootstrap
+                true, //out-of-bag
+                true, // compute importance
+                0, // random seed
+                numThreads, // num jobs
+                true // verbose
+        ));
+
+
+        /*
+        auto reg = std::unique_ptr<GBMRegressor>(new GBMRegressor(
+                SQUARE_LOSS,
+                500,
+                train.n_features,
+                7, // max tree depth
+                1, //min sample leaf
+                1.0, // max features ratio
+                0.8, // subsample
+                0.05, //learn rate
+                true, //out-of-bag
+                true, // compute imporance
+                34239, // random seed
+                numThreads, // num jobs
+                true // verbose
+        ));
+        */
+
+        std::cerr << "there are " << train.n_samples << " samples\n";
+        std::cerr << "there are " << train.n_features << " features\n";
+        reg->build(train.X, train.y, train.n_samples);
+
+        std::vector<REAL> pred(train.n_samples, 0.0);
+        reg->predict(train.X, &pred[0], train.n_samples, train.n_features);
+
+        REAL trn_rmse=rmse(&pred[0], train.y, train.n_samples);
+        REAL trn_r2=R2(&pred[0], train.y, train.n_samples);
+        std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
+
+        double grandMean = 0.0;
+        size_t ntrain = train.n_samples;
+        for (auto i : boost::irange(size_t{0}, ntrain)) {
+                grandMean += retainedTPMs[i];
+        }
+        grandMean /= train.n_samples;
+
+        for (auto i : boost::irange(size_t{0}, ntrain)) {
+                pred[i] = grandMean + (retainedTPMs[i] - pred[i]);
+        }
+
+        trn_rmse=rmse(&pred[0], train.y, train.n_samples);
+        trn_r2=R2(&pred[0], train.y, train.n_samples);
+        std::cerr << "Train RMSE=" << trn_rmse << ", Correlation Coefficient=" << trn_r2 << "\n";
+
+        //shark::UnlabeledData<shark::RealVector> X()
+
+        std::ofstream ofile(outputFile.string());
+        for (auto& c : salmonRes.comments) {
+                ofile << c << "\n";
+        }
+
+        size_t retainedCnt = 0;
+        vector<mpdec> tpms(features.size());
+        for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
+          auto& name = features[i].name;
+          auto& r = salmonRes.expressions[name];
+          if (i == retainedRows[retainedCnt]) {
+            tpms[i] = std::exp(pred[retainedCnt]);
+            ++retainedCnt;
+          } else {
+              tpms[i] = r.tpm;
+          }
+        }
+
+        vector<mpdec> fpkms(features.size());
+        vector<mpdec> estNumReads(features.size());
+
+        // use TPM estimates to computed estimated read counts
+        mpdec mpzero = 0;
+        mpdec totalNucDenom = 0;
+        for (auto i : boost::irange(size_t{0},  size_t{features.size()})) {
+            double len = features[i].length;
+            totalNucDenom += tpms[i] * len;
+        }
+
+        for (auto i : boost::irange(size_t{0},  size_t{features.size()})) {
+            mpdec len = features[i].length;
+            estNumReads[i] += ((tpms[i] * len) / totalNucDenom) * numMappedReads;
+        }
+
+        double oneBillion = 1000000000.0;
+        for (auto i : boost::irange(size_t{0},  size_t{features.size()})) {
+            double len = features[i].length;
+            fpkms[i] = (estNumReads[i] / (len * numMappedReads)) * oneBillion;
+        }
+
+        for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
+          auto& name = features[i].name;
+          auto& r = salmonRes.expressions[name];
+          auto length = r.length;
+          ofile << name << '\t'
+                << r.length << '\t'
+                << tpms[i] << '\t'
+                << fpkms[i] << '\t'
+                << estNumReads[i] << '\n';
+        }
+        std::cerr << "retainedCnt = " << retainedCnt << ", nsamps = " << train.n_samples << "\n";
+
+        ofile.close();
+    return 0;
+}
+

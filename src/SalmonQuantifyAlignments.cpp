@@ -446,6 +446,18 @@ void quantifyLibrary(
     */
 }
 
+int computeBiasFeatures(
+    std::vector<std::string>& transcriptFiles,
+    boost::filesystem::path outFilePath,
+    bool useStreamingParser,
+    size_t numThreads);
+
+int performBiasCorrectionSalmon(
+        boost::filesystem::path featureFile,
+        boost::filesystem::path expressionFile,
+        boost::filesystem::path outputFile,
+        size_t numThreads);
+
 int salmonAlignmentQuantify(int argc, char* argv[]) {
     using std::cerr;
     using std::vector;
@@ -455,7 +467,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
     SalmonOpts sopt;
 
-    bool noBiasCorrect{false};
+    bool biasCorrect{false};
     uint32_t numThreads{6};
     size_t requiredObservations{50000000};
 
@@ -483,7 +495,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
                         "lengths.")
     ("output,o", po::value<std::string>()->required(), "Output quantification directory.")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
+    ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
+                                                             "qunatification estimates.")
     ("num_required_obs,m", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before\n"
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
@@ -623,33 +636,29 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                 std::exit(1);
         }
 
+        bfs::path estFilePath = outputDirectory / "quant.sf";
 
-        /*
-        if (!noBiasCorrect) {
-            // Estimated read length
-            double estimatedReadLength = 36;
-            // Number of k-mers per read
-            double kmersPerRead = 1.0;
-            // Total number of mapped kmers
-            uint64_t mappedKmers= totalHits;
+        if (noBiasCorrect) {
+            // First, compute the transcript features in case the user
+            // ever wants to bias-correct his / her results
+            bfs::path transcriptBiasFile(outputDirectory); transcriptBiasFile /= "bias_feats.txt";
+
+            bool useStreamingParser{true};
+            std::vector<std::string> transcriptFiles{transcriptFile.string()};
+            std::cerr << "computeBiasFeatures( {";
+            for (auto& tf : transcriptFiles) {
+                std::cerr << "[" << tf << "] ";
+            }
+            std::cerr << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
+            computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
             auto origExpressionFile = estFilePath;
 
             auto outputDirectory = estFilePath;
             outputDirectory.remove_filename();
 
-            auto biasFeatPath = indexDirectory / "bias_feats.txt";
             auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
-            performBiasCorrection(biasFeatPath, estFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
-                    20, biasCorrectedFile, nbThreads);
-
-        }
-        */
-
-        // Not ready for read / alignment-based bias correction yet
-        if (!noBiasCorrect) {
-            fmt::print(stderr, "Post-hoc bias correction is not yet supported in salmon; disabling\n");
-            noBiasCorrect = true;
+            performBiasCorrectionSalmon(transcriptBiasFile, estFilePath, biasCorrectedFile, numThreads);
         }
 
         /** If the user requested gene-level abundances, then compute those now **/
@@ -657,7 +666,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                                                             outputDirectory,
-                                                            !noBiasCorrect);
+                                                            biasCorrect);
             } catch (std::exception& e) {
                 fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
                                    "estimates. The gene-level file(s) may not exist",

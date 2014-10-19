@@ -1541,6 +1541,12 @@ void quantifyLibrary(
     fmt::print(stderr, "\n\n\n\n");
 }
 
+int performBiasCorrectionSalmon(
+        boost::filesystem::path featureFile,
+        boost::filesystem::path expressionFile,
+        boost::filesystem::path outputFile,
+        size_t numThreads);
+
 int salmonQuantify(int argc, char *argv[]) {
     using std::cerr;
     using std::vector;
@@ -1548,7 +1554,7 @@ int salmonQuantify(int argc, char *argv[]) {
     namespace bfs = boost::filesystem;
     namespace po = boost::program_options;
 
-    bool noBiasCorrect{false};
+    bool biasCorrect{false};
     bool optChain{false};
     uint32_t maxThreads = std::thread::hardware_concurrency();
     size_t requiredObservations;
@@ -1598,7 +1604,8 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
     ("output,o", po::value<std::string>()->required(), "Output quantification file.")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
+    ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
+                                                               "qunatification estimates.")
     ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
                                         "Salmon will output both quant.sf and quant.genes.sf files, where the latter "
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping "
@@ -1686,7 +1693,6 @@ transcript abundance from RNA-seq reads
         ReadExperiment experiment(readLibraries, indexDirectory);
         uint32_t nbThreads = vm["threads"].as<uint32_t>();
 
-
         quantifyLibrary(experiment, greedyChain, memOptions, sopt, coverageThresh,
                         requiredObservations, nbThreads);
 
@@ -1698,20 +1704,7 @@ transcript abundance from RNA-seq reads
         bfs::path estFilePath = outputDirectory / "quant.sf";
         salmon::utils::writeAbundances(experiment, estFilePath, commentString);
 
-        // Not ready for read / alignment-based bias correction yet
-        if (!noBiasCorrect) {
-            fmt::print(stderr, "Post-hoc bias correction is not yet supported in salmon; disabling\n");
-            noBiasCorrect = true;
-        }
-
-        if (!noBiasCorrect) {
-            // Estimated read length
-            double estimatedReadLength = 36;
-            // Number of k-mers per read
-            double kmersPerRead = 1.0;
-            // Total number of mapped kmers
-            uint64_t mappedKmers= experiment.numMappedReads();
-
+        if (biasCorrect) {
             auto origExpressionFile = estFilePath;
 
             auto outputDirectory = estFilePath;
@@ -1719,9 +1712,7 @@ transcript abundance from RNA-seq reads
 
             auto biasFeatPath = indexDirectory / "bias_feats.txt";
             auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
-            performBiasCorrection(biasFeatPath, estFilePath, estimatedReadLength, kmersPerRead, mappedKmers,
-                    20, biasCorrectedFile, nbThreads);
-
+            performBiasCorrectionSalmon(biasFeatPath, estFilePath, biasCorrectedFile, maxThreads);
         }
 
         /** If the user requested gene-level abundances, then compute those now **/
@@ -1729,7 +1720,7 @@ transcript abundance from RNA-seq reads
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                                                             outputDirectory,
-                                                            !noBiasCorrect);
+                                                            biasCorrect);
             } catch (std::invalid_argument& e) {
                 fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
                                    "estimates. The gene-level file(s) may not exist",

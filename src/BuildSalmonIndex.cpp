@@ -64,13 +64,22 @@ extern "C" {
 int bwa_index(int argc, char* argv[]);
 }
 
+int computeBiasFeatures(
+    std::vector<std::string>& transcriptFiles,
+    boost::filesystem::path outFilePath,
+    bool useStreamingParser,
+    size_t numThreads);
+
 int salmonIndex(int argc, char* argv[]) {
 
     using std::string;
     namespace bfs = boost::filesystem;
     namespace po = boost::program_options;
 
+    bool useStreamingParser = true;
+
     uint32_t maxThreads = std::thread::hardware_concurrency();
+    uint32_t numThreads;
 
     po::options_description generic("Command Line Options");
     generic.add_options()
@@ -78,6 +87,8 @@ int salmonIndex(int argc, char* argv[]) {
     ("help,h", "produce help message")
     ("transcripts,t", po::value<string>()->required(), "Transcript fasta file.")
     ("index,i", po::value<string>()->required(), "Salmon index.")
+    ("threads,p", po::value<uint32_t>(&numThreads)->default_value(maxThreads)->required(),
+                            "Number of threads to use (only used for computing bias features)")
     ;
 
     po::variables_map vm;
@@ -100,7 +111,7 @@ Salmon index if it exists, or creates a new index
         }
         po::notify(vm);
 
-        string transcriptFiles = vm["transcripts"].as<string>();
+        string transcriptFile = vm["transcripts"].as<string>();
         bfs::path indexDirectory(vm["index"].as<string>());
 
         if (!bfs::exists(indexDirectory)) {
@@ -109,11 +120,27 @@ Salmon index if it exists, or creates a new index
             bfs::create_directory(indexDirectory);
         }
 
+        // First, compute the transcript features in case the user
+        // ever wants to bias-correct his / her results
+        // NOTE: Currently, we're using the same bias correction technique here that
+        // we use in Sailfish. In the future, test more "traditional" bias correction
+        // techniques to see if we should adopt them instead
+        bfs::path transcriptBiasFile(indexDirectory); transcriptBiasFile /= "bias_feats.txt";
+
+        std::vector<std::string> transcriptFiles = {transcriptFile};
+        std::cerr << "computeBiasFeatures( {";
+        for (auto& tf : transcriptFiles) {
+            std::cerr << "[" << tf << "] ";
+        }
+        std::cerr << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
+        computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
+        // ==== finished computing bias fetures
+
         bfs::path outputPrefix = indexDirectory / "bwaidx";
 
         std::vector<char*> bwaArgVec{ "index", "-p",
                                     const_cast<char*>(outputPrefix.string().c_str()),
-                                    const_cast<char*>(transcriptFiles.c_str()) };
+                                    const_cast<char*>(transcriptFile.c_str()) };
 
         char* bwaArgv[] = { bwaArgVec[0], bwaArgVec[1],
                             bwaArgVec[2], bwaArgVec[3] };
@@ -121,7 +148,7 @@ Salmon index if it exists, or creates a new index
 
         ret = bwa_index(bwaArgc, bwaArgv);
 
-    std::cerr << "done\n";
+        std::cerr << "done\n";
 
     } catch (po::error &e) {
         std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
