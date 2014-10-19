@@ -638,7 +638,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
 
-        if (noBiasCorrect) {
+        if (biasCorrect) {
             // First, compute the transcript features in case the user
             // ever wants to bias-correct his / her results
             bfs::path transcriptBiasFile(outputDirectory); transcriptBiasFile /= "bias_feats.txt";
