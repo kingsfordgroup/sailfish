@@ -187,6 +187,7 @@ and the gzipped files will be decompressed via separate processes and the raw
 reads will be fed into salmon.
 
 .. note:: Reading through decompressed files multiple times
+
     Salmon requires a specific number of observations (mapped fragments) to
     be observed before it will report its quantification results.  If it 
     doesn't see enough fragments when reading through the read files the 
