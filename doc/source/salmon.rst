@@ -28,6 +28,7 @@ provide a FASTA file of the transcriptome and a ``.sam`` or ``.bam`` file
 containing a set of alignments.
 
 .. note:: Read / alignment order
+
     Salmon, like eXpress, uses a streaming inference method to perform 
     transcript-level quantification.  One of the fundamental assumptions 
     of such inference methods is that observations (i.e. reads or alignments)
@@ -59,6 +60,7 @@ For the full set of options that can be passed to Salmon in its alignment-based
 mode, and a description of each, run ``salmon quant --help-alignment``.
 
 .. note:: Genomic vs. Transcriptomic alignments
+
     Salmon expects that the alignment files provided are with respect to the
     transcripts given in the corresponding fasta file.  That is, salmon expects
     that the reads have been aligned directly to the transcriptome (like RSEM,
