@@ -27,6 +27,16 @@ subsequently processes reads directly.  The second mode simply requires you to
 provide a FASTA file of the transcriptome and a ``.sam`` or ``.bam`` file
 containing a set of alignments.
 
+.. note:: Read / alignment order
+    Salmon, like eXpress, uses a streaming inference method to perform 
+    transcript-level quantification.  One of the fundamental assumptions 
+    of such inference methods is that observations (i.e. reads or alignments)
+    are made "at random".  This means, for example, that alignments should 
+    **not** be sorted by target or position.  If your reads or alignments 
+    do not appear in a random order with respect to the target transcripts,
+    please randomize / shuffle them before performing quantification with 
+    salmon.
+
 Alignment-based mode
 --------------------
 
@@ -47,6 +57,22 @@ those of Sailfish (and self-explanatory where they differ).
 
 For the full set of options that can be passed to Salmon in its alignment-based
 mode, and a description of each, run ``salmon quant --help-alignment``.
+
+.. note:: Genomic vs. Transcriptomic alignments
+    Salmon expects that the alignment files provided are with respect to the
+    transcripts given in the corresponding fasta file.  That is, salmon expects
+    that the reads have been aligned directly to the transcriptome (like RSEM,
+    eXpress, etc.) rather than to the genome (as does, e.g. Cufflinks).  If you
+    have reads that have already been aligned to the genome, there are
+    currently 3 options for converting them for use with Salmon.  First, you
+    could convert the SAM/BAM file to a FAST{A/Q} file and then use the
+    read-based mode of salmon described below.  Second, given the converted
+    FASTA{A/Q} file, you could re-align these converted reads directly to the
+    transcripts with your favorite aligner and run salmon in alignment-based
+    mode as described above.  Third, you could use a tool like `sam-xlate <https://github.com/mozack/ubu/wiki>`_
+    to try and convert the genome-coordinate BAM files directly into transcript 
+    coordinates.  This avoid the necessity of having to re-map the reads. However,
+    we have very limited experience with this tool so far.
 
 .. topic:: Multiple alignment files
     
