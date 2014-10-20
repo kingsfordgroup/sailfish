@@ -73,7 +73,7 @@ mode, and a description of each, run ``salmon quant --help-alignment``.
     transcripts with your favorite aligner and run salmon in alignment-based
     mode as described above.  Third, you could use a tool like `sam-xlate <https://github.com/mozack/ubu/wiki>`_
     to try and convert the genome-coordinate BAM files directly into transcript 
-    coordinates.  This avoid the necessity of having to re-map the reads. However,
+    coordinates.  This avoids the necessity of having to re-map the reads. However,
     we have very limited experience with this tool so far.
 
 .. topic:: Multiple alignment files
