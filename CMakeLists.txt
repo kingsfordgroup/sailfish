@@ -20,12 +20,12 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 set (WARNING_IGNORE_FLAGS "-Wno-deprecated-register") 
-
+set (BOOST_CXX_FLAGS "-Wno-deprecated-register -std=c++11")
 ## Prefer static to dynamic libraries
 SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
-set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -march=native -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -178,7 +178,7 @@ elseif(FETCH_BOOST)
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -j2 ${BOOST_EXTRA_FLAGS} cxxflags=${WARNING_IGNORE_FLAGS} install
+        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -j4 ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
@@ -379,7 +379,7 @@ ExternalProject_Add(libshark
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CMAKE_ARGS -DOPT_DYNAMIC_LIBRARY=FALSE -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
                -DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DOPT_MAKE_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${SHARK_INSTALL_DIR}
-               -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+               -DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     BUILD_COMMAND sh -c "make"
     INSTALL_COMMAND sh -c "make install"
     BUILD_IN_SOURCE 1
