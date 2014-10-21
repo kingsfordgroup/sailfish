@@ -20,7 +20,7 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 set (WARNING_IGNORE_FLAGS "-Wno-deprecated-register") 
-set (BOOST_CXX_FLAGS "-Wno-deprecated-register -std=c++11")
+set (BOOST_CXX_FLAGS "-Wno-unused-local-typedefs -Wno-deprecated-register -std=c++11")
 ## Prefer static to dynamic libraries
 SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
