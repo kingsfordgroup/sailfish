@@ -25,6 +25,6 @@ install:
     - export CXX="g++-4.8"
     - export CC="gcc-4.8"
 
-script: mkdir build && cd build && cmake -DFETCH_BOOST=TRUE .. && make && make test
+script: travis_wait mkdir build && cd build && cmake -DFETCH_BOOST=TRUE .. && make && make test
 
 

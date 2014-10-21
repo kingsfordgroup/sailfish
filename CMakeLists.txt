@@ -20,7 +20,7 @@ set(CPACK_SOURCE_PACKAGE_FILE_NAME
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 set (WARNING_IGNORE_FLAGS "-Wno-deprecated-register") 
-set (BOOST_CXX_FLAGS "-Wno-unused-local-typedefs -Wno-deprecated-register -std=c++11")
+set (BOOST_CXX_FLAGS "-Wno-deprecated-register -std=c++11")
 ## Prefer static to dynamic libraries
 SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
@@ -178,7 +178,7 @@ elseif(FETCH_BOOST)
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -j4 ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
+        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -d0 -j4 ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
