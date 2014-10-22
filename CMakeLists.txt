@@ -179,7 +179,7 @@ elseif(FETCH_BOOST)
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         #PATCH_COMMAND patch -p2 < ${CMAKE_CURRENT_SOURCE_DIR}/external/boost156.patch
         CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -d0 -j4 ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
+        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -d0 -j2 ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
