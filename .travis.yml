@@ -10,20 +10,21 @@ compiler: gcc
 before_install:
     - echo "yes" | sudo apt-add-repository ppa:boost-latest
     - echo "yes" | sudo apt-add-repository ppa:mapnik/boost-backports-1-54
-    - echo "yes" | sudo apt-add-repository ppa:ubuntu-toolchain-r/test
+    #- echo "yes" | sudo apt-add-repository ppa:ubuntu-toolchain-r/test
+    - echo "yes" | sudo apt-add-repository ppa:h-rayflood/gcc-upper
     - sudo apt-get clean -qq
     - sudo apt-get update -qq
-    - sudo apt-get install -qq gcc-4.8 g++-4.8
-    - export CC="gcc-4.8"
-    - export CXX="gcc-4.8"
-    - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 50
-    - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 50
+    - sudo apt-get install -qq gcc-4.9 g++-4.9
+    - export CC="gcc-4.9"
+    - export CXX="gcc-4.9"
+    - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 50
+    - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.9 50
 
       #- sudo apt-get install -qq libboost1.55-all-dev
 
 install:
-    - export CXX="g++-4.8"
-    - export CC="gcc-4.8"
+    - export CXX="g++-4.9"
+    - export CC="gcc-4.9"
 
 script: 
     - mkdir build 
