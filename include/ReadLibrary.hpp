@@ -53,7 +53,7 @@ public:
     bool checkFileExtensions_(std::vector<std::string>& filenames, std::stringstream& errorStream) {
         namespace bfs = boost::filesystem;
 
-        std::set<std::string> acceptableExensions = {".FASTA", ".FASTQ", ".FA", ".FQ"
+        std::set<std::string> acceptableExensions = {".FASTA", ".FASTQ", ".FA", ".FQ",
                                                      ".fasta", ".fastq", ".fa", ".fq"};
         bool extensionsOK{true};
         for (auto& fn : filenames) {
