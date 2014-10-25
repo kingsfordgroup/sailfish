@@ -126,6 +126,21 @@ tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& BAMQueue<FragT>::getAlig
     return alnGroupPool_;
 }
 
+inline bool checkProperPairedNames_(const char* qname1, const char* qname2, const uint32_t nameLen) {
+    bool same{true};
+    bool sameEnd{true};
+    if (BOOST_LIKELY(nameLen > 1)) {
+        same = (memcmp(qname1, qname2, nameLen - 1) == 0);
+        sameEnd = qname1[nameLen-1] == qname2[nameLen-1];
+        same = same and (sameEnd or qname1[nameLen-1] == '1' or qname1[nameLen-1] == '2');
+        same = same and (sameEnd or qname2[nameLen-1] == '2' or qname2[nameLen-1] == '1');
+    } else {
+        same = (memcmp(qname1, qname2, nameLen) == 0);
+    }
+    return same;
+}
+
+
 template <typename FragT>
 inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
     bool haveValidPair{false};
@@ -176,7 +191,10 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
         // If the lengths are the same, check the actual strings.  Use
         // memcmp for efficiency since we know the length.
         if (BOOST_LIKELY(sameName)) {
-            sameName = (memcmp(bam1_qname(rpair.read1), bam1_qname(rpair.read2), rpair.read1->core.l_qname) == 0);
+            auto nameLen = rpair.read1->core.l_qname;
+            char* qname1 = bam1_qname(rpair.read1);
+            char* qname2 = bam1_qname(rpair.read2);
+            sameName = checkProperPairedNames_(qname1, qname2, nameLen);
         }
  
         // If the reads don't have the same name, then the pair was not
@@ -220,7 +238,10 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
                 // same and then that the names are, in fact, identical.
                 sameName = (rpair.read1->core.l_qname == rpair.read2->core.l_qname);
                 if (BOOST_LIKELY(sameName)) {
-                    sameName = (memcmp(bam1_qname(rpair.read1), bam1_qname(rpair.read2), rpair.read1->core.l_qname) == 0);
+                    auto nameLen = rpair.read1->core.l_qname;
+                    char* qname1 = bam1_qname(rpair.read1);
+                    char* qname2 = bam1_qname(rpair.read2);
+                    sameName = checkProperPairedNames_(qname1, qname2, nameLen);
                 }
             } // end while (!sameName)
 
