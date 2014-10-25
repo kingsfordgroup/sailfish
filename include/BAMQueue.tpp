@@ -1,4 +1,6 @@
 #include "BAMQueue.hpp"
+#include "IOUtils.hpp"
+#include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
 
 template <typename FragT>
 BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt):
@@ -127,15 +129,19 @@ tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& BAMQueue<FragT>::getAlig
 template <typename FragT>
 inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
     bool haveValidPair{false};
+    bool didRead1{false};
+    bool didRead2{false};
 
-       while (!haveValidPair) {
-        bool didRead1 = (sam_read1(fp_, hdr_, rpair.read1) >= 0);
-        bool didRead2 = (sam_read1(fp_, hdr_, rpair.read2) >= 0);
-        // If we didn't get a read, then we've exhausted this file
-        // NOTE: Not sure about the *or* condition here. In some cases,
-        // we may be discarding a single read, but it won't be properly
-        // paired anyway.  Figure out what the right thing is to do 
-        // here.
+    while (!haveValidPair) {
+        // Consume two consecutive reads, which we assume will be 
+        // the ends of the pair.
+        didRead1 = (sam_read1(fp_, hdr_, rpair.read1) >= 0);
+        didRead2 = (sam_read1(fp_, hdr_, rpair.read2) >= 0);
+
+        // If we didn't get a read, then we've exhausted this file. 
+        // NOTE: I'm not sure about the *or* condition here. In some cases, we
+        // may be discarding a single read, but it won't be properly paired
+        // anyway. Figure out what the right thing is to do here.
         if (!didRead1 or !didRead2) { 
             currFile_++;
             // If this is the last file, then we're done
@@ -145,29 +151,113 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
             hdr_ = currFile_->header;
             continue;
         }
+        
+        // For the time being, flip out and quit if we 
+        // find a non-paired read.
+        if (BOOST_UNLIKELY((
+            !(rpair.read1->core.flag & BAM_FPAIRED) or
+            !(rpair.read2->core.flag & BAM_FPAIRED))
+            )) {
+            fmt::Writer errmsg;
+            errmsg << "\n\n" 
+                   << ioutils::SET_RED << "ERROR: " << ioutils::RESET_COLOR 
+                   << "Saw adjacent reads, at least one of which was unpaired. "
+                   << "The two ends of a paired-end read should be adjacent. "
+                   << "Don't know how to proceed; exiting!\n\n";
+            std::cerr << errmsg.str();
+            std::exit(-1);
+        }
+
+        // We've observed two consecutive paired reads; now check if our reads
+        // have the same name.
+
+        // The names must first have the same length.
+        bool sameName = (rpair.read1->core.l_qname == rpair.read2->core.l_qname);
+        // If the lengths are the same, check the actual strings.  Use
+        // memcmp for efficiency since we know the length.
+        if (BOOST_LIKELY(sameName)) {
+            sameName = (memcmp(bam1_qname(rpair.read1), bam1_qname(rpair.read2), rpair.read1->core.l_qname) == 0);
+        }
+ 
+        // If the reads don't have the same name, then the pair was not
+        // consecutive in the file --- complain and skip!
+        if (BOOST_UNLIKELY(!sameName)) {
+
+            // Flag stores whether or not we've consumed all of the 
+            // alignment records in the current file.
+            bool consumedFile{false};
+
+            // Consume reads until we find a pair with the same name
+            while (!sameName) {
+                // Complain if this is supposed to be a paired read
+                fmt::print(stderr, "{}WARNING:{} The mate of read [{}] did not "
+                        "appear next to it in the file. The next read was [{}].  "
+                        "Skipping the first read\n\n", 
+                        ioutils::SET_RED, 
+                        ioutils::RESET_COLOR, 
+                        bam1_qname(rpair.read1),
+                        bam1_qname(rpair.read2));
+
+                rpair.read1 = rpair.read2; 
+                didRead2 = (sam_read1(fp_, hdr_, rpair.read2) >= 0);
+                // If we hit the end of the file --- skip to the top of the loop
+                // to see if we need to move on to another file.
+                if (!didRead2) { consumedFile = true; continue; }
+
+                // As above, if we encounter a non-paired read, then, for the
+                // time being, flip out and quit.
+                if (BOOST_UNLIKELY(!(rpair.read2->core.flag & BAM_FPAIRED))) {
+                    fmt::Writer errmsg;
+                    errmsg << "\n\n" 
+                        << ioutils::SET_RED << "ERROR: " << ioutils::RESET_COLOR 
+                        << "Saw adjacent reads, at least one of which was unpaired. "
+                        << "The two ends of a paired-end read should be adjacent. "
+                        << "Don't know how to proceed; exiting!\n\n";
+                    std::cerr << errmsg.str();
+                    std::exit(-1);
+                }
+                // As above, check first that the lengths of the names are the
+                // same and then that the names are, in fact, identical.
+                sameName = (rpair.read1->core.l_qname == rpair.read2->core.l_qname);
+                if (BOOST_LIKELY(sameName)) {
+                    sameName = (memcmp(bam1_qname(rpair.read1), bam1_qname(rpair.read2), rpair.read1->core.l_qname) == 0);
+                }
+            } // end while (!sameName)
+
+            // If we consumed all of the current file, break to the top of the
+            // loop.
+            if (BOOST_UNLIKELY(consumedFile)) { continue; } 
+        }
 
         bool read1IsValid{false};
-        if (rpair.read1->core.flag & BAM_FPROPER_PAIR 
-            and !(rpair.read1->core.flag & BAM_FDUP) 
-            and !(rpair.read1->core.flag & BAM_FQCFAIL)
+        if ( !(rpair.read1->core.flag & BAM_FUNMAP) and
+             !(rpair.read1->core.flag & BAM_FDUP) and
+             !(rpair.read1->core.flag & BAM_FQCFAIL)
             ) {
             read1IsValid = true;
         }
 
         bool read2IsValid{false};
-        if (rpair.read2->core.flag & BAM_FPROPER_PAIR 
-            and !(rpair.read2->core.flag & BAM_FDUP) 
-            and !(rpair.read2->core.flag & BAM_FQCFAIL)
+        if ( !(rpair.read2->core.flag & BAM_FUNMAP) and
+             !(rpair.read2->core.flag & BAM_FDUP) and
+             !(rpair.read2->core.flag & BAM_FQCFAIL)
             ) {
             read2IsValid = true;
         }
 
         haveValidPair = read1IsValid and read2IsValid and
-            (rpair.read1->core.tid == rpair.read2->core.tid) and
-            (rpair.read1->core.l_qname == rpair.read2->core.l_qname) and
-            (strcmp(bam1_qname(rpair.read1), bam1_qname(rpair.read2)) == 0);
-
-        if (!haveValidPair) { ++numUnaligned_; }//bam_destroy1(rpair.read1); bam_destroy1(rpair.read2); ++numUnaligned_;}
+                        (rpair.read1->core.tid == rpair.read2->core.tid) and 
+                        sameName;
+ 
+        // If the pair was not properly mapped 
+        if (!haveValidPair) { 
+            ++numUnaligned_; 
+        } else {
+            // Make sure read1 is read1 and read2 is read2; else swap
+            if (rpair.read1->core.flag & BAM_FREAD2) {
+                std::swap(rpair.read1, rpair.read2);
+            }
+        }
         ++totalReads_;
     }
 
@@ -227,14 +317,16 @@ void BAMQueue<FragT>::fillQueue_() {
     FragT* f;
     fragmentQueue_.pop(f);
     //ReadPair p = {nullptr, nullptr, LOG_0};
+    uint32_t prevLen{1};
     char* prevReadName = new char[100];
     prevReadName[0] = '\0';
     while(getFrag_(*f) and !doneParsing_) {
 
         char* readName = f->getName();//bam1_qname(p.read1);
+        uint32_t currLen = f->getNameLength();
         // if this is a new read
-        // TODO: (p.read1->core.l_qname != p.read2->core.l_qname)
-        if (strcmp(readName, prevReadName) != 0) {
+        if ( (currLen != prevLen) or
+             (memcmp(readName, prevReadName, currLen) != 0) ) { // strcmp(readName, prevReadName) != 0) {
             if (alngroup->size() > 0)  {
                 // push the align group
                 while(!alnGroupQueue_.push(alngroup));
@@ -243,6 +335,7 @@ void BAMQueue<FragT>::fillQueue_() {
             }
             alngroup->addAlignment(f);
             prevReadName = readName;
+            prevLen = currLen;
             numMappedReads_++;
         } else {
             alngroup->addAlignment(f);

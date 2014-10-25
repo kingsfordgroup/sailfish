@@ -50,6 +50,10 @@ struct ReadPair {
         return bam_get_qname(read1);//bam1_qname(read1);
     }
 
+    inline uint32_t getNameLength() {
+        return read1->core.l_qname;
+    }
+
     inline uint32_t fragLen() {
         //return std::abs(read1->core.pos - read2->core.pos) + read2->core.l_qseq;
         return std::abs(read1->core.isize) + std::abs(read1->core.l_qseq) + std::abs(read2->core.l_qseq);

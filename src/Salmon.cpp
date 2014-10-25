@@ -56,7 +56,7 @@
 #include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
 #include "CollapsedIterativeOptimizer.hpp"
-#include "SailfishConfig.hpp"
+#include "SalmonConfig.hpp"
 #include "VersionChecker.hpp"
 
 int help(int argc, char* argv[]) {
@@ -72,7 +72,7 @@ int help(int argc, char* argv[]) {
     will give you detailed help information about the index command.
     )";
 
-    std::cerr << "    Salmon v" << sailfish::version << helpmsg << "\n";
+    std::cerr << "    Salmon v" << salmon::version << helpmsg << "\n";
     return 1;
 }
 
@@ -96,7 +96,7 @@ int dualModeMessage() {
 
     salmon quant --help-reads
     )";
-    std::cerr << "    Salmon v" << sailfish::version << helpmsg << "\n";
+    std::cerr << "    Salmon v" << salmon::version << helpmsg << "\n";
     return 1;
 }
 
@@ -160,7 +160,7 @@ int main( int argc, char* argv[] ) {
     po::store(parsed, vm);
 
     if (vm.count("version")) {
-      std::cerr << "version : " << sailfish::version << "\n";
+      std::cerr << "version : " << salmon::version << "\n";
       std::exit(0);
     }
 

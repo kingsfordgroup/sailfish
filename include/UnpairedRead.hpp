@@ -38,6 +38,10 @@ struct UnpairedRead {
         return  bam_get_qname(read);//bam1_qname(read);
     }
 
+    inline uint32_t getNameLength() {
+        return read->core.l_qname;
+    }
+
    inline bool isRight() { return read->core.flag & BAM_FREVERSE; }
    inline bool isLeft()  { return !isRight(); }
    inline int32_t left() { return read->core.pos; }
