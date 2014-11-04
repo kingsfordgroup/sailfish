@@ -96,7 +96,7 @@ message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
 # Set the RPATH 
-set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/")
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
 # Build the Sailfish library
