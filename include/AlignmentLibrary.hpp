@@ -13,6 +13,7 @@ extern "C" {
 #include "BAMQueue.hpp"
 #include "SalmonUtils.hpp"
 #include "LibraryFormat.hpp"
+#include "FragmentLengthDistribution.hpp"
 #include "AlignmentGroup.hpp"
 #include "FASTAParser.hpp"
 
@@ -95,6 +96,20 @@ class AlignmentLibrary {
             // Create the cluster forest for this set of transcripts
             clusters_.reset(new ClusterForest(transcripts_.size(), transcripts_));
 
+            // Initialize the fragment length distribution
+            size_t maxFragLen = 800;
+            size_t meanFragLen = 200;
+            size_t fragLenStd = 80;
+            size_t fragLenKernelN = 4;
+            double fragLenKernelP = 0.5;
+            flDist_.reset(new
+                    FragmentLengthDistribution(
+                    1.0, maxFragLen,
+                    meanFragLen, fragLenStd,
+                    fragLenKernelN,
+                    fragLenKernelP, 1)
+                    );
+
             // Start parsing the alignments
             bq->start();
         }
@@ -102,6 +117,10 @@ class AlignmentLibrary {
     std::vector<Transcript>& transcripts() { return transcripts_; }
 
     inline bool getAlignmentGroup(AlignmentGroup<FragT>*& ag) { return bq->getAlignmentGroup(ag); }
+
+    inline FragmentLengthDistribution& fragmentLengthDistribution() {
+        return *flDist_.get();
+    }
 
     inline tbb::concurrent_bounded_queue<FragT*>& fragmentQueue() {
         return bq->getFragmentQueue();
@@ -167,6 +186,11 @@ class AlignmentLibrary {
      * in the same cluster.
      */
     std::unique_ptr<ClusterForest> clusters_;
+    /**
+     * The emperical fragment length distribution.
+     *
+     */
+    std::unique_ptr<FragmentLengthDistribution> flDist_;
     /** Keeps track of the number of passes that have been
      *  made through the alignment file.
      */

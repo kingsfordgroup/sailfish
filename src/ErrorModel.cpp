@@ -1,14 +1,19 @@
 #include <iostream>
 #include <cstdio>
+
+#include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
+
 #include "ErrorModel.hpp"
 #include "Transcript.hpp"
 #include "SailfishStringUtils.hpp"
 #include "UnpairedRead.hpp"
 #include "ReadPair.hpp"
 
-ErrorModel::ErrorModel(double alpha) :
-    mismatchLeft_(250, AtomicMatrix<double>(16, 4, alpha)),
-    mismatchRight_(250, AtomicMatrix<double>(16, 4, alpha)),
+ErrorModel::ErrorModel(double alpha, uint32_t maxExpectedReadLen) :
+    maxExpectedLen_(maxExpectedReadLen),
+    mismatchLeft_(maxExpectedReadLen, AtomicMatrix<double>(16, 4, alpha)),
+    mismatchRight_(maxExpectedReadLen, AtomicMatrix<double>(16, 4, alpha)),
+    isEnabled_(true),
     maxLen_(0),
     burnedIn_(false) {}
 
@@ -16,21 +21,21 @@ bool ErrorModel::burnedIn() { return burnedIn_; }
 void ErrorModel::burnedIn(bool burnedIn) { burnedIn_ = burnedIn; }
 
 double ErrorModel::logLikelihood(bam1_t* read, Transcript& ref,
-                                 tbb::concurrent_vector<AtomicMatrix<double>>& mismatchProfile){
+                                 std::vector<AtomicMatrix<double>>& mismatchProfile){
     using namespace sailfish::stringtools;
     bool useQual{false};
     size_t readIdx{0};
     size_t transcriptIdx = read->core.pos;
-    //sailfish::stringtools::strand readStrand = (bam1_strand(read)) ? sailfish::stringtools::strand::reverse :
-    //    sailfish::stringtools::strand::forward;
+    //sailfish::stringtools::strand readStrand = (BAM_FREVERSE & read->core.flag) ? sailfish::stringtools::strand::reverse :
+    //                                            sailfish::stringtools::strand::forward;
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
     double logLike = sailfish::math::LOG_1;
 
     uint8_t* qseq = bam_get_seq(read);//bam1_seq(read);
     auto qualStr = bam_get_qual(read);//bam1_qual(read);
     while (readIdx < read->core.l_qseq) {
-        size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];// samToTwoBit[bam1_seqi(qseq, readIdx)];
-        size_t prevReadBase = (readIdx) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0; //(readIdx) ? samToTwoBit[bam1_seqi(qseq, readIdx-1)] : 0;
+        size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
+        size_t prevReadBase = (readIdx) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;
         size_t refBase = samToTwoBit[ref.baseAt(transcriptIdx, readStrand)];
         size_t index = prevReadBase + refBase;
         int qval = qualStr[readIdx];
@@ -44,8 +49,16 @@ double ErrorModel::logLikelihood(bam1_t* read, Transcript& ref,
 
 double ErrorModel::logLikelihood(const ReadPair& hit, Transcript& ref){
     double logLike = sailfish::math::LOG_1;
+    if (BOOST_UNLIKELY(!isEnabled_)) { return logLike; }
+
     bam1_t* leftRead = (hit.read1->core.mpos < hit.read2->core.mpos) ? hit.read1 : hit.read2;
     bam1_t* rightRead = (hit.read1->core.mpos < hit.read2->core.mpos) ? hit.read2 : hit.read1;
+
+    // NOTE: Raise a warning in this case?
+    if (BOOST_UNLIKELY((leftRead->core.l_qseq > maxExpectedLen_) or
+                       (rightRead->core.l_qseq > maxExpectedLen_))) {
+        return logLike;
+    }
 
     if (leftRead) {
         logLike += logLikelihood(leftRead, ref, mismatchLeft_);
@@ -64,7 +77,13 @@ double ErrorModel::logLikelihood(const ReadPair& hit, Transcript& ref){
 
 double ErrorModel::logLikelihood(const UnpairedRead& hit, Transcript& ref){
     double logLike = sailfish::math::LOG_1;
+    if (BOOST_UNLIKELY(!isEnabled_)) { return logLike; }
+
     bam1_t* read = hit.read;
+    // NOTE: Raise a warning in this case?
+    if (BOOST_UNLIKELY(read->core.l_qseq > maxExpectedLen_)) {
+        return logLike;
+    }
     logLike += logLikelihood(read, ref, mismatchLeft_);
 
     if (logLike == sailfish::math::LOG_0) {
@@ -77,25 +96,26 @@ double ErrorModel::logLikelihood(const UnpairedRead& hit, Transcript& ref){
 
 void ErrorModel::update(const UnpairedRead& hit, Transcript& ref, double p, double mass){
     if (mass == sailfish::math::LOG_0) { return; }
+    if (BOOST_UNLIKELY(!isEnabled_)) { return; }
     bam1_t* leftRead = hit.read;
     update(leftRead, ref, p, mass, mismatchLeft_);
 }
 
 void ErrorModel::update(bam1_t* read, Transcript& ref, double p, double mass,
-                        tbb::concurrent_vector<AtomicMatrix<double>>& mismatchProfile) {
+                        std::vector<AtomicMatrix<double>>& mismatchProfile) {
     using namespace sailfish::stringtools;
     bool useQual{false};
     size_t readIdx{0};
     size_t transcriptIdx = read->core.pos;
-    //sailfish::stringtools::strand readStrand = (bam1_strand(read)) ? sailfish::stringtools::strand::reverse :
-    //    sailfish::stringtools::strand::forward;
+    //sailfish::stringtools::strand readStrand = (BAM_FREVERSE & read->core.flag) ? sailfish::stringtools::strand::reverse :
+    //                                            sailfish::stringtools::strand::forward;
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
 
     uint8_t* qseq = bam_get_seq(read);//bam1_seq(read);
     uint8_t* qualStr = bam_get_qual(read);//bam1_qual(read);
     while (readIdx < read->core.l_qseq) {
-        size_t curReadBase = bam_seqi(qseq, readIdx);//samToTwoBit[bam1_seqi(qseq, readIdx)];
-        size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;//(readIdx > 0) ? samToTwoBit[bam1_seqi(qseq, readIdx-1)] : 0;
+        size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
+        size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;
         size_t refBase = samToTwoBit[ref.baseAt(transcriptIdx, readStrand)];
         size_t index = prevReadBase + refBase;
         int qval = qualStr[readIdx];
@@ -105,10 +125,18 @@ void ErrorModel::update(bam1_t* read, Transcript& ref, double p, double mass,
         ++transcriptIdx;
     }
     maxLen_ = std::max(maxLen_, static_cast<size_t>(read->core.l_qseq));
+    if (BOOST_UNLIKELY(maxLen_ > 250)) {
+        std::lock_guard<std::mutex> lock(outputMutex_);
+        std::cerr << "Encountered read longer than maximum expected length of "
+                  << maxExpectedLen_ << ", not applying error model\n";
+        isEnabled_ = false;
+    }
 }
 
 void ErrorModel::update(const ReadPair& hit, Transcript& ref, double p, double mass){
     if (mass == sailfish::math::LOG_0) { return; }
+    if (BOOST_UNLIKELY(!isEnabled_)) { return; }
+
     bam1_t* leftRead = (hit.read1->core.mpos < hit.read2->core.mpos) ? hit.read1 : hit.read2;
     bam1_t* rightRead = (hit.read1->core.mpos < hit.read2->core.mpos) ? hit.read2 : hit.read1;
 

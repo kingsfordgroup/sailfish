@@ -90,7 +90,6 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                       std::atomic<size_t>& activeBatches,
                       ErrorModel& errMod,
                       const SalmonOpts& salmonOpts,
-                      FragmentLengthDistribution& fragLengthDist,
                       bool& burnedIn,
                       bool initialRound,
                       std::atomic<size_t>& processedReads) {
@@ -110,6 +109,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
     auto& clusterForest = alnLib.clusterForest();
     auto& fragmentQueue = alnLib.fragmentQueue();
     auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
+    auto& fragLengthDist = alnLib.fragmentLengthDistribution();
 
     std::chrono::microseconds sleepTime(1);
     MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch;
@@ -210,10 +210,10 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         if ( transcriptLogCount != LOG_0 ) {
 
                             double errLike = sailfish::math::LOG_1;
-                            if (burnedIn) {
-                                //errLike = errMod.logLikelihood(aln, transcript);
-                            }
 
+                            if (burnedIn and salmonOpts.useErrorModel) {
+                                errLike = errMod.logLikelihood(*aln, transcript);
+                            }
                             //aln.logProb = (transcriptLogCount - logRefLength) + qualProb + errLike;
                             aln->logProb = transcriptLogCount + qualProb + errLike;
 
@@ -230,11 +230,14 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                     if (sumOfAlignProbs == LOG_0) { std::cerr << "0 probability fragment; skipping\n"; continue; }
                     for (auto& aln : alnGroup->alignments()) {
                         aln->logProb -= sumOfAlignProbs;
+
                         double r = uni(eng);
                         if (!burnedIn and r < std::exp(aln->logProb)) {
-                            //auto transcriptID = aln.transcriptID();
-                            //auto& transcript = refs[transcriptID];
-                            //errMod.update(aln, transcript, aln.logProb, logForgettingMass);
+                            auto transcriptID = aln->transcriptID();
+                            auto& transcript = refs[transcriptID];
+                            if (salmonOpts.useErrorModel) {
+                                errMod.update(*aln, transcript, aln->logProb, logForgettingMass);
+                            }
                             if (aln->fragType() == ReadType::PAIRED_END) {
                                 double fragLength = aln->fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
@@ -314,22 +317,14 @@ void quantifyLibrary(
         const SalmonOpts& salmonOpts) {
 
     bool burnedIn{false};
-    ErrorModel errMod(1.00);
+    ErrorModel errMod(1.00, salmonOpts.maxExpectedReadLen);
+
     auto& refs = alnLib.transcripts();
     size_t numTranscripts = refs.size();
     size_t miniBatchSize{1000};
     size_t numObservedFragments{0};
 
     MiniBatchQueue<AlignmentGroup<FragT*>> workQueue;
-    size_t maxFragLen = 800;
-    size_t meanFragLen = 200;
-    size_t fragLenStd = 80;
-    size_t fragLenKernelN = 4;
-    double fragLenKernelP = 0.5;
-    FragmentLengthDistribution fragLengthDist(1.0, maxFragLen,
-                                              meanFragLen, fragLenStd,
-                                              fragLenKernelN,
-                                              fragLenKernelP, 1);
     double logForgettingMass{std::log(1.0)};
     double forgettingFactor{0.60};
     size_t batchNum{0};
@@ -365,7 +360,6 @@ void quantifyLibrary(
                     std::ref(doneParsing), std::ref(activeBatches),
                     std::ref(errMod),
                     std::ref(salmonOpts),
-                    std::ref(fragLengthDist),
                     std::ref(burnedIn),
                     initialRound,
                     std::ref(processedReads));
@@ -494,6 +488,13 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "the probability that a fragment has originated from a specified location.  Fragments with "
                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
                         "lengths.")
+    ("useErrorModel", po::bool_switch(&(sopt.useErrorModel))->default_value(false), "[Currently Experimental] : "
+                        "Learn and apply an error model for the aligned reads.  This takes into account the "
+                        "the observed frequency of different types of mismatches when computing the likelihood of "
+                        "a given alignment.")
+    ("maxReadLen,r", po::value<uint32_t>(&(sopt.maxExpectedReadLen))->default_value(250), "The maximum expected length of an observed read.  "
+                        "This is used to determine the size of the error model.  If a read longer than this is "
+                        "encountered, then the error model will be disabled")
     ("output,o", po::value<std::string>()->required(), "Output quantification directory.")
     ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
                                                              "qunatification estimates.")
@@ -603,6 +604,18 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         }
         // If we made it this far, the output directory exists
         bfs::path outputFile = outputDirectory / "quant.sf";
+        // Now create a subdirectory for any parameters of interest
+        bfs::path paramsDir = outputDirectory / "libParams";
+        if (!boost::filesystem::exists(paramsDir)) {
+            if (!boost::filesystem::create_directory(paramsDir)) {
+                fmt::print(stderr, "{}ERROR{}: Could not create "
+                           "output directory for experimental parameter "
+                           "estimates [{}]. exiting.", ioutils::SET_RED,
+                           ioutils::RESET_COLOR, paramsDir);
+                std::exit(-1);
+            }
+        }
+
         // The transcript file contains the target sequences
         bfs::path transcriptFile(vm["targets"].as<std::string>());
 
@@ -616,7 +629,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         switch (libFmt.type) {
             case ReadType::SINGLE_END:
                 {
-                    AlignmentLibrary<UnpairedRead> alnLib(alignmentFiles, transcriptFile, libFmt);
+                    AlignmentLibrary<UnpairedRead> alnLib(alignmentFiles,
+                                                          transcriptFile, libFmt);
                     quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
@@ -624,10 +638,21 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                 break;
             case ReadType::PAIRED_END:
                 {
-                    AlignmentLibrary<ReadPair> alnLib(alignmentFiles, transcriptFile, libFmt);
+                    AlignmentLibrary<ReadPair> alnLib(alignmentFiles,
+                                                      transcriptFile, libFmt);
                     quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
+
+                    // Test writing out the fragment length distribution
+                    if (sopt.useFragLenDist) {
+                        bfs::path distFileName = paramsDir / "flenDist.txt";
+                        {
+                            std::unique_ptr<std::FILE, int (*)(std::FILE *)> distOut(std::fopen(distFileName.c_str(), "w"), std::fclose);
+                            fmt::print(distOut.get(), "{}\n", alnLib.fragmentLengthDistribution().toString());
+                        }
+                    }
+
                 }
                 break;
             default:

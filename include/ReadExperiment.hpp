@@ -13,6 +13,10 @@ extern "C" {
 #include "Transcript.hpp"
 #include "ReadLibrary.hpp"
 
+// Logger includes
+#include "g2logworker.h"
+#include "g2log.h"
+
 // Boost includes
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
@@ -174,6 +178,131 @@ class ReadExperiment {
         // batchNum_ = 0; # don't reset batch num right now!
         quantificationPasses_++;
         return true;
+    }
+
+    void summarizeLibraryTypeCounts(boost::filesystem::path& opath){
+        LibraryFormat fmt1(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::U);
+        LibraryFormat fmt2(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::U);
+
+        std::ofstream ofile(opath.string());
+
+        fmt::MemoryWriter errstr;
+
+        uint64_t numFmt1{0};
+        uint64_t numFmt2{0};
+        uint64_t numAgree{0};
+        uint64_t numDisagree{0};
+
+        for (auto& rl : readLibraries_) {
+            auto fmt = rl.format();
+            auto& counts = rl.libTypeCounts();
+
+            // If the format is un-stranded, check that
+            // we have a similar number of mappings in both
+            // directions and then aggregate the forward and
+            // reverse counts.
+            if (fmt.strandedness == ReadStrandedness::U) {
+                std::vector<ReadStrandedness> strands;
+                switch (fmt.orientation) {
+                    case ReadOrientation::SAME:
+                    case ReadOrientation::NONE:
+                        strands.push_back(ReadStrandedness::S);
+                        strands.push_back(ReadStrandedness::A);
+                        break;
+                    case ReadOrientation::AWAY:
+                    case ReadOrientation::TOWARD:
+                        strands.push_back(ReadStrandedness::AS);
+                        strands.push_back(ReadStrandedness::SA);
+                        break;
+                }
+
+                fmt1.type = fmt.type; fmt1.orientation = fmt.orientation;
+                fmt1.strandedness = strands[0];
+                fmt2.type = fmt.type; fmt2.orientation = fmt.orientation;
+                fmt2.strandedness = strands[1];
+
+                numFmt1 = 0;
+                numFmt2 = 0;
+                numAgree = 0;
+                numDisagree = 0;
+
+                for (size_t i = 0; i < counts.size(); ++i) {
+                    if (i == fmt1.formatID()) {
+                        numFmt1 = counts[i];
+                    } else if (i == fmt2.formatID()) {
+                        numFmt2 = counts[i];
+                    } else {
+                        numDisagree += counts[i];
+                    }
+                }
+                numAgree = numFmt1 + numFmt2;
+                double ratio = static_cast<double>(numFmt1) / (numFmt1 + numFmt2);
+
+                if ( std::abs(ratio - 0.5) > 0.01) {
+                    errstr << "Read Lib [" << rl.readFilesAsString() << "] :\n";
+                    errstr << "\nDetected a strand bias > 1\% in an unstranded protocol "
+                           << "check the file: " << opath.string() << " for details\n";
+
+                    std::cerr << "NOTE: " << errstr.str() << "\n";
+                    LOG(WARNING) << errstr.str() << "\n";
+                    errstr.clear();
+                }
+
+                ofile << "========\n"
+                      << "Read library consisting of files: "
+                      << rl.readFilesAsString()
+                      << "\n\n"
+                      << "Expected format: " << rl.format()
+                      << "\n\n"
+                      << "# of consistent alignments: " << numAgree << "\n"
+                      << "# of inconsistent alignments: " << numDisagree << "\n"
+                      << "strand bias = " << ratio << " (0.5 is unbiased)\n"
+                      << "# alignments with format " << fmt1 << ": " << numFmt1 << "\n"
+                      << "# alignments with format " << fmt2 << ": " << numFmt2 << "\n"
+                      << "\n========\n";
+            } else {
+                numAgree = 0;
+                numDisagree = 0;
+
+                for (size_t i = 0; i < counts.size(); ++i) {
+                    if (i == fmt.formatID()) {
+                        numAgree = counts[i];
+                    } else {
+                        numDisagree += counts[i];
+                    }
+                } // end for
+
+                ofile << "========\n"
+                      << "Read library consisting of files: "
+                      << rl.readFilesAsString()
+                      << "\n\n"
+                      << "Expected format: " << rl.format()
+                      << "\n\n"
+                      << "# of consistent alignments: " << numAgree << "\n"
+                      << "# of inconsistent alignments: " << numDisagree << "\n"
+                      << "\n========\n";
+
+            } //end else
+
+            double disagreeRatio = static_cast<double>(numDisagree) / (numAgree + numDisagree);
+            if (disagreeRatio > 0.05) {
+                errstr << "Read Lib [" << rl.readFilesAsString() << "] :\n";
+                errstr << "\nGreater than 5\% of the alignments (but not, necessarily reads) "
+                       << "disagreed with the provided library type; "
+                       << "check the file: " << opath.string() << " for details\n";
+
+                std::cerr << "NOTE: " << errstr.str() << "\n";
+                LOG(WARNING) << errstr.str() << "\n";
+                errstr.clear();
+            }
+
+            ofile << "---- counts for each format type ---\n";
+            for (size_t i = 0; i < counts.size(); ++i) {
+                ofile << LibraryFormat::formatFromID(i) << " : " << counts[i] << "\n";
+            }
+            ofile << "------------------------------------\n\n";
+        }
+        ofile.close();
     }
 
     private:

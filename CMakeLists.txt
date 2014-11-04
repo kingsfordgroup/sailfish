@@ -50,22 +50,23 @@ set( BOOST_EXTRA_FLAGS "--layout=tagged" )
 # Compiler-specific C++11 activation.
 # http://stackoverflow.com/questions/10984442/how-to-detect-c11-support-of-a-compiler-with-cmake
 ##
+##
+# First take care of what to do if we have gcc
+##
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     execute_process(
         COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION)
-    if (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
+    # If we're on OSX
+    if (APPLE AND NOT (GCC_VERSION VERSION_GREATER 4.8.2 OR GCC_VERSION VERSION_EQUAL 4.8.2))
+        message(FATAL_ERROR "When building under OSX, ${PROJECT_NAME} requires "
+                            "either clang or g++ >= 4.8.2")
+    elseif (NOT (GCC_VERSION VERSION_GREATER 4.7 OR GCC_VERSION VERSION_EQUAL 4.7))
         message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
     endif ()
 
-    if (NOT APPLE OR 
-            GCC_VERSION VERSION_GREATER 4.8.2 OR
-            GCC_VERSION VERSION_EQUAL 4.8.2) 
-        #Perhaps the logger now works in both worlds
-        set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
-        set (HAVE_LOGGER TRUE)
-    else()
-        message(WARNING "Logging requires gcc >= 4.8.2 on OSX; it will be disabled")
-    endif()
+    #Perhaps the logger now works in both worlds
+    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
+    set (HAVE_LOGGER TRUE)
 
     set(WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_CONFIGURE_TOOLSET "")
@@ -85,7 +86,6 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     # We should have the logger under clang
     set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
     set (HAVE_LOGGER TRUE)
- 
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()

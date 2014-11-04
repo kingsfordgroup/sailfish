@@ -29,7 +29,12 @@ struct SalmonOpts {
                         // between the manner in which it mapped and the expected read
                         // librarry format.
 
+    bool useErrorModel; // Learn and apply the error model when computing the likelihood
+                        // of a given alignment.
+
     uint32_t maxReadOccs; // Discard reads  mapping to more than this many places.
+
+    uint32_t maxExpectedReadLen; // Maximum expected length of an observed read.
 };
 
 #endif // SALMON_OPTS_HPP

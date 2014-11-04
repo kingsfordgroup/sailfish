@@ -55,8 +55,14 @@ struct ReadPair {
     }
 
     inline uint32_t fragLen() {
-        //return std::abs(read1->core.pos - read2->core.pos) + read2->core.l_qseq;
-        return std::abs(read1->core.isize) + std::abs(read1->core.l_qseq) + std::abs(read2->core.l_qseq);
+        auto leftmost1 = read1->core.pos;
+        auto leftmost2 = read2->core.pos;
+
+        // The length of the mapped read that is "rightmost" w.r.t. the forward strand.
+        auto rightmostLen = (leftmost1 < leftmost2) ? read2->core.l_qseq : read1->core.l_qseq;
+        return std::abs(leftmost1 - leftmost2) + rightmostLen;
+
+        //return std::abs(read1->core.isize) + std::abs(read1->core.l_qseq) + std::abs(read2->core.l_qseq);
     }
 
     inline bool isRight() { return false; }

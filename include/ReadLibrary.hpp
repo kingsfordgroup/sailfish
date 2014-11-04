@@ -19,7 +19,34 @@ public:
     /**
      * Construct a new ReadLibrary of the given format
      */
-    ReadLibrary(LibraryFormat& fmt) : fmt_(fmt) {}
+    ReadLibrary(LibraryFormat& fmt) : fmt_(fmt),
+        libTypeCounts_(std::vector<std::atomic<uint64_t>>(LibraryFormat::maxLibTypeID() + 1)){}
+
+    /**
+     * Copy constructor
+     */
+    ReadLibrary(const ReadLibrary& rl) :
+        fmt_(rl.fmt_),
+        unmatedFilenames_(rl.unmatedFilenames_),
+        mateOneFilenames_(rl.mateOneFilenames_),
+        mateTwoFilenames_(rl.mateTwoFilenames_),
+        libTypeCounts_(std::vector<std::atomic<uint64_t>>(LibraryFormat::maxLibTypeID() + 1)) {
+            auto mc = LibraryFormat::maxLibTypeID() + 1;
+            for (size_t i = 0; i < mc; ++i) { libTypeCounts_[i].store(rl.libTypeCounts_[i].load()); }
+        }
+
+    /**
+     * Move constructor
+     */
+    ReadLibrary(ReadLibrary&& rl) :
+        fmt_(rl.fmt_),
+        unmatedFilenames_(std::move(rl.unmatedFilenames_)),
+        mateOneFilenames_(std::move(rl.mateOneFilenames_)),
+        mateTwoFilenames_(std::move(rl.mateTwoFilenames_)),
+        libTypeCounts_(std::vector<std::atomic<uint64_t>>(LibraryFormat::maxLibTypeID() + 1)) {
+            auto mc = LibraryFormat::maxLibTypeID() + 1;
+            for (size_t i = 0; i < mc; ++i) { libTypeCounts_[i].store(rl.libTypeCounts_[i].load()); }
+        }
 
     /**
      * Add files containing mated reads (from pair 1 of the mates) to this library.
@@ -180,11 +207,25 @@ public:
      */
     const LibraryFormat& format() const { return fmt_; }
 
+    /**
+    * Update the library type counts for this read library given the counts
+    * in the vector `counts` which has been passed in.
+    */
+    inline void updateLibTypeCounts(const std::vector<uint64_t>& counts) {
+        size_t lc{counts.size()};
+        for (size_t i = 0; i < lc; ++i) { libTypeCounts_[i] += counts[i]; }
+    }
+
+    std::vector<std::atomic<uint64_t>>& libTypeCounts() {
+        return libTypeCounts_;
+    }
+
 private:
     LibraryFormat fmt_;
     std::vector<std::string> unmatedFilenames_;
     std::vector<std::string> mateOneFilenames_;
     std::vector<std::string> mateTwoFilenames_;
+    std::vector<std::atomic<uint64_t>> libTypeCounts_;
 };
 
 #endif // READ_LIBRARY_HPP

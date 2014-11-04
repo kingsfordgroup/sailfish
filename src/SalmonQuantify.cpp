@@ -225,6 +225,7 @@ class SMEMAlignment {
 
 
 inline double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected) {
+
     if (observed.type != expected.type or
         observed.orientation != expected.orientation ) {
         return sailfish::math::LOG_0;
@@ -235,7 +236,6 @@ inline double logAlignFormatProb(const LibraryFormat observed, const LibraryForm
             if (expected.strandedness == observed.strandedness) {
                 return sailfish::math::LOG_1;
             } else {
-                std::cerr << "Expected format " << expected << ", but observed " << observed << "\n";
                 return sailfish::math::LOG_0;
             }
         }
@@ -247,7 +247,7 @@ inline double logAlignFormatProb(const LibraryFormat observed, const LibraryForm
 
 void processMiniBatch(
         double logForgettingMass,
-        const ReadLibrary& readLib,
+        ReadLibrary& readLib,
         const SalmonOpts& salmonOpts,
         std::vector<AlignmentGroup<SMEMAlignment>>& batchHits,
         std::vector<Transcript>& transcripts,
@@ -270,6 +270,7 @@ void processMiniBatch(
     size_t numTranscripts{transcripts.size()};
     size_t localNumAssignedFragments{0};
     std::uniform_real_distribution<> uni(0.0, 1.0 + std::numeric_limits<double>::min());
+    std::vector<uint64_t> libTypeCounts(LibraryFormat::maxLibTypeID() + 1);
 
     bool updateCounts = initialRound;
 
@@ -328,6 +329,8 @@ void processMiniBatch(
                     double logAlignCompatProb = (salmonOpts.useReadCompat) ?
                                                 (logAlignFormatProb(aln.libFormat(), expectedLibraryFormat)) :
                                                 LOG_1;
+                    // Increment the count of this type of read that we've seen
+                    ++libTypeCounts[aln.libFormat().formatID()];
 
                     //aln.logProb = std::log(aln.kmerCount) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
                     //aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
@@ -414,6 +417,7 @@ void processMiniBatch(
         } // end timer
         numAssignedFragments += localNumAssignedFragments;
         if (numAssignedFragments >= numBurninFrags and !burnedIn) { burnedIn = true; }
+        readLib.updateLibTypeCounts(libTypeCounts);
 }
 
 uint32_t basesCovered(std::vector<uint32_t>& kmerHits) {
@@ -1193,7 +1197,7 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 // jellyfish::sequence_list (see whole_sequence_parser.hpp).
 template <typename ParserT, typename CoverageCalculator>
 void processReadsMEM(ParserT* parser,
-               const ReadLibrary& rl,
+               ReadLibrary& rl,
                std::atomic<uint64_t>& numObservedFragments,
                std::atomic<uint64_t>& numAssignedFragments,
                std::atomic<uint64_t>& validHits,
@@ -1499,7 +1503,7 @@ void quantifyLibrary(
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
             if (!experiment.reset()) {
-                fmt::print(stderr,
+                std::string errmsg = fmt::sprintf(
                   "\n\n======== WARNING ========\n"
                   "One of the provided read files: [{}] "
                   "is not a regular file and therefore can't be read from "
@@ -1509,6 +1513,8 @@ void quantifyLibrary(
                   "as a regular file!\n"
                   "==========================\n\n",
                   experiment.readFilesAsString(), numObservedFragments, numRequiredFragments);
+                LOG(WARNING) << errmsg;
+                std::cerr << errmsg;
                 break;
             }
             numPrevObservedFragments = numObservedFragments;
@@ -1539,6 +1545,7 @@ void quantifyLibrary(
                    numObservedFragments - numPrevObservedFragments);
     }
     fmt::print(stderr, "\n\n\n\n");
+    LOG(INFO) << "finished quantifyLibrary()\n";
 }
 
 int performBiasCorrectionSalmon(
@@ -1675,17 +1682,16 @@ transcript abundance from RNA-seq reads
         bfs::path indexDirectory(vm["index"].as<string>());
         bfs::path logDirectory = outputDirectory.parent_path() / "logs";
 
-#if HAVE_LOGGER
+        // Create the logger and the logging directory
         bfs::create_directory(logDirectory);
         if (!(bfs::exists(logDirectory) and bfs::is_directory(logDirectory))) {
             std::cerr << "Couldn't create log directory " << logDirectory << "\n";
             std::cerr << "exiting\n";
             std::exit(1);
         }
-        std::cerr << "writing logs to " << logDirectory.string() << "\n";
+        std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
         g2LogWorker logger(argv[0], logDirectory.string());
         g2::initializeLogging(&logger);
-#endif
 
         LOG(INFO) << "parsing read library format";
 
@@ -1699,10 +1705,14 @@ transcript abundance from RNA-seq reads
         free(memOptions);
         size_t tnum{0};
 
+        LOG(INFO) << "writing output \n";
         std::cerr << "writing output \n";
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
         salmon::utils::writeAbundances(experiment, estFilePath, commentString);
+
+        bfs::path libCountFilePath = outputDirectory / "libFormatCounts.txt";
+        experiment.summarizeLibraryTypeCounts(libCountFilePath);
 
         if (biasCorrect) {
             auto origExpressionFile = estFilePath;

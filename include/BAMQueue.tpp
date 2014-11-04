@@ -173,7 +173,7 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
             !(rpair.read1->core.flag & BAM_FPAIRED) or
             !(rpair.read2->core.flag & BAM_FPAIRED))
             )) {
-            fmt::Writer errmsg;
+            fmt::MemoryWriter errmsg;
             errmsg << "\n\n" 
                    << ioutils::SET_RED << "ERROR: " << ioutils::RESET_COLOR 
                    << "Saw adjacent reads, at least one of which was unpaired. "
@@ -225,7 +225,7 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
                 // As above, if we encounter a non-paired read, then, for the
                 // time being, flip out and quit.
                 if (BOOST_UNLIKELY(!(rpair.read2->core.flag & BAM_FPAIRED))) {
-                    fmt::Writer errmsg;
+                    fmt::MemoryWriter errmsg;
                     errmsg << "\n\n" 
                         << ioutils::SET_RED << "ERROR: " << ioutils::RESET_COLOR 
                         << "Saw adjacent reads, at least one of which was unpaired. "
