@@ -1,6 +1,7 @@
 #include "BAMQueue.hpp"
 #include "IOUtils.hpp"
 #include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
+#include <chrono>
 
 template <typename FragT>
 BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt):
@@ -32,9 +33,10 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
 
 template <typename FragT>
 void BAMQueue<FragT>::reset() {
-  fmt::print(stderr, "Resetting BAMQueue from file [{}] . . .", fname_);
+  fmt::print(stderr, "Resetting BAMQueue from file(s) [ ");
   parsingThread_->join();
   for (auto& file : files_) {
+    fmt::print(stderr, "{} ", file.fileName);
     // re-open the file
     hts_close(file.fp); 
     file.fp = nullptr;
@@ -45,6 +47,7 @@ void BAMQueue<FragT>::reset() {
     file.header = nullptr;
     file.header = sam_hdr_read(file.fp);
   }
+  fmt::print(stderr, "] . . . done\n");
   totalReads_ = 0;
   numUnaligned_ = 0;
   numMappedReads_ = 0;
@@ -82,9 +85,13 @@ BAMQueue<FragT>::~BAMQueue() {
 
 template <typename FragT>
 inline bool BAMQueue<FragT>::getAlignmentGroup(AlignmentGroup<FragT*>*& group) {
-    while (!doneParsing_ or !alnGroupQueue_.empty()) {
+    volatile bool isEmpty{alnGroupQueue_.empty()};
+    while (!doneParsing_ or !isEmpty) {
         if (alnGroupQueue_.pop(group)) {
             return true;
+        } else {
+            std::this_thread::yield();
+            isEmpty = alnGroupQueue_.empty();
         }
     }
     return false;
@@ -339,7 +346,7 @@ void BAMQueue<FragT>::fillQueue_() {
     fragmentQueue_.pop(f);
     //ReadPair p = {nullptr, nullptr, LOG_0};
     uint32_t prevLen{1};
-    char* prevReadName = new char[100];
+    char* prevReadName = new char[255];
     prevReadName[0] = '\0';
     while(getFrag_(*f) and !doneParsing_) {
 

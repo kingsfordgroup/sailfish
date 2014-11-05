@@ -2,6 +2,7 @@
 #define UNPAIRED_READ
 
 extern "C" {
+#include "htslib/sam.h"
 #include "samtools/sam.h"
 }
 
@@ -31,8 +32,15 @@ struct UnpairedRead {
 
    UnpairedRead& operator=(UnpairedRead& other) = default;
 
+   UnpairedRead* clone() {
+       return new UnpairedRead(bam_dup1(read), logProb);
+   }
+
    ~UnpairedRead() { bam_destroy1(read); }
 
+    int writeToFile(htsFile* fp) {
+        return bam_write1(fp->fp.bgzf, read);
+    }
 
     inline char* getName() {
         return  bam_get_qname(read);//bam1_qname(read);

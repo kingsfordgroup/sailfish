@@ -50,6 +50,7 @@ public:
   void forceEndParsing();
 
   bam_header_t* header();
+  bam_header_t* safeHeader();
 
   std::vector<bam_header_t*> headers();
 

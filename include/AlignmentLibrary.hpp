@@ -13,8 +13,10 @@ extern "C" {
 #include "BAMQueue.hpp"
 #include "SalmonUtils.hpp"
 #include "LibraryFormat.hpp"
+#include "SalmonOpts.hpp"
 #include "FragmentLengthDistribution.hpp"
 #include "AlignmentGroup.hpp"
+#include "ErrorModel.hpp"
 #include "FASTAParser.hpp"
 
 // Boost includes
@@ -38,7 +40,8 @@ class AlignmentLibrary {
 
     AlignmentLibrary(std::vector<boost::filesystem::path>& alnFiles,
                      const boost::filesystem::path& transcriptFile,
-                     LibraryFormat libFmt) :
+                     LibraryFormat libFmt,
+                     SalmonOpts& salmonOpts) :
         alignmentFiles_(alnFiles),
         transcriptFile_(transcriptFile),
         libFmt_(libFmt),
@@ -110,6 +113,8 @@ class AlignmentLibrary {
                     fragLenKernelP, 1)
                     );
 
+            errMod_.reset(new
+                    ErrorModel(1.0, salmonOpts.maxExpectedReadLen));
             // Start parsing the alignments
             bq->start();
         }
@@ -118,8 +123,14 @@ class AlignmentLibrary {
 
     inline bool getAlignmentGroup(AlignmentGroup<FragT>*& ag) { return bq->getAlignmentGroup(ag); }
 
+    inline bam_header_t* header() { return bq->header(); }
+
     inline FragmentLengthDistribution& fragmentLengthDistribution() {
         return *flDist_.get();
+    }
+
+    inline ErrorModel& errorModel() {
+        return *errMod_.get();
     }
 
     inline tbb::concurrent_bounded_queue<FragT*>& fragmentQueue() {
@@ -138,7 +149,7 @@ class AlignmentLibrary {
 
     ClusterForest& clusterForest() { return *clusters_.get(); }
 
-    bool reset() {
+    bool reset(bool incPasses=true) {
         namespace bfs = boost::filesystem;
 
         for (auto& alignmentFile : alignmentFiles_) {
@@ -149,7 +160,7 @@ class AlignmentLibrary {
 
         bq->reset();
         bq->start();
-        quantificationPasses_++;
+        if (incPasses) { quantificationPasses_++; }
         return true;
     }
 
@@ -191,6 +202,11 @@ class AlignmentLibrary {
      *
      */
     std::unique_ptr<FragmentLengthDistribution> flDist_;
+    /**
+      * The emperical error model
+      */
+    std::unique_ptr<ErrorModel> errMod_;
+
     /** Keeps track of the number of passes that have been
      *  made through the alignment file.
      */

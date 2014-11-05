@@ -35,6 +35,7 @@ struct SalmonOpts {
     uint32_t maxReadOccs; // Discard reads  mapping to more than this many places.
 
     uint32_t maxExpectedReadLen; // Maximum expected length of an observed read.
+
 };
 
 #endif // SALMON_OPTS_HPP

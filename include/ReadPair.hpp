@@ -35,16 +35,28 @@ struct ReadPair {
         return *this;
     }
 
+
    ReadPair(const ReadPair& other) = default;
 
    ReadPair& operator=(ReadPair& other) = default;
 
+   ReadPair* clone() {
+       return new ReadPair(bam_dup1(read1), bam_dup1(read2), logProb);
+   }
 
     ~ReadPair() {
         bam_destroy1(read1);
         bam_destroy1(read2);
     }
 
+    int writeToFile(htsFile* fp) {
+        int r1 = bam_write1(fp->fp.bgzf, read1);
+        if (r1 > 0) {
+            return bam_write1(fp->fp.bgzf, read2);
+        } else {
+            return r1;
+        }
+    }
 
     inline char* getName() {
         return bam_get_qname(read1);//bam1_qname(read1);

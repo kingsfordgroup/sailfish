@@ -51,6 +51,7 @@ extern "C" {
 #include "SalmonUtils.hpp"
 #include "SalmonConfig.hpp"
 #include "SalmonOpts.hpp"
+#include "Sampler.hpp"
 
 namespace bfs = boost::filesystem;
 using sailfish::math::LOG_0;
@@ -88,7 +89,6 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                       std::mutex& cvmutex,
                       std::atomic<bool>& doneParsing,
                       std::atomic<size_t>& activeBatches,
-                      ErrorModel& errMod,
                       const SalmonOpts& salmonOpts,
                       bool& burnedIn,
                       bool initialRound,
@@ -110,6 +110,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
     auto& fragmentQueue = alnLib.fragmentQueue();
     auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
     auto& fragLengthDist = alnLib.fragmentLengthDistribution();
+    auto& errMod = alnLib.errorModel();
 
     std::chrono::microseconds sleepTime(1);
     MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch;
@@ -310,14 +311,13 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
   *
   */
 template <typename FragT>
-void quantifyLibrary(
+bool quantifyLibrary(
         AlignmentLibrary<FragT>& alnLib,
         size_t numRequiredFragments,
         uint32_t numQuantThreads,
         const SalmonOpts& salmonOpts) {
 
     bool burnedIn{false};
-    ErrorModel errMod(1.00, salmonOpts.maxExpectedReadLen);
 
     auto& refs = alnLib.transcripts();
     size_t numTranscripts = refs.size();
@@ -358,7 +358,6 @@ void quantifyLibrary(
                     std::ref(workQueue),
                     std::ref(workAvailable), std::ref(cvmutex),
                     std::ref(doneParsing), std::ref(activeBatches),
-                    std::ref(errMod),
                     std::ref(salmonOpts),
                     std::ref(burnedIn),
                     initialRound,
@@ -430,6 +429,7 @@ void quantifyLibrary(
     }
 
     fmt::print(stderr, "\n\n\n\n");
+    return burnedIn;
     // Write the inferred fragment length distribution
     /*
     bfs::path distFileName = outputFile.parent_path() / "flenDist.txt";
@@ -461,6 +461,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
     SalmonOpts sopt;
 
+    bool sampleOutput{false};
     bool biasCorrect{false};
     uint32_t numThreads{6};
     size_t requiredObservations{50000000};
@@ -496,6 +497,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "This is used to determine the size of the error model.  If a read longer than this is "
                         "encountered, then the error model will be disabled")
     ("output,o", po::value<std::string>()->required(), "Output quantification directory.")
+    ("sampleOut,s", po::bool_switch(&sampleOutput)->default_value(false), "Write a \"postSample.bam\" file in the output directory "
+                        "that will sample the input alignments according to the estimated transcript abundances. If you're "
+                        "going to perform downstream analysis of the alignments with tools which don't, themselves, take "
+                        "fragment assignment ambiguity into account, you should use this output.")
     ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
                                                              "qunatification estimates.")
     ("num_required_obs,m", po::value(&requiredObservations)->default_value(50000000),
@@ -630,17 +635,25 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             case ReadType::SINGLE_END:
                 {
                     AlignmentLibrary<UnpairedRead> alnLib(alignmentFiles,
-                                                          transcriptFile, libFmt);
-                    quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
+                                                          transcriptFile,
+                                                          libFmt,
+                                                          sopt);
+                    bool burnedIn = quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
+                    if (sampleOutput) {
+                        bfs::path sampleFilePath = outputDirectory / "postSample.bam";
+                        salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath);
+                    }
                 }
                 break;
             case ReadType::PAIRED_END:
                 {
                     AlignmentLibrary<ReadPair> alnLib(alignmentFiles,
-                                                      transcriptFile, libFmt);
-                    quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
+                                                      transcriptFile,
+                                                      libFmt,
+                                                      sopt);
+                    bool burnedIn = quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
 
@@ -653,11 +666,15 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         }
                     }
 
+                    if (sampleOutput) {
+                        bfs::path sampleFilePath = outputDirectory / "postSample.bam";
+                        salmon::sampler::sampleLibrary<ReadPair>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath);
+                    }
                 }
                 break;
             default:
-                std::cerr << "Cannot quantify library of unknown " <<
-                        "format " << libFmt << "\n";
+                std::cerr << "Cannot quantify library of unknown format "
+                          << libFmt << "\n";
                 std::exit(1);
         }
 
