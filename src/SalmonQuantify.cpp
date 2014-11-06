@@ -1679,7 +1679,8 @@ transcript abundance from RNA-seq reads
             std::exit(1);
         }
 
-        bfs::path indexDirectory(vm["index"].as<string>(y/ "logs";
+        bfs::path indexDirectory(vm["index"].as<string>());
+        bfs::path logDirectory = outputDirectory / "logs";
 
         // Create the logger and the logging directory
         bfs::create_directory(logDirectory);
