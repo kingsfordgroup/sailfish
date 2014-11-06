@@ -311,6 +311,7 @@ inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread) {
 
         if (!(sread.read->core.flag & BAM_FDUP) and
             !(sread.read->core.flag & BAM_FQCFAIL) and
+            !(sread.read->core.flag & BAM_FUNMAP) and
             sread.transcriptID() >= 0) {
             haveValidRead = true;
         }
