@@ -607,6 +607,21 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                 throw std::invalid_argument(errstr.str());
             }
         }
+
+        bfs::path logDirectory = outputDirectory / "logs";
+
+        // Create the logger and the logging directory
+        bfs::create_directory(logDirectory);
+        if (!(bfs::exists(logDirectory) and bfs::is_directory(logDirectory))) {
+            std::cerr << "Couldn't create log directory " << logDirectory << "\n";
+            std::cerr << "exiting\n";
+            std::exit(1);
+        }
+        std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
+
+        g2LogWorker logger(argv[0], logDirectory.string());
+        g2::initializeLogging(&logger);
+
         // If we made it this far, the output directory exists
         bfs::path outputFile = outputDirectory / "quant.sf";
         // Now create a subdirectory for any parameters of interest

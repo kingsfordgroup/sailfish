@@ -1679,8 +1679,7 @@ transcript abundance from RNA-seq reads
             std::exit(1);
         }
 
-        bfs::path indexDirectory(vm["index"].as<string>());
-        bfs::path logDirectory = outputDirectory.parent_path() / "logs";
+        bfs::path indexDirectory(vm["index"].as<string>(y/ "logs";
 
         // Create the logger and the logging directory
         bfs::create_directory(logDirectory);
@@ -1690,6 +1689,7 @@ transcript abundance from RNA-seq reads
             std::exit(1);
         }
         std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
+
         g2LogWorker logger(argv[0], logDirectory.string());
         g2::initializeLogging(&logger);
 
