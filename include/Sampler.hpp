@@ -30,6 +30,7 @@ extern "C" {
 
 #include <tbb/concurrent_queue.h>
 
+#include <boost/config.hpp>
 #include <boost/timer/timer.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/math/special_functions/digamma.hpp>
@@ -201,6 +202,7 @@ namespace salmon {
                                     double r = uni(eng);
                                     double currentMass{0.0};
                                     double massInc{0.0};
+                                    bool choseAlignment{false};
                                     for (auto& aln : alnGroup->alignments()) {
                                         aln->logProb -= sumOfAlignProbs;
 
@@ -209,9 +211,16 @@ namespace salmon {
                                             // Write out this read
                                             outputQueue.push(aln->clone());
                                             currentMass += massInc;
+                                            choseAlignment = true;
                                             break;
                                         }
+                                        currentMass += massInc;
                                     } // end alignment group
+                                    if (BOOST_UNLIKELY(!choseAlignment)) {
+                                        std::cerr << "[Sampler.hpp]: Failed to sample an alignment for this read; "
+                                                  << "this shouldn't happen\n";
+                                        std::cerr << "currentMass = " << currentMass << ", r = " << r << "\n";
+                                    }
                                 } // non-unique read
 
                                 ++batchReads;

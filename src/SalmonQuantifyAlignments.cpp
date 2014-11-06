@@ -503,7 +503,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "fragment assignment ambiguity into account, you should use this output.")
     ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
                                                              "qunatification estimates.")
-    ("num_required_obs,m", po::value(&requiredObservations)->default_value(50000000),
+    ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before\n"
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
                                         "input file, then it will be read through multiple times.")
