@@ -97,7 +97,7 @@ private:
   //tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupQueue_;
   boost::lockfree::spsc_queue<AlignmentGroup<FragT*>*,
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
-  bool doneParsing_;
+  volatile bool doneParsing_;
   std::unique_ptr<std::thread> parsingThread_;
   size_t batchNum_;
   std::string readMode_;

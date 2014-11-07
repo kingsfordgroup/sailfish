@@ -288,7 +288,7 @@ namespace salmon {
                 std::atomic<size_t> processedReads{0};
 
                 size_t numProc{0};
-                bool consumedAllInput{false};
+                volatile bool consumedAllInput{false};
                 size_t defaultCapacity = 2000000;
                 OutputQueue<FragT> outQueue;
                 outQueue.set_capacity(defaultCapacity);

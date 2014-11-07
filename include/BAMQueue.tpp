@@ -86,13 +86,13 @@ BAMQueue<FragT>::~BAMQueue() {
 template <typename FragT>
 inline bool BAMQueue<FragT>::getAlignmentGroup(AlignmentGroup<FragT*>*& group) {
     volatile bool isEmpty{alnGroupQueue_.empty()};
-    while (!doneParsing_ or !isEmpty) {
-        if (alnGroupQueue_.pop(group)) {
+    while (!doneParsing_) {
+        while (alnGroupQueue_.pop(group)) {
             return true;
-        } else {
-            std::this_thread::yield();
-            isEmpty = alnGroupQueue_.empty();
         }
+    }
+    while (alnGroupQueue_.pop(group)) {
+        return true;
     }
     return false;
 }
