@@ -243,7 +243,11 @@ ExternalProject_Add(libbwa
     BUILD_IN_SOURCE TRUE
 )
 
-
+##
+# The optimal mem chaining provided by clasp seems not to provide any benefit
+# and is much more computationally intensive than the greedy approach.  I'm
+# removing this dependency and functionality for the time being.
+##
 message("Build system will fetch and build CLASP (for Salmon)")
 message("==================================================================")
 ExternalProject_Add(libclasp

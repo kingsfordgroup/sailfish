@@ -107,10 +107,21 @@ extern "C" {
 
 #include "AlignmentGroup.hpp"
 #include "PairSequenceParser.hpp"
-#include "FragmentList.hpp"
 #include "FragmentLengthDistribution.hpp"
 #include "ReadExperiment.hpp"
 #include "SalmonOpts.hpp"
+
+/* This allows us to use CLASP for optimal MEM
+ * chaining.  However, this seems to be neither
+ * computationally efficient, nor significantly
+ * better than the greedy chaining, so I'm temporarily
+ * removing this un-necessary dependency.  If you
+ * (other dev or future Rob) re-instate this in the future
+ * remember to re-enable the CLASP fetch and build
+ * steps in the CMakeLists.txt files
+ *
+ *#include "FragmentList.hpp"
+ */
 
 extern unsigned char nst_nt4_table[256];
 char* bwa_pg = "cha";
