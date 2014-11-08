@@ -26,8 +26,8 @@ BuildTranscriptMap.cpp
 
 set (SALMON_ALIGN_SRCS
 FASTAParser.cpp 
-SailfishStringUtils.cpp 
-LibraryFormat.cpp 
+#SailfishStringUtils.cpp 
+#LibraryFormat.cpp 
 ErrorModel.cpp 
 FragmentLengthDistribution.cpp 
 SalmonQuantifyAlignments.cpp 
@@ -114,6 +114,8 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 
 #set_target_properties(sailfish_core sailfish salmon PROPERTIES LINK_SEARCH_END_STATIC TRUE)
 
+
+
 # Link the executable
 target_link_libraries(sailfish 
     sailfish_core 
@@ -122,12 +124,11 @@ target_link_libraries(sailfish
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
-    gomp 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
-    rt
+    ${NON_APPLECLANG_LIBS}
     pthread 
 )
 
@@ -139,16 +140,15 @@ target_link_libraries(salmon
     clasp
     ${Boost_LIBRARIES} 
     ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    ${GAT_SOURCE_DIR}/external/install/lib/libhts.a
+    #${GAT_SOURCE_DIR}/external/install/lib/libhts.a
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
-    gomp 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
-    rt
+    ${NON_APPLECLANG_LIBS}
     pthread
 )
 

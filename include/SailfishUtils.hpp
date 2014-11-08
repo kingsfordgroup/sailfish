@@ -23,6 +23,7 @@
 #ifndef SAILFISH_UTILS_HPP
 #define SAILFISH_UTILS_HPP
 
+#include <future>
 #include <algorithm>
 #include <iostream>
 #include <tuple>
