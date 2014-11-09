@@ -6,6 +6,8 @@
 
 #include "SailfishMath.hpp"
 
+#include <vector>
+
 template <typename T>
 class AtomicMatrix {
 public:

@@ -26,8 +26,8 @@ BuildTranscriptMap.cpp
 
 set (SALMON_ALIGN_SRCS
 FASTAParser.cpp 
-SailfishStringUtils.cpp 
-LibraryFormat.cpp 
+#SailfishStringUtils.cpp 
+#LibraryFormat.cpp 
 ErrorModel.cpp 
 FragmentLengthDistribution.cpp 
 SalmonQuantifyAlignments.cpp 
@@ -96,8 +96,23 @@ message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 message("Boost_LIBRARIES = ${Boost_LIBRARIES}")
 
 # Set the RPATH 
-set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
+if (APPLE)
+    ## This DOES NOT do what I / any one sane, expects.  Setting the 
+    ## linker path on OSX is messed up.  Just tell the user to use 
+    ## DYLD_FALLBACK_LIBRARY_PATH for now
+    set(CMAKE_INSTALL_RPATH "@executable_path/../lib:@executable_path/../../lib:@executable_path/")
+else()
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
+endif()
+
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+
+if (APPLE AND CLANG)
+    set(HTSLIB hts)
+else()
+    set(HTSLIB ${GAT_SOURCE_DIR}/external/install/lib/libhts.a)
+endif()
+
 
 # Build the Sailfish library
 add_library(sailfish_core STATIC ${SAILFISH_LIB_SRCS} )
@@ -117,38 +132,36 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 # Link the executable
 target_link_libraries(sailfish 
     sailfish_core 
-    gff
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
-    gomp 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
-    rt
+    ${NON_APPLECLANG_LIBS}
+    gff
     pthread 
 )
 
 # Link the executable
 target_link_libraries(salmon
     sailfish_core 
-    gff
     bwa
     #clasp
     ${Boost_LIBRARIES} 
     ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    ${GAT_SOURCE_DIR}/external/install/lib/libhts.a
+    ${HTSLIB}
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
-    gomp 
     m
     ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
     ${LIBSAILFISH_LINKER_FLAGS} shark
-    rt
+    ${NON_APPLECLANG_LIBS}
+    gff
     pthread
 )
 

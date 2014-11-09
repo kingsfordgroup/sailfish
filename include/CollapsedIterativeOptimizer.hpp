@@ -529,8 +529,11 @@ private:
 
     template <typename T>
     T psum_(std::vector<T>& v) {
-      auto func = std::bind( std::mem_fn(&CollapsedIterativeOptimizer<ReadHash>::psumAccumulate<T>),
-                             this, std::placeholders::_1, std::placeholders::_2 );
+      //auto func = std::bind( std::mem_fn(&CollapsedIterativeOptimizer<ReadHash>::psumAccumulate<T>),
+      //                       this, std::placeholders::_1, std::placeholders::_2 );
+      auto func = [this](const tbb::blocked_range<T*>& r, T value) -> T {
+          return this->psumAccumulate(r, value);
+      };
       auto sum = tbb::parallel_reduce(
         tbb::blocked_range<T*>(&v[0], &v[v.size()]),
           T{0},  // identity element for summation

@@ -42,10 +42,14 @@ if (APPLE)
 else()
     # We're in sane linux world
    set (SHARED_LIB_EXTENSION "so")
-    set (LIBSAILFISH_LINKER_FLAGS "")
+   set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
 
 set( BOOST_EXTRA_FLAGS "--layout=tagged" )
+## this get's set differently below if we 
+## are on clang & apple
+set (NON_APPLECLANG_LIBS gomp rt)
+
 ##
 # Compiler-specific C++11 activation.
 # http://stackoverflow.com/questions/10984442/how-to-detect-c11-support-of-a-compiler-with-cmake
@@ -73,9 +77,10 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (BOOST_EXTRA_FLAGS "")
     # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    set(CLANG TRUE)
     # If we're on OSX using clang, try to use libc++ instead of libstdc++
     if (APPLE)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
         set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
     endif()
@@ -83,9 +88,13 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     # but we should do something better (does this break things if CPU doesn't
     # have 128-bit support)?
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
+    set(CMAKE_SHARK_CXX_FLAGS "-DBOOST_HAS_INT128") 
     # We should have the logger under clang
     set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
     set (HAVE_LOGGER TRUE)
+    if (APPLE)
+        set (NON_APPLECLANG_LIBS "")
+    endif()
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
@@ -126,7 +135,7 @@ endif()
 ##
 # Set the latest version and look for what we need
 ##
-set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55" "1.56")
+set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55" "1.56" "1.57")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 include(ExternalProject)
 
@@ -312,12 +321,12 @@ endif()
 message("Build system will fetch and build Intel Threading Building Blocks")
 message("==================================================================")
 # These are useful for the custom install step we'll do later
-set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140601)
+set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb42_20140601oss_src.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb42_20140601
+    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""
@@ -385,6 +394,7 @@ ExternalProject_Add(libshark
     CMAKE_ARGS -DOPT_DYNAMIC_LIBRARY=FALSE -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
                -DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DOPT_MAKE_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${SHARK_INSTALL_DIR}
                -DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+               -DCMAKE_CXX_FLAGS=${CMAKE_SHARK_CXX_FLAGS}
     BUILD_COMMAND sh -c "make"
     INSTALL_COMMAND sh -c "make install"
     BUILD_IN_SOURCE 1
@@ -392,6 +402,11 @@ ExternalProject_Add(libshark
 )
 
 if(HAVE_LOGGER)
+
+if (APPLE AND CLANG)
+    set (G2LOGGER_CXX_FLAGS "-std=c++11 -stdlib=libc++")
+endif()
+
 message("Build system will compile g2log logging library")
 message("==================================================================")
 ExternalProject_Add(libg2log
@@ -402,7 +417,7 @@ ExternalProject_Add(libg2log
   BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
   #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
   UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install #-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
   BUILD_COMMAND sh -c "make"
   INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <BINARY_DIR>/*.${SHARED_LIB_EXTENSION} <INSTALL_DIR>/lib/"
 )

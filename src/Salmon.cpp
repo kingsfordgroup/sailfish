@@ -124,6 +124,8 @@ int salmonIndex(int argc, char* argv[]);
 int salmonQuantify(int argc, char* argv[]);
 int salmonAlignmentQuantify(int argc, char* argv[]);
 
+bool verbose = false;
+
 int main( int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
