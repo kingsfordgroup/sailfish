@@ -12,13 +12,19 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
         size_t capacity{2000000};
         fragmentQueue_.set_capacity(capacity);
         for (size_t i = 0; i < capacity; ++i) {
-            fragmentQueue_.push(new FragT);
+            // avoid r-value ref until we figure out what's
+            // up with TBB 4.3
+            auto* fragPtr = new FragT;
+            fragmentQueue_.push(fragPtr);
         }
 
         size_t groupCapacity = 5000000;
         alnGroupPool_.set_capacity(groupCapacity);
         for (size_t i = 0; i < groupCapacity; ++i) {
-            alnGroupPool_.push(new AlignmentGroup<FragT*>);
+            // avoid r-value ref until we figure out what's
+            // up with TBB 4.3
+            auto* agrpPtr = new AlignmentGroup<FragT*>; 
+            alnGroupPool_.push(agrpPtr);
         }
 
         for (auto& fname : fnames) {

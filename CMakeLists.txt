@@ -68,6 +68,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
         message(FATAL_ERROR "${PROJECT_NAME} requires g++ 4.7 or greater.")
     endif ()
 
+    set (GCC TRUE)
     #Perhaps the logger now works in both worlds
     set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
     set (HAVE_LOGGER TRUE)
@@ -98,6 +99,14 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
 endif ()
+
+## TODO: Figure out how to detect this automatically
+# If the "assembler" is too old, tell TBB not to compile 
+# with -mrtm
+if (NO_RTM)
+    set (TBB_CXXFLAGS "-mno-rtm")
+endif()
+
 
 ##
 #  Update the CXX flags according to the system and compiler
@@ -312,7 +321,7 @@ if(NOT TBB_FOUND)
 
 set(TBB_WILL_RECONFIGURE TRUE)
 # Set the appropriate compiler
-if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+if (CLANG)
     set(TBB_COMPILER "clang")
 else()
     set(TBB_COMPILER "gcc")
@@ -323,6 +332,13 @@ message("==================================================================")
 # These are useful for the custom install step we'll do later
 set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+
+if ("${TBB_COMPILER}" STREQUAL "gcc") 
+    ## Don't know why it's a problem yet, but if we're using
+    ## GCC, get rid of the DO_ITT_NOTIFY flag
+    set(TBB_CXXFLAGS "${TBB_CXXFLAGS} -UDO_ITT_NOTIFY")  
+endif()
+
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
     URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz
@@ -330,7 +346,7 @@ ExternalProject_Add(libtbb
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND make compiler=${TBB_COMPILER} cfg=release tbb_build_prefix=LIBS 
+    BUILD_COMMAND make CXXFLAGS=${TBB_CXXFLAGS} compiler=${TBB_COMPILER} cfg=release tbb_build_prefix=LIBS 
     INSTALL_COMMAND sh -c "cp ${TBB_SOURCE_DIR}/build/LIBS_release/*.${SHARED_LIB_EXTENSION}* ${TBB_INSTALL_DIR}/lib && cp -r ${TBB_SOURCE_DIR}/include/* ${TBB_INSTALL_DIR}/include"
     BUILD_IN_SOURCE 1
 )

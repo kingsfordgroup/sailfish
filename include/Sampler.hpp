@@ -197,7 +197,10 @@ namespace salmon {
 
 
                                 if (transcriptUnique) {
-                                    outputQueue.push(alnGroup->alignments().front()->clone());
+                                    // avoid r-value ref until we figure out what's
+                                    // up with TBB 4.3
+                                    auto* alnPtr = alnGroup->alignments().front()->clone();
+                                    outputQueue.push(alnPtr);
                                 } else { // read maps to multiple transcripts
                                     double r = uni(eng);
                                     double currentMass{0.0};
@@ -209,7 +212,10 @@ namespace salmon {
                                         massInc = std::exp(aln->logProb);
                                         if (currentMass <= r and currentMass + massInc > r) {
                                             // Write out this read
-                                            outputQueue.push(aln->clone());
+                                            // avoid r-value ref until we figure out what's
+                                            // up with TBB 4.3
+                                            auto* alnPtr = aln->clone();
+                                            outputQueue.push(alnPtr);
                                             currentMass += massInc;
                                             choseAlignment = true;
                                             break;

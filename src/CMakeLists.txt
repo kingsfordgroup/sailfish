@@ -63,9 +63,6 @@ ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include
-#${GAT_SOURCE_DIR}/external/install/include/samtools
-#${GAT_SOURCE_DIR}/../../samtools
-#${GAT_SOURCE_DIR}/../../htslib
 ${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.1.3
 ${GAT_SOURCE_DIR}/external/install/include/bwa
 #${GAT_SOURCE_DIR}/external/install/include/clasp
@@ -77,8 +74,6 @@ ${Boost_INCLUDE_DIRS}
 link_directories( 
 ${GAT_SOURCE_DIR}/lib
 ${GAT_SOURCE_DIR}/external/install/lib
-#${GAT_SOURCE_DIR}/../../samtools
-#${GAT_SOURCE_DIR}/../../htslib
 ${Boost_LIBRARY_DIRS}
 ${TBB_LIBRARY_DIRS}
 ${LAPACK_LIBRARY_DIR}
@@ -133,22 +128,23 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 target_link_libraries(sailfish 
     sailfish_core 
     ${Boost_LIBRARIES} 
+    gff
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     m
-    ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
+    ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     ${NON_APPLECLANG_LIBS}
-    gff
-    pthread 
+    pthread
 )
 
 # Link the executable
 target_link_libraries(salmon
     sailfish_core 
     bwa
+    gff
     #clasp
     ${Boost_LIBRARIES} 
     ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
@@ -157,11 +153,10 @@ target_link_libraries(salmon
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     m
-    ${TBB_LIBRARIES}
     ${LOGGING_LIBS}
+    ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     ${NON_APPLECLANG_LIBS}
-    gff
     pthread
 )
 

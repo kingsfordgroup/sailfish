@@ -206,6 +206,7 @@ int runJellyfish(bool canonical,
             delete jfargs[i];
         }
         delete [] jfargs;
+        std::cerr << "Exiting jellyfish thread\n";
         std::exit(jfRet);
 
     } else if (pid < 0) { // fork failed!
@@ -215,6 +216,7 @@ int runJellyfish(bool canonical,
     } else { // parent
 
         int status = -1;
+        std::cerr << "waiting on " << pid << "\n";
         auto waitRet = waitpid(pid, &status, 0); // wait on the Jellyfish process
         std::cerr << "waited on " << pid << ", waitpid return was " << waitRet << "\n";
         bool statusOK = (status == 0);
