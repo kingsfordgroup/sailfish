@@ -101,6 +101,8 @@ int mainIndex(int argc, char* argv[]);
 int mainQuantify(int argc, char* argv[]);
 int mainBuildLUT(int argc, char* argv[] );
 
+bool verbose = false;
+
 int main( int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;

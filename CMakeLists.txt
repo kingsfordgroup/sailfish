@@ -257,19 +257,19 @@ ExternalProject_Add(libbwa
 # and is much more computationally intensive than the greedy approach.  I'm
 # removing this dependency and functionality for the time being.
 ##
-message("Build system will fetch and build CLASP (for Salmon)")
-message("==================================================================")
-ExternalProject_Add(libclasp
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.cmu.edu/~robp/files/clasp_v1_1.tar.gz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/clasp_v1_1
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND sh -c "make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} && ar cr libclasp.a <SOURCE_DIR>/libs/*.o"
-    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/clasp && cp libclasp.a <INSTALL_DIR>/lib && cp libs/*.h <INSTALL_DIR>/include/clasp"
-    BUILD_IN_SOURCE TRUE
-)
-
+#message("Build system will fetch and build CLASP (for Salmon)")
+#message("==================================================================")
+#ExternalProject_Add(libclasp
+#    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+#    URL http://www.cs.cmu.edu/~robp/files/clasp_v1_1.tar.gz
+#    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/clasp_v1_1
+#    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+#    CONFIGURE_COMMAND ""
+#    BUILD_COMMAND sh -c "make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} && ar cr libclasp.a <SOURCE_DIR>/libs/*.o"
+#    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/clasp && cp libclasp.a <INSTALL_DIR>/lib && cp libs/*.h <INSTALL_DIR>/include/clasp"
+#    BUILD_IN_SOURCE TRUE
+#)
+#
 
 
 message("Build system will fetch and build CMPH")
