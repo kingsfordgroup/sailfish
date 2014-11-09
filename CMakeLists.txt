@@ -77,9 +77,10 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (BOOST_EXTRA_FLAGS "")
     # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    set(CLANG TRUE)
     # If we're on OSX using clang, try to use libc++ instead of libstdc++
     if (APPLE)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
         set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
     endif()
@@ -397,6 +398,11 @@ ExternalProject_Add(libshark
 )
 
 if(HAVE_LOGGER)
+
+if (APPLE AND CLANG)
+    set (G2LOGGER_CXX_FLAGS "-std=c++11 -stdlib=libc++")
+endif()
+
 message("Build system will compile g2log logging library")
 message("==================================================================")
 ExternalProject_Add(libg2log
@@ -407,7 +413,7 @@ ExternalProject_Add(libg2log
   BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
   #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
   UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install #-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
   BUILD_COMMAND sh -c "make"
   INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <BINARY_DIR>/*.${SHARED_LIB_EXTENSION} <INSTALL_DIR>/lib/"
 )
