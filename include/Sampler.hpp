@@ -54,6 +54,7 @@ extern "C" {
 #include "SalmonUtils.hpp"
 #include "SalmonConfig.hpp"
 #include "SalmonOpts.hpp"
+#include "OutputUnmappedFilter.hpp"
 
 namespace salmon {
     namespace sampler {
@@ -214,7 +215,7 @@ namespace salmon {
                                             // Write out this read
                                             // avoid r-value ref until we figure out what's
                                             // up with TBB 4.3
-                                            auto* alnPtr = aln->clone();
+                                           auto* alnPtr = aln->clone();
                                             outputQueue.push(alnPtr);
                                             currentMass += massInc;
                                             choseAlignment = true;
@@ -251,7 +252,8 @@ namespace salmon {
                     uint32_t numQuantThreads,
                     const SalmonOpts& salmonOpts,
                     bool burnedIn,
-                    bfs::path& sampleFilePath) {
+                    bfs::path& sampleFilePath,
+                    bool sampleUnaligned) {
 
                 fmt::MemoryWriter msgStr;
                 msgStr << "Sampling alignments; outputting results to "
@@ -270,8 +272,22 @@ namespace salmon {
                 double forgettingFactor{0.60};
                 size_t batchNum{0};
 
+                /**
+                * Output queue
+                */
+                volatile bool consumedAllInput{false};
+                size_t defaultCapacity = 2000000;
+                OutputQueue<FragT> outQueue;
+                outQueue.set_capacity(defaultCapacity);
+
+                std::unique_ptr<OutputUnmappedFilter<FragT>> outFilt = nullptr;
+
+                if (sampleUnaligned) {
+                    outFilt.reset(new OutputUnmappedFilter<FragT>(&outQueue));
+                }
+
                 // Reset our reader to the beginning
-                if (!alnLib.reset()) {
+                if (!alnLib.reset(false, outFilt.get())) {
                     fmt::print(stderr,
                             "\n\n======== WARNING ========\n"
                             "A provided alignment file "
@@ -294,11 +310,6 @@ namespace salmon {
                 std::atomic<size_t> processedReads{0};
 
                 size_t numProc{0};
-                volatile bool consumedAllInput{false};
-                size_t defaultCapacity = 2000000;
-                OutputQueue<FragT> outQueue;
-                outQueue.set_capacity(defaultCapacity);
-
                 for (uint32_t i = 0; i < numQuantThreads; ++i) {
                     workers.emplace_back(sampleMiniBatch<FragT>,
                             std::ref(alnLib),
@@ -344,6 +355,10 @@ namespace salmon {
                                         LOG(WARNING) << errstr.str();
                                         std::exit(-1);
                                      }
+                                    // Eventually, as we do in BAMQueue, we should
+                                    // have queue of bam1_t structures that can be
+                                    // re-used rather than continually calling
+                                    // new and delete.
                                     delete aln;
                                     aln = nullptr;
                                 }

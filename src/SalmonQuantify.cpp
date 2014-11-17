@@ -1020,6 +1020,45 @@ inline void collectHitsForRead(const bwaidx_t *idx, const bwtintv_v* a, smem_aux
     }
 }
 
+inline bool consistentNames(header_sequence_qual& r) {
+    return true;
+}
+
+bool consistentNames(std::pair<header_sequence_qual, header_sequence_qual>& rp) {
+        auto l1 = rp.first.header.length();
+        auto l2 = rp.second.header.length();
+        char* sptr = static_cast<char*>(memchr(&rp.first.header[0], ' ', l1));
+
+        bool compat = false;
+        // If we didn't find a space in the name of read1
+        if (sptr == NULL) {
+            if (l1 > 1) {
+                compat = (l1 == l2);
+                compat = compat and (memcmp(&rp.first.header[0], &rp.second.header[0], l1-1) == 0);
+                compat = compat and ((rp.first.header[l1-1] == '1' and rp.second.header[l2-1] == '2')
+                                or   (rp.first.header[l1-1] == rp.second.header[l2-1]));
+            } else {
+                compat = (l1 == l2);
+                compat = compat and (rp.first.header[0] == rp.second.header[0]);
+            }
+        } else {
+            size_t offset = sptr - (&rp.first.header[0]);
+
+            // If read2 matches read1 up to and including the space
+            if (offset + 1 < l2) {
+                compat = memcmp(&rp.first.header[0], &rp.second.header[0], offset) == 0;
+                // and after the space, read1 and read2 have an identical character or
+                // read1 has a '1' and read2 has a '2', then this is a consistent pair.
+                compat = compat and ((rp.first.header[offset+1] == rp.second.header[offset+1])
+                                or   (rp.first.header[offset+1] == '1' and rp.second.header[offset+1] == '2'));
+            } else {
+                compat = false;
+            }
+        }
+        return compat;
+}
+
+
 template <typename CoverageCalculator>
 void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& frag,
                         bwaidx_t *idx,
@@ -1041,6 +1080,28 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
 
     uint32_t leftReadLength{0};
     uint32_t rightReadLength{0};
+
+    /**
+    * As soon as we can decide on an acceptable way to validate read names,
+    * we'll inform the user and quit if we see something inconsistent.  However,
+    * we first need a reasonable way to verify potential naming formats from
+    * many different sources.
+    */
+    /*
+    if (!consistentNames(frag)) {
+        fmt::MemoryWriter errstream;
+
+        errstream << "Inconsistent paired-end reads!\n";
+        errstream << "mate1 : " << frag.first.header << "\n";
+        errstream << "mate2 : " << frag.second.header << "\n";
+        errstream << "Paired-end reads should appear consistently in their respective files.\n";
+        errstream << "Please fix the paire-end input before quantifying with salmon; exiting.\n";
+
+        LOG(WARNING) << errstream.str();
+        std::cerr << errstream.str();
+        std::exit(-1);
+    }
+    */
 
     //---------- End 1 ----------------------//
     {

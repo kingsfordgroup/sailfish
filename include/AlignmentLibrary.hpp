@@ -26,6 +26,9 @@ extern "C" {
 #include <vector>
 #include <memory>
 
+template <typename T>
+class NullFragmentFilter;
+
 /**
   *  This class represents a library of alignments used to quantify
   *  a set of target transcripts.  The AlignmentLibrary contains info
@@ -116,7 +119,8 @@ class AlignmentLibrary {
             errMod_.reset(new
                     ErrorModel(1.0, salmonOpts.maxExpectedReadLen));
             // Start parsing the alignments
-            bq->start();
+           NullFragmentFilter<FragT>* nff = nullptr;
+           bq->start(nff);
         }
 
     std::vector<Transcript>& transcripts() { return transcripts_; }
@@ -149,7 +153,8 @@ class AlignmentLibrary {
 
     ClusterForest& clusterForest() { return *clusters_.get(); }
 
-    bool reset(bool incPasses=true) {
+    template <typename FilterT>
+    bool reset(bool incPasses=true, FilterT filter=nullptr) {
         namespace bfs = boost::filesystem;
 
         for (auto& alignmentFile : alignmentFiles_) {
@@ -159,7 +164,7 @@ class AlignmentLibrary {
         }
 
         bq->reset();
-        bq->start();
+        bq->start(filter);
         if (incPasses) { quantificationPasses_++; }
         return true;
     }

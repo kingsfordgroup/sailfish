@@ -120,12 +120,13 @@ std::vector<bam_header_t*> BAMQueue<FragT>::headers() {
 }
 
 template <typename FragT>
-void BAMQueue<FragT>::start() {
+template <typename FilterT>
+void BAMQueue<FragT>::start(FilterT filt) {
     fmt::print(stderr, "Started parsing\n");
     // Depending on the specified library type, start an
     // appropriate parsing thread.
-    parsingThread_.reset(new std::thread([this]()-> void {
-            this->fillQueue_();
+    parsingThread_.reset(new std::thread([this, filt]()-> void {
+            this->fillQueue_(filt);
     }));
 }
 
@@ -154,8 +155,30 @@ inline bool checkProperPairedNames_(const char* qname1, const char* qname2, cons
 }
 
 
+/**
+* This set of functions checks if two reads have the same name.  If the reads
+* are paired-end, it allows them to differ in the last character if they end in 1/2.
+* If the reads are single-end, the strings must be identical.
+*/
+template <typename T>
+inline bool sameReadName_(const char* qname1, const char* qname2, const uint32_t nameLen)  = delete;
+
+
+// Specialization for unpaired reads.
+template <>
+inline bool sameReadName_<UnpairedRead>(const char* qname1, const char* qname2, const uint32_t nameLen) {
+    return (memcmp(qname1, qname2, nameLen) == 0);
+}
+
+// Specialization fir paired reads.
+template <>
+inline bool sameReadName_<ReadPair>(const char* qname1, const char* qname2, const uint32_t nameLen) {
+    return checkProperPairedNames_(qname1, qname2, nameLen);
+}
+
 template <typename FragT>
-inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
+template <typename FilterT>
+inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
     bool haveValidPair{false};
     bool didRead1{false};
     bool didRead2{false};
@@ -196,7 +219,7 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
             std::exit(-1);
         }
 
-        // We've observed two consecutive paired reads; now check if our reads
+        // We've observed two, consecutive paired reads; now check if our reads
         // have the same name.
 
         // The names must first have the same length.
@@ -282,10 +305,17 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
         haveValidPair = read1IsValid and read2IsValid and
                         (rpair.read1->core.tid == rpair.read2->core.tid) and 
                         sameName;
+
  
         // If the pair was not properly mapped 
         if (!haveValidPair) { 
             ++numUnaligned_; 
+            // If we have an active output filter, and the reads were not 
+            // a valid alignment (*but were a proper pair*), then pass them
+            // to the output filter.
+            if ((filt != nullptr) and sameName) {
+                filt->processFrag(&rpair);
+            }
         } else {
             // Make sure read1 is read1 and read2 is read2; else swap
             if (rpair.read1->core.flag & BAM_FREAD2) {
@@ -300,7 +330,8 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair) {
 }
 
 template <typename FragT>
-inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread) {
+template <typename FilterT>
+inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread, FilterT filt) {
     bool haveValidRead{false};
 
     while (!haveValidRead) {
@@ -322,7 +353,12 @@ inline bool BAMQueue<FragT>::getFrag_(UnpairedRead& sread) {
             haveValidRead = true;
         }
 
-        if (!haveValidRead) { ++numUnaligned_; }
+        if (!haveValidRead) { 
+            if (filt != nullptr) {
+                filt->processFrag(&sread);
+            }
+            ++numUnaligned_; 
+        }
         ++totalReads_;
     }
 
@@ -339,7 +375,8 @@ size_t BAMQueue<FragT>::numMappedReads(){
 }
 
 template <typename FragT>
-void BAMQueue<FragT>::fillQueue_() {
+template <typename FilterT>
+void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     size_t n{0};
     //AlignmentGroup* alngroup = new AlignmentGroup;
     AlignmentGroup<FragT*>* alngroup;
@@ -355,13 +392,13 @@ void BAMQueue<FragT>::fillQueue_() {
     uint32_t prevLen{1};
     char* prevReadName = new char[255];
     prevReadName[0] = '\0';
-    while(getFrag_(*f) and !doneParsing_) {
+    while(getFrag_(*f, filt) and !doneParsing_) {
 
         char* readName = f->getName();//bam1_qname(p.read1);
         uint32_t currLen = f->getNameLength();
         // if this is a new read
         if ( (currLen != prevLen) or
-             (memcmp(readName, prevReadName, currLen) != 0) ) { // strcmp(readName, prevReadName) != 0) {
+             !sameReadName_<UnpairedRead>(readName, prevReadName, currLen) ) {
             if (alngroup->size() > 0)  {
                 // push the align group
                 while(!alnGroupQueue_.push(alngroup));

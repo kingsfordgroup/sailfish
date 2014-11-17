@@ -54,7 +54,8 @@ public:
 
   std::vector<bam_header_t*> headers();
 
-  void start();
+  template <typename FilterT>
+  void start(FilterT filt);
 
   inline bool getAlignmentGroup(AlignmentGroup<FragT*>*& group);
 
@@ -72,12 +73,15 @@ private:
   /** Fill the queue with the appropriate type of alignment
    * depending on the template paramater T
    */
-  void fillQueue_();
+  template <typename FilterT>
+  void fillQueue_(FilterT);
 
   /** Overload of getFrag_ for paired-end reads */
-  inline bool getFrag_(ReadPair& rpair);
+  template <typename FilterT>
+  inline bool getFrag_(ReadPair& rpair, FilterT filt);
   /** Overload of getFrag_ for single-end reads */
-  inline bool getFrag_(UnpairedRead& sread);
+  template <typename FilterT>
+  inline bool getFrag_(UnpairedRead& sread, FilterT filt);
 
 private:
   std::vector<AlignmentFile> files_;

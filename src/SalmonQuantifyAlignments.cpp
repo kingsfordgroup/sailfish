@@ -51,6 +51,7 @@ extern "C" {
 #include "SalmonUtils.hpp"
 #include "SalmonConfig.hpp"
 #include "SalmonOpts.hpp"
+#include "NullFragmentFilter.hpp"
 #include "Sampler.hpp"
 
 namespace bfs = boost::filesystem;
@@ -330,9 +331,11 @@ bool quantifyLibrary(
     size_t batchNum{0};
     bool initialRound{true};
 
+    NullFragmentFilter<FragT>* nff = nullptr;
+
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
-            if (!alnLib.reset()) {
+            if (!alnLib.reset(true, nff)) {
                 fmt::print(stderr,
                   "\n\n======== WARNING ========\n"
                   "A provided alignment file "
@@ -462,6 +465,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     SalmonOpts sopt;
 
     bool sampleOutput{false};
+    bool sampleUnaligned{false};
     bool biasCorrect{false};
     uint32_t numThreads{6};
     size_t requiredObservations{50000000};
@@ -501,6 +505,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "that will sample the input alignments according to the estimated transcript abundances. If you're "
                         "going to perform downstream analysis of the alignments with tools which don't, themselves, take "
                         "fragment assignment ambiguity into account, you should use this output.")
+    ("sampleUnaligned,u", po::bool_switch(&sampleUnaligned)->default_value(false), "In addition to sampling the aligned reads, also write "
+                        "the un-aligned reads to \"posSample.bam\".")
     ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
                                                              "qunatification estimates.")
     ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
@@ -622,6 +628,15 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         g2LogWorker logger(argv[0], logDirectory.string());
         g2::initializeLogging(&logger);
 
+
+        if (!sampleOutput and sampleUnaligned) {
+            fmt::MemoryWriter wstr;
+            wstr << "WARNING: you passed in the (-u/--sampleUnaligned) flag, but did not request a sampled "
+                 << "output file (-s/--sampleOut).  This flag will be ignored!\n";
+            std::cerr << wstr.str();
+            LOG(WARNING) << wstr.str();
+        }
+
         // If we made it this far, the output directory exists
         bfs::path outputFile = outputDirectory / "quant.sf";
         // Now create a subdirectory for any parameters of interest
@@ -658,7 +673,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                     salmon::utils::writeAbundances(alnLib, outputFile, commentString);
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
-                        salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath);
+                        salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
                     }
                 }
                 break;
@@ -683,7 +698,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
-                        salmon::sampler::sampleLibrary<ReadPair>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath);
+                        salmon::sampler::sampleLibrary<ReadPair>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
                     }
                 }
                 break;
