@@ -18,6 +18,7 @@ BuildSalmonIndex.cpp
 SalmonQuantify.cpp
 FragmentLengthDistribution.cpp 
 SalmonUtils.cpp
+StadenUtils.cpp
 )
 
 set (BUILD_TRANSCRIPT_MAP_SRCS
@@ -147,8 +148,12 @@ target_link_libraries(salmon
     gff
     #clasp
     ${Boost_LIBRARIES} 
-    ${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    ${HTSLIB}
+    ${GAT_SOURCE_DIR}/external/install/lib/libstaden-read.a
+    lzma
+    bz2
+    curl
+    #${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
+    #${HTSLIB}
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 

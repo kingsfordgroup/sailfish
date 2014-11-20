@@ -1,5 +1,7 @@
+
 extern "C" {
-#include "htslib/sam.h"
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
 }
 
 // for cpp-format
@@ -333,6 +335,9 @@ bool quantifyLibrary(
 
     NullFragmentFilter<FragT>* nff = nullptr;
 
+    // Give ourselves some space
+    fmt::print(stderr, "\n\n\n\n");
+
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
             if (!alnLib.reset(true, nff)) {
@@ -373,9 +378,13 @@ bool quantifyLibrary(
         std::vector<AlignmentGroup<FragT*>*>* alignments = new std::vector<AlignmentGroup<FragT*>*>;
         alignments->reserve(miniBatchSize);
         AlignmentGroup<FragT*>* ag;
-        while (bq.getAlignmentGroup(ag)) {
-            alignments->push_back(ag);
-            if (alignments->size() >= miniBatchSize) {
+
+        bool alignmentGroupsRemain = bq.getAlignmentGroup(ag);
+        while (alignmentGroupsRemain or alignments->size() > 0) {
+            if (alignmentGroupsRemain) { alignments->push_back(ag); }
+            // If this minibatch has reached the size limit, or we have nothing
+            // left to fill it up with
+            if (alignments->size() >= miniBatchSize or !alignmentGroupsRemain) {
                 ++batchNum;
                 if (batchNum > 1) {
                     logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
@@ -402,6 +411,7 @@ bool quantifyLibrary(
                 //fmt::print(stderr, "log(forgettingMass) = {}\x1b[A", logForgettingMass);
             }
             ++numProc;
+            alignmentGroupsRemain = bq.getAlignmentGroup(ag);
         }
         std::cerr << "\n";
 
@@ -415,19 +425,20 @@ bool quantifyLibrary(
         doneParsing = true;
         size_t tnum{0};
         for (auto& t : workers) {
-            fmt::print(stderr, "killing thread {} . . . ", tnum++);
+            fmt::print(stderr, "\r\rkilling thread {} . . . ", tnum++);
             {
                 std::unique_lock<std::mutex> l(cvmutex);
                 workAvailable.notify_all();
             }
             t.join();
-            fmt::print(stderr, "done\r\r");
+            fmt::print(stderr, "done");
         }
-        fmt::print(stderr, "\n");
+        fmt::print(stderr, "\n\n");
 
         initialRound = false;
         numObservedFragments += alnLib.numMappedReads();
-        fmt::print(stderr, "# observed = {} / # required = {}\033[F\033[F\033[F\033[F",
+
+        fmt::print(stderr, "# observed = {} / # required = {}\033[F\033[F\033[F\033[F\033[F",
                    numObservedFragments, numRequiredFragments);
     }
 
@@ -541,6 +552,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                "setting # of threads = 2");
             numThreads = 2;
         }
+        sopt.numThreads = numThreads;
 
         std::stringstream commentStream;
         commentStream << "# salmon (alignment-based) v" << salmon::version << "\n";

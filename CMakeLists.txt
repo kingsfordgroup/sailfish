@@ -25,7 +25,8 @@ set (BOOST_CXX_FLAGS "-Wno-deprecated-register -std=c++11")
 SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
-set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DHAVE_CONFIG_H -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+# Nov 18th --- removed -DHAVE_CONFIG_H 
+set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -464,6 +465,25 @@ ExternalProject_Add(libgff
     #BUILD_COMMAND $(MAKE)
     #INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include/samtools && mkdir -p <INSTALL_DIR>/include/samtools/pbgzip && mkdir -p <INSTALL_DIR>/include/samtools/bcftools && cp <SOURCE_DIR>/*.h <INSTALL_DIR>/include/samtools/ &&  cp <SOURCE_DIR>/pbgzip/*.h <INSTALL_DIR>/include/samtools/pbgzip/ && cp <SOURCE_DIR>/bcftools/*.h <INSTALL_DIR>/include/samtools/bcftools/ &&  cp <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/"
 #)
+
+
+message("Build system will compile Staden IOLib")
+message("==================================================================")
+ExternalProject_Add(libstadenio 
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/staden-io_lib/archive/v1.13.7.tar.gz -o staden-io_lib-v1.13.7.tar.gz &&
+                     tar -xzf staden-io_lib-v1.13.7.tar.gz &&
+                     rm -fr staden-io_lib &&
+                     mv -f staden-io_lib-1.13.7 staden-io_lib
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/staden-io_lib
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ./configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND make install
+)
+
+
 
 message("Build system will compile htslib")
 message("==================================================================")

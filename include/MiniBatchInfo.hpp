@@ -21,7 +21,7 @@ class MiniBatchInfo {
 
         template <typename FragT>
         void release(tbb::concurrent_bounded_queue<FragT*>& fragmentQueue,
-                    tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue){
+                     tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue){
             size_t ng{0};
             for (auto& alnGroup : *alignments) {
                 for (auto aln : alnGroup->alignments()) {
@@ -30,15 +30,13 @@ class MiniBatchInfo {
                 }
                 alnGroup->alignments().clear();
                 alignmentGroupQueue.push(alnGroup);
-                //delete alnGroup;
+
                 alnGroup = nullptr;
                 ++ng;
             }
             delete alignments;
             alignments = nullptr;
         }
-
-
 
 };
 

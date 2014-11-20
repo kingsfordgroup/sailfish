@@ -2,7 +2,8 @@
 #define __SALMON_UTILS_HPP__
 
 extern "C" {
-    #include "samtools/bam.h"
+    #include "io_lib/scram.h"
+    #include "io_lib/os.h"
 }
 
 #include "format.h"
@@ -17,9 +18,9 @@ class LibraryFormat;
 namespace salmon {
 namespace utils {
 
-    bool headersAreConsistent(bam_header_t* h1, bam_header_t* h2);
+    bool headersAreConsistent(SAM_hdr* h1, SAM_hdr* h2);
 
-    bool headersAreConsistent(std::vector<bam_header_t*>&& headers);
+    bool headersAreConsistent(std::vector<SAM_hdr*>&& headers);
 
     template <typename AlnLibT>
     void writeAbundances(AlnLibT& alnLib,

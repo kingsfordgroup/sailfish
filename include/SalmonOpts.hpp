@@ -36,6 +36,7 @@ struct SalmonOpts {
 
     uint32_t maxExpectedReadLen; // Maximum expected length of an observed read.
 
+    uint32_t numThreads;
 };
 
 #endif // SALMON_OPTS_HPP
