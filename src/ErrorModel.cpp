@@ -51,8 +51,16 @@ double ErrorModel::logLikelihood(const ReadPair& hit, Transcript& ref){
     double logLike = sailfish::math::LOG_1;
     if (BOOST_UNLIKELY(!isEnabled_)) { return logLike; }
 
-    bam1_t* leftRead = (hit.read1->core.mpos < hit.read2->core.mpos) ? hit.read1 : hit.read2;
-    bam1_t* rightRead = (hit.read1->core.mpos < hit.read2->core.mpos) ? hit.read2 : hit.read1;
+    if (!hit.isPaired()) {
+        if (hit.isLeftOrphan()) {
+            return logLikelihood(hit.read1, ref, mismatchLeft_);
+        } else {
+            return logLikelihood(hit.read1, ref, mismatchRight_);
+        }
+    }
+
+    bam1_t* leftRead = (hit.read1->core.pos < hit.read2->core.pos) ? hit.read1 : hit.read2;
+    bam1_t* rightRead = (hit.read1->core.pos < hit.read2->core.pos) ? hit.read2 : hit.read1;
 
     // NOTE: Raise a warning in this case?
     if (BOOST_UNLIKELY((leftRead->core.l_qseq > maxExpectedLen_) or

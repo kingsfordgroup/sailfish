@@ -38,6 +38,11 @@ struct UnpairedRead {
 
    ~UnpairedRead() { bam_destroy1(read); }
 
+    inline bool isPaired() const { return false; }
+    inline bool isLeftOrphan() const { return false; }
+    inline bool isRightOrphan() const { return false; }
+
+
     int writeToFile(htsFile* fp) {
         return bam_write1(fp->fp.bgzf, read);
     }

@@ -17,6 +17,8 @@ class LibraryFormat;
 namespace salmon {
 namespace utils {
 
+    enum class OrphanStatus: uint8_t { LeftOrphan = 0, RightOrphan = 1, Paired = 2 };
+
     bool headersAreConsistent(bam_header_t* h1, bam_header_t* h2);
 
     bool headersAreConsistent(std::vector<bam_header_t*>&& headers);

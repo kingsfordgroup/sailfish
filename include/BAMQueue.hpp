@@ -24,7 +24,7 @@ extern "C" {
 #include "SailfishMath.hpp"
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
-
+#include <set>
 
 /**
   * Simple structure holding info about the alignment file.

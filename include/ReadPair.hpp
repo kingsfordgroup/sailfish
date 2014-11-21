@@ -7,28 +7,34 @@ extern "C" {
 
 #include "SailfishMath.hpp"
 #include "LibraryFormat.hpp"
+#include "SalmonUtils.hpp"
 
 #include "format.h"
 
 struct ReadPair {
     bam1_t* read1 = nullptr;
     bam1_t* read2 = nullptr;
+    salmon::utils::OrphanStatus orphanStatus;
     double logProb;
 
     ReadPair():
-        read1(bam_init1()), read2(bam_init1()), logProb(sailfish::math::LOG_0) {}
+        read1(bam_init1()), read2(bam_init1()),
+        orphanStatus(salmon::utils::OrphanStatus::Paired),
+        logProb(sailfish::math::LOG_0) {}
 
 
-    ReadPair(bam1_t* r1, bam1_t* r2, double lp) :
-        read1(r1), read2(r2), logProb(lp) {}
+    ReadPair(bam1_t* r1, bam1_t* r2, salmon::utils::OrphanStatus os, double lp) :
+        read1(r1), read2(r2), orphanStatus(os), logProb(lp) {}
 
     ReadPair(ReadPair&& other) {
+        orphanStatus = other.orphanStatus;
         logProb = other.logProb;
         std::swap(read1, other.read1);
         std::swap(read2, other.read2);
     }
 
     ReadPair& operator=(ReadPair&& other) {
+        orphanStatus = other.orphanStatus;
         logProb = other.logProb;
         std::swap(read1, other.read1);
         std::swap(read2, other.read2);
@@ -41,7 +47,7 @@ struct ReadPair {
    ReadPair& operator=(ReadPair& other) = default;
 
    ReadPair* clone() {
-       return new ReadPair(bam_dup1(read1), bam_dup1(read2), logProb);
+       return new ReadPair(bam_dup1(read1), bam_dup1(read2), orphanStatus, logProb);
    }
 
     ~ReadPair() {
@@ -49,9 +55,13 @@ struct ReadPair {
         bam_destroy1(read2);
     }
 
+    inline bool isPaired() const { return (orphanStatus == salmon::utils::OrphanStatus::Paired); }
+    inline bool isLeftOrphan() const { return (orphanStatus == salmon::utils::OrphanStatus::LeftOrphan); }
+    inline bool isRightOrphan() const { return (orphanStatus == salmon::utils::OrphanStatus::RightOrphan); }
+
     int writeToFile(htsFile* fp) {
         int r1 = bam_write1(fp->fp.bgzf, read1);
-        if (r1 > 0) {
+        if (r1 > 0 and isPaired()) {
             return bam_write1(fp->fp.bgzf, read2);
         } else {
             return r1;
@@ -67,6 +77,7 @@ struct ReadPair {
     }
 
     inline uint32_t fragLen() {
+        if (!isPaired()) { return 0; }
         auto leftmost1 = read1->core.pos;
         auto leftmost2 = read2->core.pos;
 
@@ -77,13 +88,24 @@ struct ReadPair {
         //return std::abs(read1->core.isize) + std::abs(read1->core.l_qseq) + std::abs(read2->core.l_qseq);
     }
 
-    inline bool isRight() { return false; }
-    inline bool isLeft()  { return false; }
+    inline bool isRight() { return isPaired() ? false : (isRightOrphan() ? true : false) ; }
+    inline bool isLeft()  { return isPaired() ? false : (isLeftOrphan() ? true : false); }
 
-    inline int32_t left() { return std::min(read1->core.pos, read2->core.pos); }
+    inline int32_t left() {
+        if (isPaired()) {
+            return std::min(read1->core.pos, read2->core.pos);
+        } else {
+            return read1->core.pos;
+        }
+    }
+
     inline int32_t right() {
-        return std::max(read1->core.pos + read1->core.l_qseq,
-                        read2->core.pos + read2->core.l_qseq);
+        if (isPaired()) {
+            return std::max(read1->core.pos + read1->core.l_qseq,
+                            read2->core.pos + read2->core.l_qseq);
+        } else {
+            return read1->core.pos + read1->core.l_qseq;
+        }
     }
 
     inline ReadType fragType() { return ReadType::PAIRED_END; }
