@@ -45,6 +45,10 @@ struct UnpairedRead {
 
    ~UnpairedRead() { staden::utils::bam_destroy(read); }
 
+   inline bool isPaired() const { return false; }
+   inline bool isLeftOrphan() const { return false; }
+   inline bool isRightOrphan() const { return false; }
+
     // return 0 on success, -1 on failure
     int writeToFile(scram_fd* fp) {
         return scram_put_seq(fp, read);

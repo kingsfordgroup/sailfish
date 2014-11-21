@@ -171,17 +171,16 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         //double fragLength = aln.fragLen();
 
                         if (salmonOpts.useFragLenDist) {
-                            switch (aln->fragType()) {
-                                case ReadType::SINGLE_END:
-                                    if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
-                                        logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
-                                    } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
-                                        logFragProb = fragLengthDist.cmf(aln->right());
-                                    }
-                                    break;
-                                case ReadType::PAIRED_END:
-                                    logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
+                            if(aln->fragLen() == 0) {
+                                if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
+                                    logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
+                                } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
+                                    logFragProb = fragLengthDist.cmf(aln->right());
+                                }
+                            } else {
+                                logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
                             }
+
                         }
 
                         // @TODO: handle this case better
@@ -242,7 +241,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             if (salmonOpts.useErrorModel) {
                                 errMod.update(*aln, transcript, aln->logProb, logForgettingMass);
                             }
-                            if (aln->fragType() == ReadType::PAIRED_END) {
+                            if (aln->isPaired()) {
                                 double fragLength = aln->fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
                             }
@@ -401,19 +400,17 @@ bool quantifyLibrary(
                 alignments = new std::vector<AlignmentGroup<FragT*>*>;
                 alignments->reserve(miniBatchSize);
             }
-            if (numProc % 1000000 == 0) {
-                const char RESET_COLOR[] = "\x1b[0m";
-                char green[] = "\x1b[30m";
-                green[3] = '0' + static_cast<char>(fmt::GREEN);
-                char red[] = "\x1b[30m";
-                red[3] = '0' + static_cast<char>(fmt::RED);
-                fmt::print(stderr, "\r\r{}processed{} {} {}reads{}", green, red, numProc, green, RESET_COLOR);
-                //fmt::print(stderr, "log(forgettingMass) = {}\x1b[A", logForgettingMass);
+
+            if ((numProc % 1000000 == 0) or !alignmentGroupsRemain) {
+                fmt::print(stderr, "\r\r{}processed{} {} {}reads in current round{}",
+                           ioutils::SET_GREEN, ioutils::SET_RED, numProc,
+                           ioutils::SET_GREEN, ioutils::RESET_COLOR);
             }
+
             ++numProc;
             alignmentGroupsRemain = bq.getAlignmentGroup(ag);
         }
-        std::cerr << "\n";
+        fmt::print(stderr, "\n");
 
         // Free the alignments and the vector holding them
         for (auto& aln : *alignments) {
