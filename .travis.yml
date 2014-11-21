@@ -2,7 +2,8 @@
 branches:
     only:
         - develop
-
+        - feature/fastio
+            
 language: cpp
 
 compiler: gcc
