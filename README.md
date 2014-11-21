@@ -4,5 +4,5 @@
 Documentation
 ==============
 
-The documentation for Salmon and Sailfish is being migrated to [ReadTheDocs](www.readthedocs.org).
+The documentation for Salmon and Sailfish is being migrated to [ReadTheDocs](http://readthedocs.org).
 To see [the latest documentation there](http://sailfish.readthedocs.org).
