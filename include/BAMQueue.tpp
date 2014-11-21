@@ -2,7 +2,6 @@
 #include "IOUtils.hpp"
 #include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
 #include <chrono>
-#include <set>
 
 #include "g2logworker.h"
 #include "g2log.h"
