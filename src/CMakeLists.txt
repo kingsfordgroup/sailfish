@@ -140,14 +140,13 @@ target_link_libraries(salmon
     gff
     ${Boost_LIBRARIES} 
     ${GAT_SOURCE_DIR}/external/install/lib/libstaden-read.a
-    lzma
-    bz2
-    #curl
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     ${GAT_SOURCE_DIR}/external/install/lib/libbwa.a
     m
+    lzma 
+    bz2
     ${LOGGING_LIBS}
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
