@@ -103,13 +103,6 @@ endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
-if (APPLE AND CLANG)
-    set(HTSLIB hts)
-else()
-    set(HTSLIB ${GAT_SOURCE_DIR}/external/install/lib/libhts.a)
-endif()
-
-
 # Build the Sailfish library
 add_library(sailfish_core STATIC ${SAILFISH_LIB_SRCS} )
 
@@ -144,19 +137,16 @@ target_link_libraries(sailfish
 # Link the executable
 target_link_libraries(salmon
     sailfish_core 
-    bwa
     gff
-    #clasp
     ${Boost_LIBRARIES} 
     ${GAT_SOURCE_DIR}/external/install/lib/libstaden-read.a
     lzma
     bz2
-    curl
-    #${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    #${HTSLIB}
+    #curl
     ${ZLIB_LIBRARY} 
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
+    ${GAT_SOURCE_DIR}/external/install/lib/libbwa.a
     m
     ${LOGGING_LIBS}
     ${TBB_LIBRARIES}

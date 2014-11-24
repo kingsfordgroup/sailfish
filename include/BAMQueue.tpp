@@ -13,7 +13,7 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
     libFmt_(libFmt), totalReads_(0),
     numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
 
-        size_t capacity{2000000};
+        size_t capacity{5000000};
         fragmentQueue_.set_capacity(capacity);
         for (size_t i = 0; i < capacity; ++i) {
             // avoid r-value ref until we figure out what's
@@ -510,6 +510,10 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
             f = nullptr;
        }
         fragmentQueue_.pop(f);
+        /*
+        if (n % 100000 == 0) {
+            std::cerr << "fragmentQueue size = " << fragmentQueue_.size() << "\n\n\n";
+        }*/
         ++n;
     }
 

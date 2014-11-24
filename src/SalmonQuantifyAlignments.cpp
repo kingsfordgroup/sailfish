@@ -475,7 +475,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     bool sampleOutput{false};
     bool sampleUnaligned{false};
     bool biasCorrect{false};
-    uint32_t numThreads{6};
+    uint32_t numThreads{4};
     size_t requiredObservations{50000000};
 
     po::options_description generic("salmon quant options");
@@ -668,7 +668,13 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         // BAM/SAM parsing, as this is the current bottleneck.  For the time
         // being, however, the number of quantification threads is the
         // total number of threads - 1.
-        size_t numQuantThreads = numThreads - 1;
+        uint32_t numParseThreads = std::min(uint32_t(4),
+                                            std::max(uint32_t(2), uint32_t(std::ceil(numThreads/2.0))));
+        numThreads = std::max(numThreads, numParseThreads);
+        uint32_t numQuantThreads = std::max(uint32_t(2), uint32_t(numThreads - numParseThreads));
+        sopt.numQuantThreads = numQuantThreads;
+        sopt.numParseThreads = numParseThreads;
+        std::cerr << "numQuantThreads = " << numQuantThreads << "\n";
 
         switch (libFmt.type) {
             case ReadType::SINGLE_END:

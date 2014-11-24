@@ -253,7 +253,8 @@ message("==================================================================")
 include(ExternalProject)
 ExternalProject_Add(libbwa
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.cmu.edu/~robp/files/bwa-master.tar.gz 
+    URL http://www.cs.stonybrook.edu/~rp/files/bwa-master.tar.gz
+    #URL http://www.cs.cmu.edu/~robp/files/bwa-master.tar.gz 
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/bwa-master
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""
@@ -261,26 +262,6 @@ ExternalProject_Add(libbwa
     INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/bwa && cp libbwa.a <INSTALL_DIR>/lib && cp *.h <INSTALL_DIR>/include/bwa && cp is.c bwtindex.c bwt_gen.c QSufSort.c ${CMAKE_CURRENT_SOURCE_DIR}/src/"
     BUILD_IN_SOURCE TRUE
 )
-
-##
-# The optimal mem chaining provided by clasp seems not to provide any benefit
-# and is much more computationally intensive than the greedy approach.  I'm
-# removing this dependency and functionality for the time being.
-##
-#message("Build system will fetch and build CLASP (for Salmon)")
-#message("==================================================================")
-#ExternalProject_Add(libclasp
-#    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-#    URL http://www.cs.cmu.edu/~robp/files/clasp_v1_1.tar.gz
-#    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/clasp_v1_1
-#    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-#    CONFIGURE_COMMAND ""
-#    BUILD_COMMAND sh -c "make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} && ar cr libclasp.a <SOURCE_DIR>/libs/*.o"
-#    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/clasp && cp libclasp.a <INSTALL_DIR>/lib && cp libs/*.h <INSTALL_DIR>/include/clasp"
-#    BUILD_IN_SOURCE TRUE
-#)
-#
-
 
 message("Build system will fetch and build CMPH")
 message("==================================================================")
@@ -453,20 +434,6 @@ ExternalProject_Add(libgff
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_SOURCE_DIR}/external/install
 )
 
-#message("Build system will compile parallel samtools")
-#message("==================================================================")
-#ExternalProject_Add(libsamtools
-    #DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    #URL http://www.cs.cmu.edu/~robp/files/samtools.tgz
-    #SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
-    #BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
-    #INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    #CONFIGURE_COMMAND ""
-    #BUILD_COMMAND $(MAKE)
-    #INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include/samtools && mkdir -p <INSTALL_DIR>/include/samtools/pbgzip && mkdir -p <INSTALL_DIR>/include/samtools/bcftools && cp <SOURCE_DIR>/*.h <INSTALL_DIR>/include/samtools/ &&  cp <SOURCE_DIR>/pbgzip/*.h <INSTALL_DIR>/include/samtools/pbgzip/ && cp <SOURCE_DIR>/bcftools/*.h <INSTALL_DIR>/include/samtools/bcftools/ &&  cp <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/"
-#)
-
-
 message("Build system will compile Staden IOLib")
 message("==================================================================")
 ExternalProject_Add(libstadenio 
@@ -477,46 +444,44 @@ ExternalProject_Add(libstadenio
                      mv -f staden-io_lib-1.13.7 staden-io_lib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/staden-io_lib
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ./configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+    CONFIGURE_COMMAND ./configure --enable-shared=no --without-libcurl --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
     BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install
 )
 
-
-
-message("Build system will compile htslib")
-message("==================================================================")
-ExternalProject_Add(libhts
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/htslib/archive/1.1.tar.gz -o htslib-1.1.tar.gz &&
-                     tar -xzf htslib-1.1.tar.gz &&
-                     rm -fr htslib &&
-                     mv -f htslib-1.1 htslib
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/htslib
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install prefix=<INSTALL_DIR> 
-)
-
-message("Build system will compile samtools")
-message("==================================================================")
-ExternalProject_Add(libsamtools
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/samtools/archive/1.1.tar.gz -o samtools-1.1.tar.gz &&
-                     tar -xzf samtools-1.1.tar.gz &&
-                     rm -fr samtools &&
-                     mv -f samtools-1.1 samtools
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
-    CONFIGURE_COMMAND ""
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install prefix=<INSTALL_DIR> &&
-                    mv <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/libbam.a
-)
+#message("Build system will compile htslib")
+#message("==================================================================")
+#ExternalProject_Add(libhts
+#    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+#    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/htslib/archive/1.1.tar.gz -o htslib-1.1.tar.gz &&
+#                     tar -xzf htslib-1.1.tar.gz &&
+#                     rm -fr htslib &&
+#                     mv -f htslib-1.1 htslib
+#    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/htslib
+#    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+#    CONFIGURE_COMMAND ""
+#    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+#    BUILD_IN_SOURCE 1
+#    INSTALL_COMMAND make install prefix=<INSTALL_DIR> 
+#)
+#
+#message("Build system will compile samtools")
+#message("==================================================================")
+#ExternalProject_Add(libsamtools
+#    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+#    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/samtools/archive/1.1.tar.gz -o samtools-1.1.tar.gz &&
+#                     tar -xzf samtools-1.1.tar.gz &&
+#                     rm -fr samtools &&
+#                     mv -f samtools-1.1 samtools
+#    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
+#    CONFIGURE_COMMAND ""
+#    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+#    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+#    BUILD_IN_SOURCE 1
+#    INSTALL_COMMAND make install prefix=<INSTALL_DIR> &&
+#                    mv <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/libbam.a
+#)
 
 
 ###

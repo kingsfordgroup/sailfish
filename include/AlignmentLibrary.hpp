@@ -74,7 +74,8 @@ class AlignmentLibrary {
             }
 
             // The alignment file existed, so create the alignment queue
-            size_t numParseThreads = std::min(uint32_t(2), salmonOpts.numThreads / 2);
+            size_t numParseThreads = salmonOpts.numParseThreads;
+            std::cerr << "parseThreads = " << numParseThreads << "\n";
             bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(alnFiles, libFmt_, numParseThreads));
 
             std::cerr << "Checking that provided alignment files have consistent headers . . . ";
@@ -172,7 +173,6 @@ class AlignmentLibrary {
         if (incPasses) {
             quantificationPasses_++;
             fmt::print(stderr, "Current iteration = {}\n", quantificationPasses_);
-            if (quantificationPasses_ >= 235) { bq->verbose = true; }
         }
         return true;
     }

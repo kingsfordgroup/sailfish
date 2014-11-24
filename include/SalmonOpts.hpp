@@ -19,7 +19,7 @@ struct SalmonOpts {
     */
 
     SalmonOpts() : splitSpanningSeeds(false), useFragLenDist(false),
-                   useReadCompat(false), maxReadOccs(200) {}
+                   useReadCompat(false), maxReadOccs(200), extraSeedPass(false) {}
     bool splitSpanningSeeds; // Attempt to split seeds that span multiple transcripts.
 
     bool useFragLenDist; // Give a fragment assignment a likelihood based on an emperically
@@ -36,7 +36,11 @@ struct SalmonOpts {
 
     uint32_t maxExpectedReadLen; // Maximum expected length of an observed read.
 
+    bool extraSeedPass; // Perform extra pass trying to find seeds to cover the read
+
     uint32_t numThreads;
+    uint32_t numQuantThreads;
+    uint32_t numParseThreads;
 };
 
 #endif // SALMON_OPTS_HPP

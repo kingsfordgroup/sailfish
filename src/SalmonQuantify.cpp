@@ -152,7 +152,7 @@ static void smem_aux_destroy(smem_aux_t *a)
     free(a);
 }
 
-void mem_collect_intv(const mem_opt_t* opt, const bwt_t *bwt, int len, const uint8_t *seq, smem_aux_t *a)
+static void mem_collect_intv(const SalmonOpts& sopt, const mem_opt_t *opt, const bwt_t *bwt, int len, const uint8_t *seq, smem_aux_t *a)
 {
     int i, k, x = 0, old_n;
     int start_width = (opt->flag & MEM_F_SELF_OVLP)? 2 : 1;
@@ -161,43 +161,48 @@ void mem_collect_intv(const mem_opt_t* opt, const bwt_t *bwt, int len, const uin
     // first pass: find all SMEMs
     while (x < len) {
         if (seq[x] < 4) {
-            x = bwt_smem1a(bwt, len, seq, x, start_width, split_len, opt->max_mem_intv, &a->mem1, a->tmpv);
+            x = bwt_smem1(bwt, len, seq, x, start_width, &a->mem1, a->tmpv);
             for (i = 0; i < a->mem1.n; ++i) {
                 bwtintv_t *p = &a->mem1.a[i];
                 int slen = (uint32_t)p->info - (p->info>>32); // seed length
-                if (slen >= opt->min_seed_len) {
+                if (slen >= opt->min_seed_len)
                     kv_push(bwtintv_t, a->mem, *p);
-                }
             }
         } else ++x;
     }
     // second pass: find MEMs inside a long SMEM
-    if (opt->max_mem_intv > 0) goto sort_intv;
     old_n = a->mem.n;
     for (k = 0; k < old_n; ++k) {
         bwtintv_t *p = &a->mem.a[k];
         int start = p->info>>32, end = (int32_t)p->info;
-        // If the SMEM is too short, or occurs too many times,
-        // don't attempt to split it.
-        if (end - start < split_len or p->x[2] > opt->split_width) continue;
-        // The new MEM must cover this position in the query sequence
-        int covPos = (start + end) >> 1;
-        // The new MEM should be at least as frequent as the SMEM that contains it
-        bwt_smem1(bwt, len, seq, covPos, p->x[2]+1, &a->mem1, a->tmpv);
-        for (i = 0; i < a->mem1.n; ++i) {
-            bwtintv_t *p = &a->mem1.a[i];
-            int slen = (uint32_t)p->info - (p->info>>32); // seed length
-            if ( slen >= opt->min_seed_len and p->x[2] <= opt->max_occ ) {
-                kv_push(bwtintv_t, a->mem, *p);
-            }
+        if (end - start < split_len || p->x[2] > opt->split_width) continue;
+        bwt_smem1(bwt, len, seq, (start + end)>>1, p->x[2]+1, &a->mem1, a->tmpv);
+        for (i = 0; i < a->mem1.n; ++i)
+            if ((uint32_t)a->mem1.a[i].info - (a->mem1.a[i].info>>32) >= opt->min_seed_len)
+                kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
+    }
+    // third pass: LAST-like
+    if (sopt.extraSeedPass and opt->max_mem_intv > 0) {
+        x = 0;
+        while (x < len) {
+            if (seq[x] < 4) {
+                if (1) {
+                    bwtintv_t m;
+                    x = bwt_seed_strategy1(bwt, len, seq, x, opt->min_seed_len, opt->max_mem_intv, &m);
+                    if (m.x[2] > 0) kv_push(bwtintv_t, a->mem, m);
+                } else { // for now, we never come to this block which is slower
+                    x = bwt_smem1a(bwt, len, seq, x, start_width, opt->max_mem_intv, &a->mem1, a->tmpv);
+                    for (i = 0; i < a->mem1.n; ++i)
+                        kv_push(bwtintv_t, a->mem, a->mem1.a[i]);
+                }
+            } else ++x;
         }
     }
     // sort
-sort_intv:
-    static_cast<void>(0); // no-op for label
-    // I don't think we need this sort
     // ks_introsort(mem_intv, a->mem.n, a->mem.a);
 }
+
+
 /******* END OF STUFF THAT IS STATIC IN BWAMEM THAT WE NEED HERE --- Just re-define it *************/
 
 using paired_parser = pair_sequence_parser<char**>;
@@ -872,7 +877,7 @@ inline void collectHitsForRead(const bwaidx_t *idx, const bwtintv_v* a, smem_aux
                         mem_opt_t* memOptions, const SalmonOpts& salmonOpts, const uint8_t* read, uint32_t readLen,
                         std::unordered_map<uint64_t, CoverageCalculator>& hits) {
 
-    mem_collect_intv(memOptions, idx->bwt, readLen, read, auxHits);
+    mem_collect_intv(salmonOpts, memOptions, idx->bwt, readLen, read, auxHits);
 
     // For each MEM
     for (int i = 0; i < auxHits->mem.n; ++i ) {
@@ -1681,6 +1686,10 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "result in increased running time.")
     ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
+    ("extraSensitive", po::bool_switch(&(sopt.extraSeedPass))->default_value(false), "Setting this option enables an extra pass of \"seed\" search. "
+                                        "Enabling this option may improve sensitivity (the number of reads having sufficient coverage), but will "
+                                        "typically slow down quantification by ~40%.  Consider enabling this option if you find the mapping rate to "
+                                        "be significantly lower than expected.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
     ("output,o", po::value<std::string>()->required(), "Output quantification file.")
     ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
