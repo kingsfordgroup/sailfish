@@ -69,7 +69,7 @@ int help(int argc, char* argv[]) {
   For more inforation on the options for theses particular methods, use the -h
   flag along with the method name.  For example:
 
-  Sailfish index -h
+  sailfish index -h
 
   will give you detailed help information about the index command.
   )";
