@@ -1,11 +1,12 @@
 #ifndef ALIGNMENT_LIBRARY_HPP
 #define ALIGNMENT_LIBRARY_HPP
 
-// samtools / htslib includes
 extern "C" {
-#include "htslib/sam.h"
-#include "samtools/samtools.h"
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
+#undef max
 }
+
 
 // Our includes
 #include "ClusterForest.hpp"
@@ -25,6 +26,7 @@ extern "C" {
 // Standard includes
 #include <vector>
 #include <memory>
+#include <functional>
 
 template <typename T>
 class NullFragmentFilter;
@@ -72,7 +74,9 @@ class AlignmentLibrary {
             }
 
             // The alignment file existed, so create the alignment queue
-            bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(alnFiles, libFmt_));
+            size_t numParseThreads = salmonOpts.numParseThreads;
+            std::cerr << "parseThreads = " << numParseThreads << "\n";
+            bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(alnFiles, libFmt_, numParseThreads));
 
             std::cerr << "Checking that provided alignment files have consistent headers . . . ";
             if (! salmon::utils::headersAreConsistent(bq->headers()) ) {
@@ -84,12 +88,12 @@ class AlignmentLibrary {
             }
             std::cerr << "done\n";
 
-            bam_header_t* header = bq->header();
+            SAM_hdr* header = bq->header();
 
             // The transcript file existed, so load up the transcripts
             double alpha = 0.005;
-            for (size_t i = 0; i < header->n_targets; ++i) {
-                transcripts_.emplace_back(i, header->target_name[i], header->target_len[i], alpha);
+            for (size_t i = 0; i < header->nref; ++i) {
+                transcripts_.emplace_back(i, header->ref[i].name, header->ref[i].len, alpha);
             }
 
             FASTAParser fp(transcriptFile.string());
@@ -116,8 +120,7 @@ class AlignmentLibrary {
                     fragLenKernelP, 1)
                     );
 
-            errMod_.reset(new
-                    ErrorModel(1.0, salmonOpts.maxExpectedReadLen));
+            errMod_.reset(new ErrorModel(1.0, salmonOpts.maxExpectedReadLen));
             // Start parsing the alignments
            NullFragmentFilter<FragT>* nff = nullptr;
            bq->start(nff);
@@ -127,7 +130,9 @@ class AlignmentLibrary {
 
     inline bool getAlignmentGroup(AlignmentGroup<FragT>*& ag) { return bq->getAlignmentGroup(ag); }
 
-    inline bam_header_t* header() { return bq->header(); }
+    //inline t_pool* threadPool() { return threadPool_.get(); }
+
+    inline SAM_hdr* header() { return bq->header(); }
 
     inline FragmentLengthDistribution& fragmentLengthDistribution() {
         return *flDist_.get();
@@ -165,7 +170,10 @@ class AlignmentLibrary {
 
         bq->reset();
         bq->start(filter);
-        if (incPasses) { quantificationPasses_++; }
+        if (incPasses) {
+            quantificationPasses_++;
+            fmt::print(stderr, "Current iteration = {}\n", quantificationPasses_);
+        }
         return true;
     }
 
@@ -194,7 +202,9 @@ class AlignmentLibrary {
      * A pointer to the queue from which the fragments
      * will be read.
      */
+    //std::unique_ptr<t_pool, std::function<void(t_pool*)>> threadPool_;
     std::unique_ptr<BAMQueue<FragT>> bq;
+
     /**
      * The cluster forest maintains the dynamic relationship
      * defined by transcripts and reads --- if two transcripts

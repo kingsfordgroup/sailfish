@@ -1,11 +1,6 @@
 #ifndef __BAMQUEUE_HPP__
 #define __BAMQUEUE_HPP__
 
-extern "C" {
-#include "htslib/sam.h"
-#include "samtools/samtools.h"
-}
-
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/lockfree/queue.hpp>
 #include <tbb/atomic.h>
@@ -25,13 +20,22 @@ extern "C" {
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 
+extern "C" {
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
+#undef max
+#undef min
+}
+
 /**
   * Simple structure holding info about the alignment file.
   */
 struct AlignmentFile {
     boost::filesystem::path fileName;
-    samFile* fp;
-    bam_header_t* header;
+    std::string readMode;
+    scram_fd* fp;
+    SAM_hdr* header;
+    uint32_t numParseThreads;
 };
 
 /**
@@ -44,14 +48,14 @@ struct AlignmentFile {
 template <typename FragT>
 class BAMQueue {
 public:
-  BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt);
+  BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt, uint32_t numParseThreads);
   ~BAMQueue();
   void forceEndParsing();
 
-  bam_header_t* header();
-  bam_header_t* safeHeader();
+  SAM_hdr* header();
+  SAM_hdr* safeHeader();
 
-  std::vector<bam_header_t*> headers();
+  std::vector<SAM_hdr*> headers();
 
   template <typename FilterT>
   void start(FilterT filt);
@@ -82,14 +86,16 @@ private:
   template <typename FilterT>
   inline bool getFrag_(UnpairedRead& sread, FilterT filt);
 
+public:
+  bool verbose=false;
 private:
   std::vector<AlignmentFile> files_;
   std::string fname_;
   LibraryFormat libFmt_;
 
   std::vector<AlignmentFile>::iterator currFile_;
-  samFile* fp_ = nullptr;
-  bam_header_t* hdr_ = nullptr;
+  scram_fd* fp_ = nullptr;
+  SAM_hdr* hdr_ = nullptr;
 
   //htsFile* fp_ = nullptr;
   size_t totalReads_;

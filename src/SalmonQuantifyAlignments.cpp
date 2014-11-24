@@ -1,5 +1,7 @@
+
 extern "C" {
-#include "htslib/sam.h"
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
 }
 
 // for cpp-format
@@ -178,6 +180,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             } else {
                                 logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
                             }
+
                         }
 
                         // @TODO: handle this case better
@@ -239,7 +242,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                                 errMod.update(*aln, transcript, aln->logProb, logForgettingMass);
                             }
                             if (aln->isPaired()) {
-                                double fragLength = aln->fragLen();
+                                double fragLength = aln->fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
                             }
                         }
@@ -331,6 +334,9 @@ bool quantifyLibrary(
 
     NullFragmentFilter<FragT>* nff = nullptr;
 
+    // Give ourselves some space
+    fmt::print(stderr, "\n\n\n\n");
+
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
             if (!alnLib.reset(true, nff)) {
@@ -393,11 +399,13 @@ bool quantifyLibrary(
                 alignments = new std::vector<AlignmentGroup<FragT*>*>;
                 alignments->reserve(miniBatchSize);
             }
+
             if ((numProc % 1000000 == 0) or !alignmentGroupsRemain) {
                 fmt::print(stderr, "\r\r{}processed{} {} {}reads in current round{}",
-                          ioutils::SET_GREEN, ioutils::SET_RED, numProc,
-                          ioutils::SET_GREEN, ioutils::RESET_COLOR);
+                           ioutils::SET_GREEN, ioutils::SET_RED, numProc,
+                           ioutils::SET_GREEN, ioutils::RESET_COLOR);
             }
+
             ++numProc;
             alignmentGroupsRemain = bq.getAlignmentGroup(ag);
         }
@@ -419,12 +427,13 @@ bool quantifyLibrary(
                 workAvailable.notify_all();
             }
             t.join();
-            fmt::print(stderr, "done\r\r");
+            fmt::print(stderr, "done");
         }
         fmt::print(stderr, "\n\n");
 
         initialRound = false;
         numObservedFragments += alnLib.numMappedReads();
+
         fmt::print(stderr, "# observed = {} / # required = {}\033[F\033[F\033[F\033[F\033[F",
                    numObservedFragments, numRequiredFragments);
     }
@@ -465,7 +474,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     bool sampleOutput{false};
     bool sampleUnaligned{false};
     bool biasCorrect{false};
-    uint32_t numThreads{6};
+    uint32_t numThreads{4};
     size_t requiredObservations{50000000};
 
     po::options_description generic("salmon quant options");
@@ -539,6 +548,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                "setting # of threads = 2");
             numThreads = 2;
         }
+        sopt.numThreads = numThreads;
 
         std::stringstream commentStream;
         commentStream << "# salmon (alignment-based) v" << salmon::version << "\n";
@@ -657,7 +667,13 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         // BAM/SAM parsing, as this is the current bottleneck.  For the time
         // being, however, the number of quantification threads is the
         // total number of threads - 1.
-        size_t numQuantThreads = numThreads - 1;
+        uint32_t numParseThreads = std::min(uint32_t(4),
+                                            std::max(uint32_t(2), uint32_t(std::ceil(numThreads/2.0))));
+        numThreads = std::max(numThreads, numParseThreads);
+        uint32_t numQuantThreads = std::max(uint32_t(2), uint32_t(numThreads - numParseThreads));
+        sopt.numQuantThreads = numQuantThreads;
+        sopt.numParseThreads = numParseThreads;
+        std::cerr << "numQuantThreads = " << numQuantThreads << "\n";
 
         switch (libFmt.type) {
             case ReadType::SINGLE_END:

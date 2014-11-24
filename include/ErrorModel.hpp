@@ -1,14 +1,17 @@
 #ifndef ERROR_MODEL
 #define ERROR_MODEL
 
-extern "C" {
-#include "samtools/sam.h"
-}
-
 #include <mutex>
 #include <atomic>
 #include "tbb/concurrent_vector.h"
 #include "AtomicMatrix.hpp"
+
+extern "C" {
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
+#undef max
+#undef min
+}
 
 struct UnpairedRead;
 struct ReadPair;
@@ -46,11 +49,11 @@ public:
 
 private:
     /**
-     * These functions, which work directly on bam1_t* types, drive the
+     * These functions, which work directly on bam_seq_t* types, drive the
      * update() and logLikelihood() methods above.
      */
-    void update(bam1_t* read, Transcript& ref, double p, double mass, std::vector<AtomicMatrix<double>>& mismatchProfile);
-    double logLikelihood(bam1_t* read, Transcript& ref, std::vector<AtomicMatrix<double>>& mismatchProfile);
+    void update(bam_seq_t* read, Transcript& ref, double p, double mass, std::vector<AtomicMatrix<double>>& mismatchProfile);
+    double logLikelihood(bam_seq_t* read, Transcript& ref, std::vector<AtomicMatrix<double>>& mismatchProfile);
 
     // NOTE: Do these need to be concurrent_vectors as before?
     // Store the mismatch probability tables for the left and right reads

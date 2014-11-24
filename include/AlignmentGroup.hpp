@@ -2,8 +2,8 @@
 #define ALIGNMENT_GROUP
 
 extern "C" {
-#include "htslib/sam.h"
-#include "samtools/samtools.h"
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
 }
 
 #include <vector>
@@ -19,17 +19,10 @@ class AlignmentGroup {
         std::string* read() { return read_; }
 
         inline std::vector<FragT>& alignments() { return alignments_; }
-        void addAlignment(FragT p) { alignments_.push_back(p);}
+        void addAlignment(FragT p) { alignments_.push_back(p); }
         inline size_t numAlignments() { return alignments_.size(); }
         inline size_t size() { return numAlignments(); }
-        /*
-        void addAlignment(bam1_t* r) {
-            alignments_.push_back({r, sailfish::math::LOG_0});
-        }
-        void addAlignment(bam1_t* r1, bam1_t* r2) {
-            alignments_.push_back({r1, r2, sailfish::math::LOG_0});
-        }
-        */
+
     private:
         std::vector<FragT> alignments_;
         std::string* read_;

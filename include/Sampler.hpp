@@ -4,10 +4,11 @@
 #include "g2logworker.h"
 #include "g2log.h"
 
-// samtools / htslib includes
 extern "C" {
-#include "htslib/sam.h"
-#include "samtools/samtools.h"
+#include "io_lib/scram.h"
+#include "io_lib/os.h"
+#undef max
+#undef min
 }
 
 // for cpp-format
@@ -325,14 +326,15 @@ namespace salmon {
                 std::thread outputThread(
                         [&consumedAllInput, &alnLib, &outQueue, sampleFilePath] () -> void {
 
-                            htsFile* bf = hts_open(sampleFilePath.c_str(), "wb");
-                            bam_hdr_write(bf->fp.bgzf, alnLib.header());
-                            hts_set_threads(bf, 3);
+                            scram_fd* bf = scram_open(sampleFilePath.c_str(), "wb");
+                            scram_set_option(bf, CRAM_OPT_NTHREADS, 3);
+                            scram_set_header(bf, alnLib.header());
+                            scram_write_header(bf);
                             if (bf == nullptr) {
                                 fmt::MemoryWriter errstr;
                                 errstr << ioutils::SET_RED << "ERROR: "
                                        << ioutils::RESET_COLOR
-                                       << "Couldn't open output bame file "
+                                       << "Couldn't open output bam file "
                                        << sampleFilePath.string() << ". Exiting\n";
                                 LOG(WARNING) << errstr.str();
                                 std::cerr << errstr.str();
@@ -364,7 +366,7 @@ namespace salmon {
                                 }
                             }
 
-                            sam_close(bf); // will delete the header itself
+                            scram_close(bf); // will delete the header itself
                         });
 
 
