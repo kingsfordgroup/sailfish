@@ -486,10 +486,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     //("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
     ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(200), "Reads \"mapping\" to more than this many places won't be considered.")
     ("targets,t", po::value<std::string>()->required(), "FASTA format file containing target transcripts.")
-    ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently.\n"
-                                            "The alignment-based quantification mode of salmon is usually I/O bound\n"
-                                            "so until there is a faster multi-threaded SAM/BAM parser to feed the \n"
-                                            "quantification threads, one should not expect much of a speed-up beyond \n"
+    ("threads,p", po::value<uint32_t>(&numThreads)->default_value(6), "The number of threads to use concurrently. "
+                                            "The alignment-based quantification mode of salmon is usually I/O bound "
+                                            "so until there is a faster multi-threaded SAM/BAM parser to feed the "
+                                            "quantification threads, one should not expect much of a speed-up beyond "
                                             "~6 threads.")
     ("useReadCompat,e", po::bool_switch(&(sopt.useReadCompat))->default_value(false), "[Currently Experimental] : "
                         "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
@@ -514,19 +514,19 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "fragment assignment ambiguity into account, you should use this output.")
     ("sampleUnaligned,u", po::bool_switch(&sampleUnaligned)->default_value(false), "In addition to sampling the aligned reads, also write "
                         "the un-aligned reads to \"posSample.bam\".")
-    ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
+    ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental]: Output both bias-corrected and non-bias-corrected "
                                                              "qunatification estimates.")
     ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
-                                        "The minimum number of observations (mapped reads) that must be observed before\n"
-                                        "the inference procedure will terminate.  If fewer mapped reads exist in the \n"
+                                        "The minimum number of observations (mapped reads) that must be observed before "
+                                        "the inference procedure will terminate.  If fewer mapped reads exist in the "
                                         "input file, then it will be read through multiple times.")
-    ("gene_map,g", po::value<std::string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
-                                        "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
-                                        "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
-                                        "should be provided as either a GTF file, or a in a simple tab-delimited format\n"
-                                        "where each line contains the name of a transcript and the gene to which it belongs\n"
-                                        "separated by a tab.  The extension of the file is used to determine how the file\n"
-                                        "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF\n"
+    ("gene_map,g", po::value<std::string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
+                                        "Sailfish will output both quant.sf and quant.genes.sf files, where the latter "
+                                        "contains aggregated gene-level abundance estimates.  The transcript to gene mapping "
+                                        "should be provided as either a GTF file, or a in a simple tab-delimited format "
+                                        "where each line contains the name of a transcript and the gene to which it belongs "
+                                        "separated by a tab.  The extension of the file is used to determine how the file "
+                                        "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
                                         "format; files with any other extension are assumed to be in the simple format.");
 
     po::variables_map vm;

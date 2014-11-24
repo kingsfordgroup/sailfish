@@ -109,7 +109,7 @@ command as follows:
 
 You can, of course, pass a number of options to control things such as the
 number of threads used or the different cutoffs used for counting reads.
-Sust as with the alignment-based mode, after salmon has finished running, there
+Just as with the alignment-based mode, after salmon has finished running, there
 will be a directory called ``salmon_quant``, that contains a file called
 ``quant.sf`` containing the quantification results.
 
