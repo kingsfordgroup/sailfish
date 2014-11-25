@@ -41,7 +41,7 @@ struct ReadPair {
 
    ReadPair(const ReadPair& other) = default;
 
-   ReadPair& operator=(ReadPair& other) = default;
+   ReadPair& operator=(const ReadPair& other) = default;
 
    ReadPair* clone() {
        return new ReadPair(bam_dup(read1), bam_dup(read2), orphanStatus, logProb);

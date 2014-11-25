@@ -379,7 +379,13 @@ int buildLUTs(
 
                       auto INVALID = transcriptHash.INVALID;
                       // For every transcript in this thread's range
+                      //std::cerr << "Transcripts.size() = " << transcripts.size() << "\n";
+                      //std::cerr << "trange.begin() " << trange.begin() << ", trange.end() " << trange.end() << "\n";
                       for (auto tidx = trange.begin(); tidx != trange.end(); ++tidx) {
+                        //std::cerr << "tidx = " << tidx << "\n";
+                        //if (tidx >= transcripts.size()) {
+                        //    std::cerr << "WARNING DANGER AHHHHHH!!!!\n";
+                        //}
                         auto t = transcripts[tidx];
 
                         // We'll transform the list of k-mers to the list of k-mer

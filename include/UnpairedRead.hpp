@@ -37,7 +37,7 @@ struct UnpairedRead {
 
    UnpairedRead(const UnpairedRead& other) = default;
 
-   UnpairedRead& operator=(UnpairedRead& other) = default;
+   UnpairedRead& operator=(const UnpairedRead& other) = default;
 
    UnpairedRead* clone() {
        return new UnpairedRead(bam_dup(read), logProb);
