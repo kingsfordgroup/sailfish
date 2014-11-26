@@ -538,8 +538,8 @@ int mainQuantify( int argc, char *argv[] ) {
             // Make sure the provided file exists
             geneMapPath = vm["gene_map"].as<std::string>();
             if (!bfs::exists(geneMapPath)) {
-                std::cerr << "Could not fine transcript <=> gene map file " << geneMapPath << "\n";
-                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file\n";
+                std::cerr << "Could not load transcript <=> gene map file " << geneMapPath << "\n";
+                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file path\n";
                 std::exit(1);
             }
         }
