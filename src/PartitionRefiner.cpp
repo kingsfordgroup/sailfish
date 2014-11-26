@@ -108,7 +108,7 @@ void PartitionRefiner::relabel() {
     membership_[i] = relabelMap[e];
   }
 
-  std::cerr << "after relabling, there are " <<
+  std::cerr << "after relabeling, there are " <<
                 *std::max_element(membership_.begin(), membership_.end())+1 << " eq classes\n";
 }
 
