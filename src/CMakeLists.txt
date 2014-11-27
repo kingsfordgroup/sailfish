@@ -131,6 +131,7 @@ target_link_libraries(sailfish
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     ${NON_APPLECLANG_LIBS}
+    ${TCMALLOC_LIB}
     pthread
 )
 
@@ -151,6 +152,7 @@ target_link_libraries(salmon
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     ${NON_APPLECLANG_LIBS}
+    ${TCMALLOC_LIB}
     pthread
 )
 

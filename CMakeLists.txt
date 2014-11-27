@@ -450,6 +450,13 @@ ExternalProject_Add(libstadenio
     INSTALL_COMMAND make install
 )
 
+# See if we have tcmalloc 
+find_package(Tcmalloc)
+set (TCMALLOC_LIB "")
+if (Tcmalloc_FOUND)
+    set (TCMALLOC_LIB ${Tcmalloc_LIBRARIES})
+endif()
+
 #message("Build system will compile htslib")
 #message("==================================================================")
 #ExternalProject_Add(libhts

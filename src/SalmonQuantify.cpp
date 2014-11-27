@@ -1186,7 +1186,9 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
             bool end1IsForward = it->second.isForward();
             bool end2IsForward = tHitList.second.isForward();
 
-            auto fmt = salmon::utils::hitType(it->second.bestHitPos, end1IsForward, tHitList.second.bestHitPos, end2IsForward);
+            uint32_t end1Pos = (end1IsForward) ? it->second.bestHitPos : it->second.bestHitPos + leftReadLength;
+            uint32_t end2Pos = (end2IsForward) ? tHitList.second.bestHitPos : tHitList.second.bestHitPos + rightReadLength;
+            auto fmt = salmon::utils::hitType(end1Pos, end1IsForward, end2Pos, end2IsForward);
 
             alnList.emplace_back(tHitList.first, fmt, score, fragLength);
             ++readHits;
@@ -1412,8 +1414,8 @@ void processReadLibrary(
                 char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
                     const_cast<char*>(rl.mates2().front().c_str()) };
 
-                size_t maxReadGroup{1000}; // Number of files to read simultaneously
-                size_t concurrentFile{2}; // Number of reads in each "job"
+                size_t maxReadGroup{1000}; // Number of reads in each "job"
+                size_t concurrentFile{2}; // Number of files to read simultaneously
                 paired_parser parser(4 * numThreads, maxReadGroup, concurrentFile,
                         readFiles, readFiles + 2);
 
