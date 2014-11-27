@@ -28,8 +28,8 @@
 namespace salmon {
 	constexpr char majorVersion[] = "0";
 	constexpr char minorVersion[] = "2";
-	constexpr char patchVersion[] = "0";
-	constexpr char version[] = "0.2.0";
+	constexpr char patchVersion[] = "1";
+	constexpr char version[] = "0.2.1";
 }
 
 #endif // SALMON_CONFIG_HPP
