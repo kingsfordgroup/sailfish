@@ -344,7 +344,9 @@ namespace salmon {
                             FragT* aln{nullptr};
                             while (outQueue.try_pop(aln) or !consumedAllInput) {
                                 if (aln != nullptr) {
-                                    if (!aln->writeToFile(bf) >= 0) {
+                                    int ret = aln->writeToFile(bf);
+                                    if (ret != 0) {
+                                        std::cerr << "ret = " << ret << "\n";
                                         fmt::MemoryWriter errstr;
                                         errstr << ioutils::SET_RED << "ERROR:"
                                                << ioutils::RESET_COLOR << "Could not write "
