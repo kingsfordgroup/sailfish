@@ -84,10 +84,7 @@ extern "C" {
 #include "tbb/partitioner.h"
 
 // Logger includes
-#if HAVE_LOGGER
-#include "g2logworker.h"
-#include "g2log.h"
-#endif
+#include "spdlog/spdlog.h"
 
 // Cereal includes
 #include "cereal/types/vector.hpp"
@@ -1102,7 +1099,6 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         errstream << "Paired-end reads should appear consistently in their respective files.\n";
         errstream << "Please fix the paire-end input before quantifying with salmon; exiting.\n";
 
-        LOG(WARNING) << errstream.str();
         std::cerr << errstream.str();
         std::exit(-1);
     }
@@ -1561,6 +1557,8 @@ void quantifyLibrary(
     size_t miniBatchSize{1000};
     std::atomic<uint64_t> numObservedFragments{0};
 
+    auto jointLog = spdlog::get("jointLog");
+
     size_t maxFragLen = 800;
     size_t meanFragLen = 200;
     size_t fragLenStd = 80;
@@ -1592,8 +1590,7 @@ void quantifyLibrary(
                   "as a regular file!\n"
                   "==========================\n\n",
                   experiment.readFilesAsString(), numObservedFragments, numRequiredFragments);
-                LOG(WARNING) << errmsg;
-                std::cerr << errmsg;
+                jointLog->warn(errmsg);
                 break;
             }
             numPrevObservedFragments = numObservedFragments;
@@ -1624,7 +1621,7 @@ void quantifyLibrary(
                    numObservedFragments - numPrevObservedFragments);
     }
     fmt::print(stderr, "\n\n\n\n");
-    LOG(INFO) << "finished quantifyLibrary()\n";
+    jointLog->info("finished quantifyLibrary()\n");
 }
 
 int performBiasCorrectionSalmon(
@@ -1774,10 +1771,17 @@ transcript abundance from RNA-seq reads
         }
         std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
 
-        g2LogWorker logger(argv[0], logDirectory.string());
-        g2::initializeLogging(&logger);
+        bfs::path logPath = logDirectory / "salmon_quant.log";
+        size_t max_q_size = 1000000;
+        spdlog::set_async_mode(max_q_size);
 
-        LOG(INFO) << "parsing read library format";
+        auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
+        auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
+        auto consoleLog = spdlog::create("consoleLog", {consoleSink});
+        auto fileLog = spdlog::create("fileLog", {fileSink});
+        auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+
+        jointLog->info() << "parsing read library format";
 
         vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
         ReadExperiment experiment(readLibraries, indexDirectory);
@@ -1789,8 +1793,7 @@ transcript abundance from RNA-seq reads
         free(memOptions);
         size_t tnum{0};
 
-        LOG(INFO) << "writing output \n";
-        std::cerr << "writing output \n";
+        jointLog->info("writing output \n");
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
         salmon::utils::writeAbundances(experiment, estFilePath, commentString);
@@ -1825,10 +1828,14 @@ transcript abundance from RNA-seq reads
     } catch (po::error &e) {
         std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";
         std::exit(1);
+    } catch (const spdlog::spdlog_ex& ex) {
+        std::cerr << "logger failed with : [" << ex.what() << "]. Exiting.\n";
+        std::exit(1);
     } catch (std::exception& e) {
         std::cerr << "Exception : [" << e.what() << "]\n";
         std::cerr << argv[0] << " quant was invoked improperly.\n";
         std::cerr << "For usage information, try " << argv[0] << " quant --help\nExiting.\n";
+        std::exit(1);
     }
 
 

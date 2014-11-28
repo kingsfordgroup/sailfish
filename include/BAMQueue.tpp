@@ -1,13 +1,7 @@
-#include "g2logworker.h"
-#include "g2log.h"
-
 #include "BAMQueue.hpp"
 #include "IOUtils.hpp"
 #include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
 #include <chrono>
-
-#include "g2logworker.h"
-#include "g2log.h"
 
 template <typename FragT>
 BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt,
@@ -15,6 +9,8 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
     files_(std::vector<AlignmentFile>()),
     libFmt_(libFmt), totalReads_(0),
     numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
+
+        logger_ = spdlog::get("jointLog");
 
         size_t capacity{5000000};
         fragmentQueue_.set_capacity(capacity);
@@ -73,8 +69,7 @@ void BAMQueue<FragT>::reset() {
               fmt::MemoryWriter errstr;
               errstr << "The header for file " << file.fileName.c_str() 
                      << " was deleted.  This should not happen! exiting!\n";
-              fmt::print(stderr, errstr.str());
-              LOG(WARNING) << errstr.str();
+              logger_->warn(errstr.str());
               std::exit(1);
           }
       }
@@ -88,8 +83,7 @@ void BAMQueue<FragT>::reset() {
   if (file.fp == NULL) {
     fmt::MemoryWriter errstr;
     errstr << "ERROR: Failed to open file " << file.fileName.c_str() << ", exiting!\n";
-    fmt::print(stderr, errstr.str());
-    LOG(WARNING) << errstr.str();
+    logger_->warn(errstr.str());
     std::exit(1);
   }
   scram_set_option(file.fp, CRAM_OPT_NTHREADS, file.numParseThreads);
@@ -120,8 +114,7 @@ BAMQueue<FragT>::~BAMQueue() {
             fmt::MemoryWriter errstr;
             errstr << "The header for file " << file.fileName.c_str() 
                 << " was deleted.  This should not happen! exiting!\n";
-            std::cerr << errstr.str();
-            LOG(WARNING) << errstr.str();
+            logger_->warn(errstr.str());
             std::exit(1);
         } else {
             sam_hdr_decr_ref(file.header); 
@@ -360,8 +353,7 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
                     << "The read was marked as unpaired in sequencing (not just unmapped)."
                     << "The two ends of a paired-end read should be adjacent. "
                     << "Don't know how to proceed; exiting!\n\n";
-            fmt::print(stderr, errmsg.str());
-            LOG(WARNING) << errmsg.str();
+            logger_->warn(errmsg.str());
             std::exit(-1);
         }
         // We've observed two, consecutive paired reads; now check if our reads

@@ -46,11 +46,6 @@
 #include <boost/range/irange.hpp>
 #include <boost/filesystem.hpp>
 
-#if HAVE_LOGGER
-#include "g2logworker.h"
-#include "g2log.h"
-#endif
-
 #include "BiasIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"

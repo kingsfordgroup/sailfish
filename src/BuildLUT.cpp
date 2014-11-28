@@ -53,17 +53,13 @@
 #include "tbb/parallel_for_each.h"
 #include "tbb/task_scheduler_init.h"
 
-#if HAVE_LOGGER
-#include "g2logworker.h"
-#include "g2log.h"
-#endif
-
 #include "LookUpTableUtils.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
 #include "ezETAProgressBar.hpp"
 #include "PartitionRefiner.hpp"
+#include "spdlog/spdlog.h"
 
 using TranscriptID = uint32_t;
 using KmerID = uint64_t;
@@ -96,6 +92,9 @@ int buildLUTs(
   using std::max_element;
   namespace bfs = boost::filesystem;
   using tbb::blocked_range;
+
+  auto jointLog = spdlog::get("jointLog");
+  auto fileLog = spdlog::get("fileLog");
 
   char** fnames = new char*[transcriptFiles.size()];
   size_t z{0};
@@ -162,7 +161,8 @@ int buildLUTs(
 
     threads.push_back( std::thread(
       [&numRes, &tgmap, &parser, &transcriptHash, &nworking, &transcripts,
-       &transcriptIndex, &transcriptsForKmer, &refiner, &refinerMutex, &numInvalidKmers, merLen]() -> void {
+       &fileLog, &jointLog, &transcriptIndex, &transcriptsForKmer, &refiner,
+       &refinerMutex, &numInvalidKmers, merLen]() -> void {
 
         // Each thread gets it's own stream
         //jellyfish::parse_read::thread stream = parser.new_thread();
@@ -245,9 +245,7 @@ int buildLUTs(
          tinfo->kmers.resize(nextKmerID);
          if (locallyInvalidKmers > 0) {
              numInvalidKmers += locallyInvalidKmers;
-#if HAVE_LOGGER
-             LOG(WARNING) << "Transcript [" << tinfo->name << "] contains " << locallyInvalidKmers << " unhashable k-mers";
-#endif
+             fileLog->warn() << "Transcript [" << tinfo->name << "] contains " << locallyInvalidKmers << " unhashable k-mers";
          }
 
             // Partition refinement is not threadsafe.  Thus,
@@ -273,14 +271,9 @@ int buildLUTs(
   threads.clear();
 
   if (numInvalidKmers > 0) {
-#if HAVE_LOGGER
-      LOG(WARNING) << "total unhashable k-mers: " << numInvalidKmers;
-      std::cerr << "\nSome target transcripts contained \'N\'s or other characters resulting in some unhashable k-mers.\n";
-      std::cerr << "This may be okay, but check the log -- in the \'logs\' directory under the index --- for details.\n\n";
-#else
-      std::cerr << "\nSome target transcripts contained \'N\'s or other characters resulting in some unhashable k-mers.\n";
-      std::cerr << "This may be okay, but there were a total of " << numInvalidKmers << " unhashable k-mers.\n\n";
-#endif
+      jointLog->warn() << "total unhashable k-mers: " << numInvalidKmers
+                       << "\nSome target transcripts contained \'N\'s or other characters resulting in some unhashable k-mers.\n"
+                       << "This may be okay, but check the log -- in the \'logs\' directory under the index --- for details.\n\n";
   }
 
   // For simplicity and speed, the partition refiner is allowed to use many

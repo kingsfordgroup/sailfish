@@ -14,8 +14,7 @@ extern "C" {
 #include "ReadLibrary.hpp"
 
 // Logger includes
-#include "g2logworker.h"
-#include "g2log.h"
+#include "spdlog/spdlog.h"
 
 // Boost includes
 #include <boost/filesystem.hpp>
@@ -188,6 +187,8 @@ class ReadExperiment {
 
         fmt::MemoryWriter errstr;
 
+        auto log = spdlog::get("jointLog");
+
         uint64_t numFmt1{0};
         uint64_t numFmt2{0};
         uint64_t numAgree{0};
@@ -239,12 +240,11 @@ class ReadExperiment {
                 double ratio = static_cast<double>(numFmt1) / (numFmt1 + numFmt2);
 
                 if ( std::abs(ratio - 0.5) > 0.01) {
-                    errstr << "Read Lib [" << rl.readFilesAsString() << "] :\n";
+                    errstr << "NOTE: Read Lib [" << rl.readFilesAsString() << "] :\n";
                     errstr << "\nDetected a strand bias > 1\% in an unstranded protocol "
                            << "check the file: " << opath.string() << " for details\n";
 
-                    std::cerr << "NOTE: " << errstr.str() << "\n";
-                    LOG(WARNING) << errstr.str() << "\n";
+                    log->warn(errstr.str());
                     errstr.clear();
                 }
 
@@ -286,13 +286,12 @@ class ReadExperiment {
 
             double disagreeRatio = static_cast<double>(numDisagree) / (numAgree + numDisagree);
             if (disagreeRatio > 0.05) {
-                errstr << "Read Lib [" << rl.readFilesAsString() << "] :\n";
+                errstr << "NOTE: Read Lib [" << rl.readFilesAsString() << "] :\n";
                 errstr << "\nGreater than 5\% of the alignments (but not, necessarily reads) "
                        << "disagreed with the provided library type; "
                        << "check the file: " << opath.string() << " for details\n";
 
-                std::cerr << "NOTE: " << errstr.str() << "\n";
-                LOG(WARNING) << errstr.str() << "\n";
+                log->warn(errstr.str());
                 errstr.clear();
             }
 

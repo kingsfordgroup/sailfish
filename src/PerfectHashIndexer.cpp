@@ -57,17 +57,13 @@
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
 
-#if HAVE_LOGGER
-#include "g2logworker.h"
-#include "g2log.h"
-#endif
-
 #include "cmph.h"
 #include "CountDBNew.hpp"
 // #include "LookUpTableUtils.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 #include "PerfectHashIndex.hpp"
+#include "spdlog/spdlog.h"
 
 void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vector<uint32_t>& counts,
                            size_t merLen, const boost::filesystem::path& indexBasePath) {
@@ -337,11 +333,17 @@ the Jellyfish database [thash] of the transcripts.
         bfs::path logDir = outputPath / "logs";
         boost::filesystem::create_directory(logDir);
 
-        #if HAVE_LOGGER
-        std::cerr << "writing logs to " << logDir.string() << "\n";
-        g2LogWorker logger(argv[0], logDir.string());
-        g2::initializeLogging(&logger);
-        #endif
+        bfs::path logPath = logDir / "sailfish_index.log";
+        size_t max_q_size = 1000000;
+        spdlog::set_async_mode(max_q_size);
+
+        auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
+        auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
+        auto consoleLog = spdlog::create("consoleLog", {consoleSink});
+        auto fileLog = spdlog::create("fileLog", {fileSink});
+        auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+
+        std::cerr << "writing log to " << logPath.string() << "\n";
 
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
@@ -375,9 +377,7 @@ the Jellyfish database [thash] of the transcripts.
             // Read in the Jellyfish hash of the transcripts
             std::ifstream transcriptDB(thashFile.c_str());
             if (!transcriptDB.good()) {
-#if HAVE_LOGGER
-                LOG(FATAL) << "Couldn't open the Jellyfish hash [" << thashFile << "] quitting\n";
-#endif
+                jointLog->error() << "Couldn't open the Jellyfish hash [" << thashFile << "] quitting\n";
                 std::exit(-1);
             }
             jellyfish::file_header header;
@@ -412,9 +412,7 @@ the Jellyfish database [thash] of the transcripts.
                     ++i;
                 }
             } else {
-#if HAVE_LOGGER
-                LOG(FATAL) << "Unknown Jellyfish hash format. quitting\n";
-#endif
+                jointLog->error() << "Unknown Jellyfish hash format. quitting\n";
                 std::exit(-1);
             }
 

@@ -1,9 +1,6 @@
 #ifndef __SAMPLER__HPP__
 #define __SAMPLER__HPP__
 
-#include "g2logworker.h"
-#include "g2log.h"
-
 extern "C" {
 #include "io_lib/scram.h"
 #include "io_lib/os.h"
@@ -13,6 +10,8 @@ extern "C" {
 
 // for cpp-format
 #include "format.h"
+
+#include "spdlog/spdlog.h"
 
 #include <tbb/atomic.h>
 #include <iostream>
@@ -257,11 +256,12 @@ namespace salmon {
                     bool sampleUnaligned) {
 
                 fmt::MemoryWriter msgStr;
+                auto log = spdlog::get("jointLog");
+
                 msgStr << "Sampling alignments; outputting results to "
                        << sampleFilePath.string() << "\n";
 
-                LOG(INFO) << msgStr.str();
-                std::cerr << msgStr.str();
+                log->info(msgStr.str());
 
                 auto& refs = alnLib.transcripts();
                 size_t numTranscripts = refs.size();
@@ -324,7 +324,7 @@ namespace salmon {
                 }
 
                 std::thread outputThread(
-                        [&consumedAllInput, &alnLib, &outQueue, sampleFilePath] () -> void {
+                        [&consumedAllInput, &alnLib, &outQueue, &log, sampleFilePath] () -> void {
 
                             scram_fd* bf = scram_open(sampleFilePath.c_str(), "wb");
                             scram_set_option(bf, CRAM_OPT_NTHREADS, 3);
@@ -336,8 +336,7 @@ namespace salmon {
                                        << ioutils::RESET_COLOR
                                        << "Couldn't open output bam file "
                                        << sampleFilePath.string() << ". Exiting\n";
-                                LOG(WARNING) << errstr.str();
-                                std::cerr << errstr.str();
+                                log->warn(errstr.str());
                                 std::exit(-1);
                             }
 
@@ -354,9 +353,7 @@ namespace salmon {
                                                << "file. Please check that the file can "
                                                << "be created properly and that the disk "
                                                << "is not full.  Exiting.\n";
-
-                                        std::cerr << errstr.str();
-                                        LOG(WARNING) << errstr.str();
+                                        log->warn(errstr.str());
                                         std::exit(-1);
                                      }
                                     // Eventually, as we do in BAMQueue, we should

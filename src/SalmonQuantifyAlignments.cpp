@@ -26,6 +26,7 @@ extern "C" {
 #include <unordered_set>
 #include <mutex>
 #include <thread>
+#include <memory>
 #include <condition_variable>
 
 #include <tbb/concurrent_queue.h>
@@ -55,6 +56,7 @@ extern "C" {
 #include "SalmonOpts.hpp"
 #include "NullFragmentFilter.hpp"
 #include "Sampler.hpp"
+#include "spdlog/spdlog.h"
 
 namespace bfs = boost::filesystem;
 using sailfish::math::LOG_0;
@@ -633,16 +635,25 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         }
         std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
 
-        g2LogWorker logger(argv[0], logDirectory.string());
-        g2::initializeLogging(&logger);
+        bfs::path logPath = logDirectory / "salmon.log";
+        size_t max_q_size = 1000000;
+        spdlog::set_async_mode(max_q_size);
+
+        auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
+        auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
+        auto consoleLog = spdlog::create("consoleLog", {consoleSink});
+        auto fileLog = spdlog::create("fileLog", {fileSink});
+        auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+
+        //g2LogWorker logger(argv[0], logDirectory.string());
+        //g2::initializeLogging(&logger);
 
 
         if (!sampleOutput and sampleUnaligned) {
             fmt::MemoryWriter wstr;
             wstr << "WARNING: you passed in the (-u/--sampleUnaligned) flag, but did not request a sampled "
                  << "output file (-s/--sampleOut).  This flag will be ignored!\n";
-            std::cerr << wstr.str();
-            LOG(WARNING) << wstr.str();
+            jointLog->warn(wstr.str());
         }
 
         // If we made it this far, the output directory exists
@@ -763,6 +774,9 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     } catch (po::error& e) {
         std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
         std::exit(1);
+    } catch (const spdlog::spdlog_ex& ex) {
+        std::cerr << "logger failed with : [" << ex.what() << "]. Exiting.\n";
+        std::exit(1);
     } catch (std::exception& e) {
         std::cerr << "============\n";
         std::cerr << "Exception : [" << e.what() << "]\n";
@@ -770,6 +784,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         std::cerr << argv[0] << " alignment-quant was invoked improperly.\n";
         std::cerr << "For usage information, " <<
             "try " << argv[0] << " quant --help-alignments\nExiting.\n";
+        std::exit(1);
     }
     return 0;
 }

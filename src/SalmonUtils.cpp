@@ -6,8 +6,7 @@
 #include "LibraryFormat.hpp"
 #include "ReadExperiment.hpp"
 
-#include "g2logworker.h"
-#include "g2log.h"
+#include "spdlog/spdlog.h"
 
 namespace salmon {
 namespace utils {
@@ -168,9 +167,8 @@ namespace utils {
             }
         }
         // SHOULD NOT GET HERE
-        fmt::print(stderr, "ERROR: Could not associate known library type with read! Exiting (check log)\n");
-        LOG(FATAL) << "ERROR: Could not associate any known library type with read! "
-                   << "Please report this bug!\n";
+        spdlog::get("jointLog")->error("ERROR: Could not associate any known library type with read! "
+                                       "Please report this bug!\n");
         std::exit(-1);
         return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::NONE, ReadStrandedness::U);
     }

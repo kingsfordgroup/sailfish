@@ -37,11 +37,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
 
-#if HAVE_LOGGER
-#include "g2logworker.h"
-#include "g2log.h"
-#endif
-
 #include "BiasIndex.hpp"
 #include "CountDBNew.hpp"
 #include "VersionChecker.hpp"
@@ -52,6 +47,7 @@
 #include "CollapsedIterativeOptimizer.hpp"
 #include "LibraryFormat.hpp"
 #include "ReadLibrary.hpp"
+#include "spdlog/spdlog.h"
 
 using std::string;
 
@@ -161,11 +157,15 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
 
     bfs::path logDir = outputFilePath.parent_path() / "logs";
 
-#if HAVE_LOGGER
-    std::cerr << "writing logs to " << logDir.string() << "\n";
-    g2LogWorker logger(argv[0], logDir.string());
-    g2::initializeLogging(&logger);
-#endif
+    bfs::path logPath = logDir / "sailfish_quant.log";
+    size_t max_q_size = 1000000;
+    spdlog::set_async_mode(max_q_size);
+
+    auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
+    auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
+    auto consoleLog = spdlog::create("consoleLog", {consoleSink});
+    auto fileLog = spdlog::create("fileLog", {fileSink});
+    auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
 
     double minMean = vm["filter"].as<double>();
     string lutprefix = vm["lutfile"].as<string>();
@@ -178,11 +178,8 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     TranscriptGeneMap tgm;
     { // read the serialized transcript <-> gene map from file
       string tgmFile = sfIndexBase+".tgm";
-      std::cerr << "Reading the transcript <-> gene map from [" <<
-                   tgmFile << "]\n";
-#if HAVE_LOGGER
-      LOG(INFO) << "Read transcript <=> gene map from [" << tgmFile << "]";
-#endif
+      jointLog->info() << "Reading the transcript <-> gene map from [" <<
+                           tgmFile << "]\n";
       std::ifstream ifs(tgmFile, std::ios::binary);
       boost::archive::binary_iarchive ia(ifs);
       ia >> tgm;
@@ -278,6 +275,9 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
     std::exit(1);
+  } catch (const spdlog::spdlog_ex& ex) {
+        std::cerr << "logger failed with : [" << ex.what() << "]. Exiting.\n";
+        std::exit(1);
   } catch (...) {
     std::cerr << argv[0] << " " << cmdString << " was invoked improperly.\n";
     std::cerr << "For usage information, try " << argv[0] << " " << cmdString << " --help\nExiting.\n";

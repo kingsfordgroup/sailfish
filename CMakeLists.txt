@@ -39,7 +39,6 @@ if (APPLE)
     # In order to "think different", we also have to use non-standard suffixes
     # for our shared libraries
     set(SHARED_LIB_EXTENSION "dylib")
-    #set(HAVE_LOGGER FALSE)
 else()
     # We're in sane linux world
    set (SHARED_LIB_EXTENSION "so")
@@ -70,9 +69,6 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     endif ()
 
     set (GCC TRUE)
-    #Perhaps the logger now works in both worlds
-    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
-    set (HAVE_LOGGER TRUE)
 
     set(WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_CONFIGURE_TOOLSET "")
@@ -91,9 +87,7 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     # have 128-bit support)?
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
     set(CMAKE_SHARK_CXX_FLAGS "-DBOOST_HAS_INT128") 
-    # We should have the logger under clang
-    set (CMAKE_CXX_FLAGS "-DHAVE_LOGGER ${CMAKE_CXX_FLAGS}")
-    set (HAVE_LOGGER TRUE)
+
     if (APPLE)
         set (NON_APPLECLANG_LIBS "")
     endif()
@@ -399,29 +393,6 @@ ExternalProject_Add(libshark
     UPDATE_COMMAND ""
 )
 
-if(HAVE_LOGGER)
-
-if (APPLE AND CLANG)
-    set (G2LOGGER_CXX_FLAGS "-std=c++11 -stdlib=libc++")
-endif()
-
-message("Build system will compile g2log logging library")
-message("==================================================================")
-ExternalProject_Add(libg2log
-  DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-  URL http://www.cs.cmu.edu/~robp/files/g2log.tar.gz
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
-  INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-  BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
-  #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
-  UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-  BUILD_COMMAND sh -c "make"
-  INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <BINARY_DIR>/*.${SHARED_LIB_EXTENSION} <INSTALL_DIR>/lib/"
-)
-endif()
-
-
 message("Build system will compile libgff")
 message("==================================================================")
 ExternalProject_Add(libgff
@@ -448,6 +419,22 @@ ExternalProject_Add(libstadenio
     BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install
+)
+
+message("Build system will fetch SPDLOG")
+message("==================================================================")
+ExternalProject_Add(libspdlog
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/spdlog/archive/v1.0.tar.gz -o spdlog-v1.0.tar.gz &&
+                     tar -xzf spdlog-v1.0.tar.gz &&
+                     rm -fr spdlog &&
+                     mv -f  spdlog-1.0 spdlog
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/spdlog
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ""
+    BUILD_IN_SOURCE 1
+    INSTALL_COMMAND cp -r <SOURCE_DIR>/include/spdlog <INSTALL_DIR>/include
 )
 
 # See if we have tcmalloc 
@@ -489,6 +476,29 @@ endif()
 #    INSTALL_COMMAND make install prefix=<INSTALL_DIR> &&
 #                    mv <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/libbam.a
 #)
+#if(HAVE_LOGGER)
+#
+#if (APPLE AND CLANG)
+#    set (G2LOGGER_CXX_FLAGS "-std=c++11 -stdlib=libc++")
+#endif()
+#
+#message("Build system will compile g2log logging library")
+#message("==================================================================")
+#ExternalProject_Add(libg2log
+#  DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+#  URL http://www.cs.cmu.edu/~robp/files/g2log.tar.gz
+#  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
+#  INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+#  BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
+#  #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
+#  UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
+#  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+#  BUILD_COMMAND sh -c "make"
+#  INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <BINARY_DIR>/*.${SHARED_LIB_EXTENSION} <INSTALL_DIR>/lib/"
+#)
+#endif()
+#
+
 
 
 ###

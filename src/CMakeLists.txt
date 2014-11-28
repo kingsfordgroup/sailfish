@@ -81,11 +81,6 @@ ${LAPACK_LIBRARY_DIR}
 ${BLAS_LIBRARY_DIR}
 )
 
-if(HAVE_LOGGER)
-    set (LOGGING_LIBS ${GAT_SOURCE_DIR}/external/install/lib/liblib_g2logger.a)
-else()
-    set (LOGGING_LIBS )
-endif()
 #dd_library(pca SHARED ${PCA_LIB_SRCS})
 
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
@@ -127,7 +122,6 @@ target_link_libraries(sailfish
     ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     m
-    ${LOGGING_LIBS}
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     ${NON_APPLECLANG_LIBS}
@@ -148,7 +142,6 @@ target_link_libraries(salmon
     m
     lzma 
     bz2
-    ${LOGGING_LIBS}
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} shark
     ${NON_APPLECLANG_LIBS}
@@ -173,7 +166,6 @@ add_dependencies(salmon libbwa)
     #gomp 
     #m
     #${TBB_LIBRARIES}
-    #${LOGGING_LIBS}
     #${LIBSAILFISH_LINKER_FLAGS} shark
 #)
 
@@ -191,7 +183,6 @@ add_dependencies(salmon libbwa)
   #gomp
   #m
   #${TBB_LIBRARIES}
-  #${LOGGING_LIBS}
   #${LIBSAILFISH_LINKER_FLAGS} shark
 #)
    
@@ -209,7 +200,6 @@ add_dependencies(salmon libbwa)
     #gomp 
     #m
     #${TBB_LIBRARIES}
-    #${LOGGING_LIBS}
     #${LIBSAILFISH_LINKER_FLAGS} shark
 #)
 
@@ -225,7 +215,6 @@ add_dependencies(salmon libbwa)
     #gomp 
     #m
     #${TBB_LIBRARIES}
-    #${LOGGING_LIBS}
     #${LIBSAILFISH_LINKER_FLAGS} shark
 #)
 
@@ -256,7 +245,6 @@ add_dependencies(salmon libbwa)
     #pthread 
     #gomp 
     #m
-    #${LOGGING_LIBS}
     #${TBB_LIBRARIES}
     #shark
 #)

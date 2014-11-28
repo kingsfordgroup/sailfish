@@ -19,6 +19,7 @@
 #include "SailfishMath.hpp"
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
+#include "spdlog/spdlog.h"
 
 extern "C" {
 #include "io_lib/scram.h"
@@ -108,6 +109,8 @@ private:
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
   volatile bool doneParsing_;
   std::unique_ptr<std::thread> parsingThread_;
+  std::shared_ptr<spdlog::logger> logger_;
+
   size_t batchNum_;
   std::string readMode_;
 };
