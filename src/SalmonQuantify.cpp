@@ -1834,7 +1834,11 @@ void quantifyLibrary(
 
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
-            if (!experiment.softReset()) {
+            bool didReset = (salmonOpts.disableMappingCache) ?
+                            (experiment.reset()) :
+                            (experiment.softReset());
+
+            if (!didReset) {
                 std::string errmsg = fmt::sprintf(
                   "\n\n======== WARNING ========\n"
                   "One of the provided read files: [{}] "
@@ -1843,6 +1847,10 @@ void quantifyLibrary(
                   "We observed only {} mapping fragments when we wanted at least {}.\n\n"
                   "Please consider re-running Salmon with these reads "
                   "as a regular file!\n"
+                  "NOTE: If you received this warning from salmon but did not "
+                  "disable the mapping cache (--disableMappingCache), then there \n"
+                  "was some other problem. Please make sure, e.g., that you have not "
+                  "run out of disk space.\n"
                   "==========================\n\n",
                   experiment.readFilesAsString(), numObservedFragments, numRequiredFragments);
                 jointLog->warn(errmsg);
@@ -1851,10 +1859,10 @@ void quantifyLibrary(
             numPrevObservedFragments = numObservedFragments;
         }
 
-        if (initialRound) {
+        if (initialRound or salmonOpts.disableMappingCache) {
             AlnGroupQueue outputGroups(structCacheSize);
 
-            volatile bool writeToCache{true};
+            volatile bool writeToCache = !salmonOpts.disableMappingCache;
             auto processReadLibraryCallback =  [&](
                     ReadLibrary& rl, bwaidx_t* idx,
                     std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
@@ -1868,17 +1876,20 @@ void quantifyLibrary(
                 boost::filesystem::path alnCacheFilename = salmonOpts.outputDirectory / fname.str();
                 cacheFiles.emplace_back(alnCacheFilename, uint64_t(0));
 
-                std::ofstream alnCacheFile(alnCacheFilename.c_str(), std::ios::binary);
-                cereal::BinaryOutputArchive alnCacheArchive(alnCacheFile);
-                std::thread cacheWriterThread(writeAlignmentCacheToFile,
+                std::unique_ptr<std::ofstream> alnCacheFile{nullptr};
+                std::unique_ptr<std::thread> cacheWriterThread{nullptr};
+                if (writeToCache) {
+                    alnCacheFile.reset(new std::ofstream(alnCacheFilename.c_str(), std::ios::binary));
+                    cereal::BinaryOutputArchive alnCacheArchive(*alnCacheFile);
+                    cacheWriterThread.reset(new std::thread(writeAlignmentCacheToFile,
                         std::ref(outputGroups),
                         std::ref(groupCache),
                         std::ref(cacheFiles.back().numWritten),
                         std::ref(numObservedFragments),
                         numRequiredFragments,
                         std::ref(writeToCache),
-                        std::ref(alnCacheArchive));
-
+                        std::ref(alnCacheArchive)));
+                }
 
                 processReadLibrary(rl, idx, transcripts, clusterForest,
                         numObservedFragments, numAssignedFragments, batchNum,
@@ -1889,8 +1900,8 @@ void quantifyLibrary(
 
                 // join the thread the writes the file
                 writeToCache = false;
-                cacheWriterThread.join();
-                alnCacheFile.close();
+                if (cacheWriterThread) { cacheWriterThread->join(); }
+                if (alnCacheFile) { alnCacheFile->close(); }
             };
 
             // Process all of the reads
@@ -2021,6 +2032,11 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "result in increased running time.")
     ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
                                         "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
+    ("disableMappingCache", po::bool_switch(&(sopt.disableMappingCache))->default_value(false), "Setting this option disables the creation and use "
+                                        "of the \"mapping cache\" file.  The mapping cache can speed up quantification significantly for smaller read "
+                                        "libraries (i.e. where the number of mapped fragments is less than the required number of observations). However, "
+                                        "for very large read libraries, the mapping cache is unnecessary, and disabling it may allow salmon to more effectively "
+                                        "make use of a very large number of threads.")
     ("extraSensitive", po::bool_switch(&(sopt.extraSeedPass))->default_value(false), "Setting this option enables an extra pass of \"seed\" search. "
                                         "Enabling this option may improve sensitivity (the number of reads having sufficient coverage), but will "
                                         "typically slow down quantification by ~40%.  Consider enabling this option if you find the mapping rate to "

@@ -40,6 +40,8 @@ struct SalmonOpts {
 
     bool extraSeedPass; // Perform extra pass trying to find seeds to cover the read
 
+    bool disableMappingCache; // Don't write mapping results to temporary mapping cache file
+
     boost::filesystem::path outputDirectory; // Quant output directory
 
     boost::filesystem::path indexDirectory; // Index directory

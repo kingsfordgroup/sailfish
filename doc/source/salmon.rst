@@ -38,6 +38,39 @@ containing a set of alignments.
     please randomize / shuffle them before performing quantification with 
     salmon.
 
+.. note:: Number of Threads
+
+    The number of threads that salmon can effectively make use of depends 
+    upon the mode in which it is being run.  In alignment-based mode, the
+    main bottleneck is in parsing and decompressing the input BAM file.
+    We make use of the `Staden IO <http://sourceforge.net/projects/staden/files/io_lib/>`_ 
+    library for SAM/BAM/CRAM I/O (CRAM is, in theory, supported, but has not been
+    thorougly tested).  This means that multiple threads can be effectively used
+    to aid in BAM decompression.  However, we find that throwing more than a 
+    few threads at file decompression does not result in increased processing
+    speed.  Thus, alignment-based salmon will only ever allocate up to 4 threads
+    to file decompression, with the rest being allocated to quantification.
+    If these threads are starved, they will sleep (the quantification threads 
+    do not busy wait), but there is a point beyond which allocating more threads
+    will not speed up alignment-based quantification.  We find that allocating 
+    8 --- 12 threads results in the maximum speed, threads allocated above this
+    limit will likely spend most of their time idle / sleeping.
+
+    For read-based salmon, the story is somewhat different.  Generally,
+    performance continues to improve as more threads are made available.  This
+    is because the determiniation of the potential mapping locations of each
+    read is, generally, the slowest step in read-based quantification.  Since
+    this process is trivially parallelizable (and well-parallelized within
+    salmon), more threads generally equates to faster quantification. However,
+    there may still be a limit to the return on invested threads. Specifically,
+    writing to the mapping cache (see `Misc`_ below) is done via a single
+    thread.  With a huge number of quantification threads or in environments
+    with a very slow disk, this may become the limiting step. If you're certain
+    that you have more than the required number of observations, or if you have
+    reason to suspect that your disk is particularly slow on writes, then you
+    can disable the mapping cache (``--disableMappingCache``), and potentially
+    increase the parallelizability of read-based salmon.
+
 Alignment-based mode
 --------------------
 
@@ -186,21 +219,37 @@ example above, the reads were actually in the files ``reads1.fa.gz`` and
 and the gzipped files will be decompressed via separate processes and the raw
 reads will be fed into salmon.
 
-.. note:: Reading through decompressed files multiple times
+.. note:: The Mapping Cache 
 
-    Salmon requires a specific number of observations (mapped fragments) to
+    Salmon requires a specific number of observations (fragments) to
     be observed before it will report its quantification results.  If it 
     doesn't see enough fragments when reading through the read files the 
-    first time, it will read through them again (Don't worry; it's not 
+    first time, it will process the information again (don't worry; it's not 
     double counting. The results from the first pass essentially become 
     a "prior" for assigning the proper read counts in subsequent passes).
-    However, a named-pipe as created by the process substitution syntax 
-    above cannot be read from multiple times.  This means that if your 
-    file doesn't have enough mapping fragments you either need to reduce 
-    the required number of observations, via the ``-n`` argument, which 
-    *may* affect accuracy if it is set too low, or extract the reads to 
-    a regular fasta/q file.  We hope to support directly reading from 
-    compressed files soon to avoid this necessity.
+
+    The first time the file is processed, the set of potential mappings for
+    each fragment is written to a temporary file in an efficient binary format
+    --- this file is called the mapping cache.  As soon as the required number
+    of obvservations have been seen, salmon stops writing to the mapping cache
+    (ensuring that the file size will not grow too large).  However, for
+    experiments with fewer than the required number of observations, the
+    mapping cache is a significant optimization over reading through the raw
+    set of reads multiple times.  First, the work of determining the potential
+    mapping locations for a read is only performed once, during the inital pass
+    through the file.  Second, since the mapping cache is implemented as a
+    regular file on disk, the information contained within a file can be
+    processed multiple times, even if the file itself is being produced via
+    e.g. process substitution as in the example above.
+    
+    You can control the required number of observations and thus, indirectly,
+    the maximum size of the mapping cache file, via the ``-n`` argument.
+    Note that the cache itself is considered a "temporary" file, and it is
+    removed from disk by salmon before the program terminates.  If you are
+    certain that your read library is large enough that you will observe the
+    required number of fragments in the first pass, or if you have some other 
+    reason to avoid creating the temporary mapping cache, it can disabled with
+    the ``--disableMappingCache`` flag.
 
 **Finally**, the purpose of making this beta executable (as well as the Salmon
 code) available is for people to use it and provide feedback.  A pre-print and
