@@ -90,6 +90,8 @@ extern "C" {
 #include "cereal/types/vector.hpp"
 #include "cereal/archives/binary.hpp"
 
+#include "concurrentqueue.h"
+
 // Sailfish / Salmon includes
 #include "ClusterForest.hpp"
 #include "PerfectHashIndex.hpp"
@@ -211,9 +213,17 @@ using TranscriptIDVector = std::vector<TranscriptID>;
 using KmerIDMap = std::vector<TranscriptIDVector>;
 using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
 
+constexpr uint32_t miniBatchSize{1000};
 
 class SMEMAlignment {
     public:
+        SMEMAlignment() :
+            transcriptID_(std::numeric_limits<TranscriptID>::max()),
+            format_(LibraryFormat::formatFromID(0)),
+            score_(0.0),
+            fragLength_(0),
+            logProb(sailfish::math::LOG_0) {}
+
         SMEMAlignment(TranscriptID transcriptIDIn, LibraryFormat format,
                   double scoreIn = 0.0, uint32_t fragLengthIn= 0,
                   double logProbIn = sailfish::math::LOG_0) :
@@ -225,9 +235,20 @@ class SMEMAlignment {
         inline LibraryFormat libFormat() { return format_; }
         inline double score() { return score_; }
         // inline double coverage() {  return static_cast<double>(kmerCount) / fragLength_; };
-
         uint32_t kmerCount;
         double logProb;
+
+        template <typename Archive>
+        void save(Archive& archive) const {
+            archive(transcriptID_, format_.formatID(), score_, fragLength_);
+        }
+
+        template <typename Archive>
+        void load(Archive& archive) {
+            uint8_t formatID;
+            archive(transcriptID_, formatID, score_, fragLength_);
+            format_ = LibraryFormat::formatFromID(formatID);
+        }
 
     private:
         TranscriptID transcriptID_;
@@ -236,6 +257,13 @@ class SMEMAlignment {
         uint32_t fragLength_;
 };
 
+
+struct QueueTraits : public moodycamel::ConcurrentQueueDefaultTraits
+{
+        static const size_t BLOCK_SIZE = 256;       // Use bigger blocks
+};
+
+using AlnGroupQueue = moodycamel::ConcurrentQueue<AlignmentGroup<SMEMAlignment>*>;
 
 inline double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected) {
 
@@ -262,7 +290,7 @@ void processMiniBatch(
         double logForgettingMass,
         ReadLibrary& readLib,
         const SalmonOpts& salmonOpts,
-        std::vector<AlignmentGroup<SMEMAlignment>>& batchHits,
+        std::vector<AlignmentGroup<SMEMAlignment>*>& batchHits,
         std::vector<Transcript>& transcripts,
         ClusterForest& clusterForest,
         FragmentLengthDistribution& fragLengthDist,
@@ -294,7 +322,7 @@ void processMiniBatch(
     btree::btree_map<TranscriptID, std::vector<SMEMAlignment*>> hitsForTranscript;
     size_t hitID{0};
     for (auto& hv : batchHits) {
-        for (auto& tid : hv.alignments()) {
+        for (auto& tid : hv->alignments()) {
             hitsForTranscript[tid.transcriptID()].push_back(&tid);
         }
         ++hitID;
@@ -308,14 +336,14 @@ void processMiniBatch(
         // for a single read).  Distribute the read's mass proportionally dependent on the
         // current hits
         for (auto& alnGroup : batchHits) {
-            if (alnGroup.size() == 0) { continue; }
+            if (alnGroup->size() == 0) { continue; }
             double sumOfAlignProbs{LOG_0};
             // update the cluster-level properties
             bool transcriptUnique{true};
             // AGCHANGE: auto firstTranscriptID = alnGroup.front().transcriptID();
-            auto firstTranscriptID = alnGroup.alignments().front().transcriptID();
+            auto firstTranscriptID = alnGroup->alignments().front().transcriptID();
             std::unordered_set<size_t> observedTranscripts;
-            for (auto& aln : alnGroup.alignments()) {
+            for (auto& aln : alnGroup->alignments()) {
                 auto transcriptID = aln.transcriptID();
                 auto& transcript = transcripts[transcriptID];
                 transcriptUnique = transcriptUnique and (transcriptID == firstTranscriptID);
@@ -369,7 +397,7 @@ void processMiniBatch(
             }
 
             // normalize the hits
-            for (auto& aln : alnGroup.alignments()) {
+            for (auto& aln : alnGroup->alignments()) {
                 aln.logProb -= sumOfAlignProbs;
                 auto transcriptID = aln.transcriptID();
                 auto& transcript = transcripts[transcriptID];
@@ -394,8 +422,8 @@ void processMiniBatch(
                 }
                 clusterForest.updateCluster(firstTranscriptID, 1, logForgettingMass, updateCounts);
             } else { // or the appropriate clusters
-                clusterForest.mergeClusters<SMEMAlignment>(alnGroup.alignments().begin(), alnGroup.alignments().end());
-                clusterForest.updateCluster(alnGroup.alignments().front().transcriptID(), 1, logForgettingMass, updateCounts);
+                clusterForest.mergeClusters<SMEMAlignment>(alnGroup->alignments().begin(), alnGroup->alignments().end());
+                clusterForest.updateCluster(alnGroup->alignments().front().transcriptID(), 1, logForgettingMass, updateCounts);
             }
 
             } // end read group
@@ -1273,6 +1301,8 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 template <typename ParserT, typename CoverageCalculator>
 void processReadsMEM(ParserT* parser,
                ReadLibrary& rl,
+               AlnGroupQueue& structureCache,
+               AlnGroupQueue& outputGroups,
                std::atomic<uint64_t>& numObservedFragments,
                std::atomic<uint64_t>& numAssignedFragments,
                std::atomic<uint64_t>& validHits,
@@ -1288,7 +1318,8 @@ void processReadsMEM(ParserT* parser,
                double coverageThresh,
 	           std::mutex& iomutex,
                bool initialRound,
-               bool& burnedIn
+               bool& burnedIn,
+               volatile bool& writeToCache
                ) {
   uint64_t count_fwd = 0, count_bwd = 0;
 
@@ -1300,10 +1331,10 @@ void processReadsMEM(ParserT* parser,
   // Create a random uniform distribution
   std::default_random_engine eng(rd());
 
-  std::vector<AlignmentGroup<SMEMAlignment>> hitLists;
+  std::vector<AlignmentGroup<SMEMAlignment>*> hitLists;
   //std::vector<std::vector<Alignment>> hitLists;
   uint64_t prevObservedFrags{1};
-  hitLists.resize(5000);
+  hitLists.resize(miniBatchSize);
 
   uint64_t leftHitCount{0};
   uint64_t hitListCount{0};
@@ -1321,19 +1352,25 @@ void processReadsMEM(ParserT* parser,
     if(j.is_empty()) break;           // If got nothing, quit
 
     hitLists.resize(j->nb_filled);
+    //structureCache.try_dequeue_bulk(hitLists.begin() , j->nb_filled);
+
     for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read in this batch
 
         //hitLists[i].setRead(&j->data[i]);
+
+        while (!structureCache.try_dequeue(hitLists[i])) {}
+        auto& hitList = *(hitLists[i]);
 
         getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
                                                auxHits,
                                                memOptions,
                                                salmonOpts,
                                                coverageThresh,
-                                               hitLists[i], hitListCount,
+                                               hitList, hitListCount,
                                                transcripts);
-        auto& hitList = hitLists[i];
 
+        // If the read mapped to > maxReadOccs places, discard it
+        if (hitList.size() > salmonOpts.maxReadOccs ) { hitList.alignments().clear(); }
         validHits += hitList.size();
         locRead++;
         ++numObservedFragments;
@@ -1349,8 +1386,6 @@ void processReadsMEM(ParserT* parser,
     	    iomutex.unlock();
         }
 
-        // If the read mapped to > maxReadOccs places, discard it
-        if (hitList.size() > salmonOpts.maxReadOccs ) { hitList.alignments().clear(); }
 
     } // end for i < j->nb_filled
 
@@ -1365,11 +1400,106 @@ void processReadsMEM(ParserT* parser,
     prevObservedFrags = numObservedFragments;
     processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
                      fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
+    if (writeToCache) {
+        outputGroups.enqueue_bulk(hitLists.begin(), hitLists.size());
+    } else {
+        structureCache.enqueue_bulk(hitLists.begin(), hitLists.size());
+    }
     // At this point, the parser can re-claim the strings
   }
   smem_aux_destroy(auxHits);
   smem_itr_destroy(itr);
 }
+
+// To use the parser in the following, we get "jobs" until none is
+// available. A job behaves like a pointer to the type
+// jellyfish::sequence_list (see whole_sequence_parser.hpp).
+void processCachedAlignmentsHelper(
+        ReadLibrary& rl,
+        AlnGroupQueue& structureCache,
+        AlnGroupQueue& alignmentCache,
+        std::atomic<uint64_t>& numObservedFragments,
+        std::atomic<uint64_t>& numAssignedFragments,
+        std::atomic<uint64_t>& validHits,
+        std::vector<Transcript>& transcripts,
+        std::atomic<uint64_t>& batchNum,
+        double& logForgettingMass,
+        std::mutex& ffMutex,
+        ClusterForest& clusterForest,
+        FragmentLengthDistribution& fragLengthDist,
+        const SalmonOpts& salmonOpts,
+        std::mutex& iomutex,
+        bool initialRound,
+        bool& cacheExhausted,
+        bool& burnedIn
+        ) {
+
+    double forgettingFactor{0.65};
+
+    // Seed with a real random value, if available
+    std::random_device rd;
+
+    // Create a random uniform distribution
+    std::default_random_engine eng(rd());
+
+    std::vector<AlignmentGroup<SMEMAlignment>*> hitLists;
+
+    uint64_t prevObservedFrags{1};
+    auto expectedLibType = rl.format();
+
+    uint32_t batchCount{1000};
+    uint64_t locRead{0};
+    uint64_t locValidHits{0};
+    while(!cacheExhausted) {
+        uint32_t numConsumed{0};
+        hitLists.resize(batchCount);
+
+        auto it = hitLists.begin();
+        while (!cacheExhausted and numConsumed < batchCount) {
+            uint32_t obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed);
+            numConsumed += obtained;
+            it += obtained;
+        }
+        hitLists.resize(numConsumed);
+        for (auto hitList : hitLists) {
+            locValidHits += hitList->size();
+        }
+        validHits += locValidHits;
+        locRead += numConsumed;
+        uint64_t prevMod = numObservedFragments % 200000;
+        numObservedFragments += numConsumed;
+        uint64_t newMod = numObservedFragments % 200000;
+        if (newMod < prevMod) {
+            iomutex.lock();
+            const char RESET_COLOR[] = "\x1b[0m";
+            char green[] = "\x1b[30m";
+            green[3] = '0' + static_cast<char>(fmt::GREEN);
+            char red[] = "\x1b[30m";
+            red[3] = '0' + static_cast<char>(fmt::RED);
+            fmt::print(stderr, "\033[F\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+            fmt::print(stderr, "hits per frag:  {} / {} = {}", locValidHits, locRead, locValidHits / static_cast<float>(locRead));
+            iomutex.unlock();
+        }
+
+        auto oldBatchNum = batchNum++;
+        if (oldBatchNum > 1) {
+            ffMutex.lock();
+            logForgettingMass += forgettingFactor * std::log(static_cast<double>(oldBatchNum-1)) -
+                std::log(std::pow(static_cast<double>(oldBatchNum), forgettingFactor) - 1);
+            ffMutex.unlock();
+        }
+
+        processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
+                fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
+
+        structureCache.enqueue_bulk(hitLists.begin() , hitLists.size());
+        // At this point, the parser can re-claim the strings
+    }
+
+}
+
+
+
 
 int performBiasCorrection(boost::filesystem::path featPath,
                           boost::filesystem::path expPath,
@@ -1379,6 +1509,52 @@ int performBiasCorrection(boost::filesystem::path featPath,
                           uint32_t merLen,
                           boost::filesystem::path outPath,
                           size_t numThreads);
+
+void processCachedAlignments(
+        ReadLibrary& rl,
+        AlnGroupQueue& structureCache,
+        AlnGroupQueue& alignmentCache,
+        std::atomic<uint64_t>& numObservedFragments,
+        std::atomic<uint64_t>& numAssignedFragments,
+        std::vector<Transcript>& transcripts,
+        std::atomic<uint64_t>& batchNum,
+        double& logForgettingMass,
+        std::mutex& ffMutex,
+        ClusterForest& clusterForest,
+        FragmentLengthDistribution& fragLengthDist,
+        const SalmonOpts& salmonOpts,
+        std::mutex& ioMutex,
+        bool initialRound,
+        bool& cacheExhausted,
+        bool& burnedIn,
+        size_t numQuantThreads) {
+
+        std::atomic<uint64_t> numValidHits{0};
+
+        std::vector<std::thread> quantThreads;
+        for (size_t i = 0; i < numQuantThreads; ++i) {
+                quantThreads.emplace_back(processCachedAlignmentsHelper,
+                        std::ref(rl),
+                        std::ref(structureCache),
+                        std::ref(alignmentCache),
+                        std::ref(numObservedFragments),
+                        std::ref(numAssignedFragments),
+                        std::ref(numValidHits),
+                        std::ref(transcripts),
+                        std::ref(batchNum),
+                        std::ref(logForgettingMass),
+                        std::ref(ffMutex),
+                        std::ref(clusterForest),
+                        std::ref(fragLengthDist),
+                        std::ref(salmonOpts),
+                        std::ref(ioMutex),
+                        initialRound,
+                        std::ref(cacheExhausted),
+                        std::ref(burnedIn));
+
+        }
+        for (auto& t : quantThreads) { t.join(); }
+}
 
 void processReadLibrary(
         ReadLibrary& rl,
@@ -1398,7 +1574,10 @@ void processReadLibrary(
         double coverageThresh,
         bool greedyChain,
         std::mutex& iomutex,
-        size_t numThreads) {
+        size_t numThreads,
+        AlnGroupQueue& structureCache,
+        AlnGroupQueue& outputGroups,
+        volatile bool& writeToCache) {
 
             std::vector<std::thread> threads;
 
@@ -1410,7 +1589,7 @@ void processReadLibrary(
                 char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
                     const_cast<char*>(rl.mates2().front().c_str()) };
 
-                size_t maxReadGroup{1000}; // Number of reads in each "job"
+                size_t maxReadGroup{miniBatchSize}; // Number of reads in each "job"
                 size_t concurrentFile{2}; // Number of files to read simultaneously
                 paired_parser parser(4 * numThreads, maxReadGroup, concurrentFile,
                         readFiles, readFiles + 2);
@@ -1421,6 +1600,8 @@ void processReadLibrary(
                                     processReadsMEM<paired_parser, TranscriptHitList>(
                                     &parser,
                                     rl,
+                                    structureCache,
+                                    outputGroups,
                                     numObservedFragments,
                                     numAssignedFragments,
                                     numValidHits,
@@ -1436,7 +1617,8 @@ void processReadLibrary(
                                     coverageThresh,
                                     iomutex,
                                     initialRound,
-                                    burnedIn);
+                                    burnedIn,
+                                    writeToCache);
                         };
                         threads.emplace_back(threadFun);
                     } else {
@@ -1473,7 +1655,7 @@ void processReadLibrary(
             else if (rl.format().type == ReadType::SINGLE_END) {
 
                 char* readFiles[] = { const_cast<char*>(rl.unmated().front().c_str()) };
-                size_t maxReadGroup{1000}; // Number of files to read simultaneously
+                size_t maxReadGroup{miniBatchSize}; // Number of files to read simultaneously
                 size_t concurrentFile{1}; // Number of reads in each "job"
                 stream_manager streams( rl.unmated().begin(),
                         rl.unmated().end(), concurrentFile);
@@ -1486,6 +1668,8 @@ void processReadLibrary(
                         auto threadFun = [&]() -> void {
                                     processReadsMEM<single_parser, TranscriptHitList>( &parser,
                                     rl,
+                                    structureCache,
+                                    outputGroups,
                                     numObservedFragments,
                                     numAssignedFragments,
                                     numValidHits,
@@ -1501,7 +1685,8 @@ void processReadLibrary(
                                     coverageThresh,
                                     iomutex,
                                     initialRound,
-                                    burnedIn);
+                                    burnedIn,
+                                    writeToCache);
                         };
                         threads.emplace_back(threadFun);
                     } else {
@@ -1532,7 +1717,70 @@ void processReadLibrary(
             } // ------ END Single-end --------
 }
 
+bool writeAlignmentCacheToFile(
+        AlnGroupQueue& outputGroups,
+        AlnGroupQueue& structureCache,
+        uint64_t& numWritten,
+        std::atomic<uint64_t>& numObservedFragments,
+        uint64_t numRequiredFragments,
+        volatile bool& writeToCache,
+        cereal::BinaryOutputArchive& outputStream ) {
 
+        size_t blockSize{miniBatchSize};
+        size_t numDequed{0};
+        AlignmentGroup<SMEMAlignment>* alnGroups[blockSize];
+
+        while (writeToCache) {
+            while ( (numDequed = outputGroups.try_dequeue_bulk(alnGroups, blockSize)) > 0) {
+                for (size_t i = 0; i < numDequed; ++i) {
+                    outputStream((*alnGroups[i]));
+                    ++numWritten;
+                }
+
+                structureCache.enqueue_bulk(alnGroups, numDequed);
+                // If, at any point, we've seen the required number of
+                // fragments, then we don't need the cache any longer.
+                if (numObservedFragments > numRequiredFragments) {
+                    writeToCache = false;
+                }
+            }
+        }
+        while (outputGroups.try_dequeue(alnGroups[0])) {
+            outputStream((*alnGroups[0]));
+            ++numWritten;
+            structureCache.enqueue(alnGroups[0]);
+        }
+
+        return true;
+}
+
+bool readAlignmentCache(
+        AlnGroupQueue& alnGroupQueue,
+        AlnGroupQueue& structureCache,
+        uint64_t numWritten,
+        bool& finishedParsing,
+        std::ifstream& inputStream,
+        cereal::BinaryInputArchive& inputArchive) {
+
+        uint64_t numRead{0};
+        AlignmentGroup<SMEMAlignment>* alnGroup;
+        while (numRead < numWritten) {
+            while (!structureCache.try_dequeue(alnGroup)) {}
+            inputArchive((*alnGroup));
+            alnGroupQueue.enqueue(alnGroup);
+            ++numRead;
+        }
+        finishedParsing = true;
+        return true;
+}
+
+struct CacheFile {
+    CacheFile(boost::filesystem::path& pathIn, uint64_t numWrittenIn) :
+        filePath(pathIn), numWritten(numWrittenIn) {}
+
+    boost::filesystem::path filePath;
+    uint64_t numWritten{0};
+};
 
 /**
   *  Quantify the targets given in the file `transcriptFile` using the
@@ -1554,7 +1802,6 @@ void quantifyLibrary(
     //ErrorModel errMod(1.00);
     auto& refs = experiment.transcripts();
     size_t numTranscripts = refs.size();
-    size_t miniBatchSize{1000};
     std::atomic<uint64_t> numObservedFragments{0};
 
     auto jointLog = spdlog::get("jointLog");
@@ -1576,10 +1823,18 @@ void quantifyLibrary(
     std::mutex ioMutex;
 
     size_t numPrevObservedFragments = 0;
+    std::vector<CacheFile> cacheFiles;
+
+    size_t maxReadGroup{miniBatchSize};
+    uint32_t structCacheSize = numQuantThreads * maxReadGroup * 10;
+    AlnGroupQueue groupCache(structCacheSize);
+    for (size_t i = 0; i < structCacheSize; ++i) {
+        groupCache.enqueue( new AlignmentGroup<SMEMAlignment>() );
+    }
 
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
-            if (!experiment.reset()) {
+            if (!experiment.softReset()) {
                 std::string errmsg = fmt::sprintf(
                   "\n\n======== WARNING ========\n"
                   "One of the provided read files: [{}] "
@@ -1596,24 +1851,95 @@ void quantifyLibrary(
             numPrevObservedFragments = numObservedFragments;
         }
 
-        auto processReadLibraryCallback =  [&](
-                ReadLibrary& rl, bwaidx_t* idx,
-                std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
-                std::atomic<uint64_t>& numAssignedFragments,
-                std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
-                bool& burnedIn) -> void  {
-                processReadLibrary(rl, idx, transcripts, clusterForest,
-                                   numObservedFragments, numAssignedFragments, batchNum,
-                                   initialRound, burnedIn, logForgettingMass, ffMutex, fragLengthDist,
-                                   memOptions, salmonOpts, coverageThresh, greedyChain,
-                                   ioMutex, numQuantThreads);
-              };
+        if (initialRound) {
+            AlnGroupQueue outputGroups(structCacheSize);
 
-        // Process all of the reads
-        experiment.processReads(numQuantThreads, processReadLibraryCallback);
+            volatile bool writeToCache{true};
+            auto processReadLibraryCallback =  [&](
+                    ReadLibrary& rl, bwaidx_t* idx,
+                    std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
+                    std::atomic<uint64_t>& numAssignedFragments,
+                    std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
+                    bool& burnedIn) -> void  {
+
+                // The file where the alignment cache was / will be written
+                fmt::MemoryWriter fname;
+                fname << "alnCache_" << cacheFiles.size() << ".bin";
+                boost::filesystem::path alnCacheFilename = salmonOpts.outputDirectory / fname.str();
+                cacheFiles.emplace_back(alnCacheFilename, uint64_t(0));
+
+                std::ofstream alnCacheFile(alnCacheFilename.c_str(), std::ios::binary);
+                cereal::BinaryOutputArchive alnCacheArchive(alnCacheFile);
+                std::thread cacheWriterThread(writeAlignmentCacheToFile,
+                        std::ref(outputGroups),
+                        std::ref(groupCache),
+                        std::ref(cacheFiles.back().numWritten),
+                        std::ref(numObservedFragments),
+                        numRequiredFragments,
+                        std::ref(writeToCache),
+                        std::ref(alnCacheArchive));
+
+
+                processReadLibrary(rl, idx, transcripts, clusterForest,
+                        numObservedFragments, numAssignedFragments, batchNum,
+                        initialRound, burnedIn, logForgettingMass, ffMutex, fragLengthDist,
+                        memOptions, salmonOpts, coverageThresh, greedyChain,
+                        ioMutex, numQuantThreads,
+                        groupCache, outputGroups, writeToCache);
+
+                // join the thread the writes the file
+                writeToCache = false;
+                cacheWriterThread.join();
+                alnCacheFile.close();
+            };
+
+            // Process all of the reads
+            experiment.processReads(numQuantThreads, processReadLibraryCallback);
+        } else {
+            AlnGroupQueue alnGroupQueue;
+
+
+            uint32_t libNum{0};
+            auto processReadLibraryCallback =  [&](
+                    ReadLibrary& rl, bwaidx_t* idx,
+                    std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
+                    std::atomic<uint64_t>& numAssignedFragments,
+                    std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
+                    bool& burnedIn) -> void  {
+
+                bool finishedParsing{false};
+
+                // The file where the alignment cache was / will be written
+                auto& cf = cacheFiles[libNum];
+                ++libNum;
+
+                std::ifstream alnCacheFile(cf.filePath.c_str(), std::ios::binary);
+                cereal::BinaryInputArchive alnCacheArchive(alnCacheFile);
+
+                std::thread cacheReaderThread(readAlignmentCache,
+                        std::ref(alnGroupQueue),
+                        std::ref(groupCache),
+                        cf.numWritten,
+                        std::ref(finishedParsing),
+                        std::ref(alnCacheFile),
+                        std::ref(alnCacheArchive));
+
+                processCachedAlignments(rl, groupCache, alnGroupQueue,
+                        numObservedFragments, numAssignedFragments,
+                        transcripts, batchNum, logForgettingMass,
+                        ffMutex, clusterForest, fragLengthDist,
+                        salmonOpts, ioMutex, initialRound, finishedParsing,
+                        burnedIn, numQuantThreads);
+
+                cacheReaderThread.join();
+                alnCacheFile.close();
+            };
+
+            // Process all of the reads
+            experiment.processReads(numQuantThreads, processReadLibraryCallback);
+        }
 
         initialRound = false;
-        //numObservedFragments += experiment.numObservedFragments();
         fmt::print(stderr, "\n# observed = {} / # required = {}\n",
                    numObservedFragments, numRequiredFragments);
         fmt::print(stderr, "# assigned = {} / # observed (this round) = {}\033[F\033[F",
@@ -1621,6 +1947,16 @@ void quantifyLibrary(
                    numObservedFragments - numPrevObservedFragments);
     }
     fmt::print(stderr, "\n\n\n\n");
+
+    AlignmentGroup<SMEMAlignment>* ag;
+    while (groupCache.try_dequeue(ag)) { delete ag; }
+    // delete any temporary alignment cache files
+    for (auto& cf : cacheFiles) {
+        if (boost::filesystem::exists(cf.filePath)) {
+            boost::filesystem::remove(cf.filePath);
+        }
+    }
+
     jointLog->info("finished quantifyLibrary()\n");
 }
 
@@ -1761,6 +2097,9 @@ transcript abundance from RNA-seq reads
 
         bfs::path indexDirectory(vm["index"].as<string>());
         bfs::path logDirectory = outputDirectory / "logs";
+
+        sopt.indexDirectory = indexDirectory;
+        sopt.outputDirectory = outputDirectory;
 
         // Create the logger and the logging directory
         bfs::create_directory(logDirectory);

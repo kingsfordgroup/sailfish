@@ -136,6 +136,10 @@ class ReadExperiment {
     uint64_t numAssignedFragments() { return numAssignedFragments_; }
     uint64_t numMappedReads() { return numAssignedFragments_; }
 
+
+    std::atomic<uint64_t>& numAssignedFragmentsAtomic() { return numAssignedFragments_; }
+    std::atomic<uint64_t>& batchNumAtomic() { return batchNum_; }
+
     template <typename CallbackT>
     bool processReads(const uint32_t& numThreads, CallbackT& processReadLibrary) {
         bool burnedIn = (totalAssignedFragments_ + numAssignedFragments_ > 5000000);
@@ -163,6 +167,15 @@ class ReadExperiment {
             if (ln++ < numReadLibraries) { sstr << "; "; }
         }
         return sstr.str();
+    }
+
+    bool softReset() {
+        numObservedFragments_ = 0;
+        totalAssignedFragments_ += numAssignedFragments_;
+        numAssignedFragments_ = 0;
+        // batchNum_ = 0; # don't reset batch num right now!
+        quantificationPasses_++;
+        return true;
     }
 
     bool reset() {
@@ -303,6 +316,8 @@ class ReadExperiment {
         }
         ofile.close();
     }
+
+    std::vector<ReadLibrary>& readLibraries() { return readLibraries_; }
 
     private:
     /**

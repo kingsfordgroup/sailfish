@@ -1,6 +1,8 @@
 #ifndef SALMON_OPTS_HPP
 #define SALMON_OPTS_HPP
 
+#include <boost/filesystem.hpp>
+
 /**
   * A structure to hold some common options used
   * by Salmon so that we don't have to pass them
@@ -37,6 +39,10 @@ struct SalmonOpts {
     uint32_t maxExpectedReadLen; // Maximum expected length of an observed read.
 
     bool extraSeedPass; // Perform extra pass trying to find seeds to cover the read
+
+    boost::filesystem::path outputDirectory; // Quant output directory
+
+    boost::filesystem::path indexDirectory; // Index directory
 
     uint32_t numThreads;
     uint32_t numQuantThreads;

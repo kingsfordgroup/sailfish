@@ -6,6 +6,10 @@ extern "C" {
 #include "io_lib/os.h"
 }
 
+// Cereal includes
+#include "cereal/types/vector.hpp"
+#include "cereal/archives/binary.hpp"
+
 #include <vector>
 #include "SailfishMath.hpp"
 #include "ReadPair.hpp"
@@ -22,6 +26,11 @@ class AlignmentGroup {
         void addAlignment(FragT p) { alignments_.push_back(p); }
         inline size_t numAlignments() { return alignments_.size(); }
         inline size_t size() { return numAlignments(); }
+
+        template <typename Archive>
+        void serialize(Archive& archive) {
+            archive(alignments_);
+        }
 
     private:
         std::vector<FragT> alignments_;
