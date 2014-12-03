@@ -13,6 +13,10 @@ cp $TRAVIS_BUILD_DIR/lib/libtbb* $HOME/SalmonBeta-latest_ubuntu-12.04/lib/
 # copy other dependencies (shared libraries)
 echo -e "Copying over other shared library dependencies\n"
 bash $TRAVIS_BUILD_DIR/scripts/cpld.bash $TRAVIS_BUILD_DIR/bin/salmon $HOME/SalmonBeta-latest_ubuntu-12.04/lib/
+echo -e "Removing dangerous dependencies\n"
+rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/libc.so.6
+rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/ld-linux-x86-64.so.2
+rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/libdl.so.2
 
 # now make the tarball
 echo -e "Making the tarball\n"
