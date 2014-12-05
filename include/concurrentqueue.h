@@ -45,7 +45,7 @@
 
 // GCC 4.8.0 and below don't define is_trivially_destructible<T>, as required by
 // the standard library --- so add it here.
-#if (COMPILER(GCC) && !(__GNUC__ >= 4 && __GNUC_MINOR__ >= 8 && __GNUC_PATCHLEVEL__ >= 1))
+#if (defined(__GNUC__) && !(__GNUC__ >= 4 && __GNUC_MINOR__ >= 8 && __GNUC_PATCHLEVEL__ >= 1))
 namespace std {
 	template <typename T>
 	struct is_trivially_destructible {
