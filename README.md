@@ -1,4 +1,10 @@
-[![Build Status](https://travis-ci.org/kingsfordgroup/sailfish.svg?branch=master)](https://travis-ci.org/kingsfordgroup/sailfish)
+**Note**: If you're interested in Sailfish, you might also want to take a look
+at our new software, [Salmon](https://github.com/kingsfordgroup/sailfish/tree/develop), which has
+the goal of being potentially more accurate than Sailfish, while requiring
+fewer resources and producing results even *faster*. Salmon uses significant
+parts of the Sailfish code, and is therefore bundled as part of the Sailfish
+package. It is on the [develop branch](https://github.com/kingsfordgroup/sailfish/tree/develop) of this
+repository, and binaries are available under the [release tab](https://github.com/kingsfordgroup/sailfish/releases).
 
 Setting up Sailfish
 ===================
