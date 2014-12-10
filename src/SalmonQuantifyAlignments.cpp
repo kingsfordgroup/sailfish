@@ -653,7 +653,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             fmt::MemoryWriter wstr;
             wstr << "WARNING: you passed in the (-u/--sampleUnaligned) flag, but did not request a sampled "
                  << "output file (-s/--sampleOut).  This flag will be ignored!\n";
-            jointLog->warn(wstr.c_str());
+            jointLog->warn() << wstr.str();
         }
 
         // If we made it this far, the output directory exists

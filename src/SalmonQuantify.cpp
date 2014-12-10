@@ -1853,7 +1853,7 @@ void quantifyLibrary(
                   "run out of disk space.\n"
                   "==========================\n\n",
                   experiment.readFilesAsString(), numObservedFragments, numRequiredFragments);
-                jointLog->warn(errmsg.c_str());
+                jointLog->warn() << errmsg;
                 break;
             }
             numPrevObservedFragments = numObservedFragments;

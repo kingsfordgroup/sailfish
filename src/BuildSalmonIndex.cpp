@@ -141,7 +141,7 @@ Salmon index if it exists, or creates a new index
             infostr << "[" << tf << "] ";
         }
         infostr << ", " << transcriptBiasFile.c_str() << ", " << useStreamingParser << ", " << numThreads << ")\n";
-        jointLog->info(infostr.str().c_str());
+        jointLog->info() << infostr.str();
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
         // ==== finished computing bias fetures
 
