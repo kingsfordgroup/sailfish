@@ -38,3 +38,6 @@ script:
 after_success: 
     - cd $TRAVIS_BUILD_DIR
     - ./scripts/push-binary.sh
+      
+after_failure:
+    - cat $TRAVIS_BUILD_DIR/Testing/Temporary/LastTest.log
