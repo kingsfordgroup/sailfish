@@ -257,7 +257,7 @@ class ReadExperiment {
                     errstr << "\nDetected a strand bias > 1\% in an unstranded protocol "
                            << "check the file: " << opath.string() << " for details\n";
 
-                    log->warn(errstr.str());
+                    log->warn(errstr.c_str());
                     errstr.clear();
                 }
 
@@ -304,7 +304,7 @@ class ReadExperiment {
                        << "disagreed with the provided library type; "
                        << "check the file: " << opath.string() << " for details\n";
 
-                log->warn(errstr.str());
+                log->warn(errstr.c_str());
                 errstr.clear();
             }
 

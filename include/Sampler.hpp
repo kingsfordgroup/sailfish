@@ -261,7 +261,7 @@ namespace salmon {
                 msgStr << "Sampling alignments; outputting results to "
                        << sampleFilePath.string() << "\n";
 
-                log->info(msgStr.str());
+                log->info(msgStr.c_str());
 
                 auto& refs = alnLib.transcripts();
                 size_t numTranscripts = refs.size();
@@ -336,7 +336,7 @@ namespace salmon {
                                        << ioutils::RESET_COLOR
                                        << "Couldn't open output bam file "
                                        << sampleFilePath.string() << ". Exiting\n";
-                                log->warn(errstr.str());
+                                log->warn(errstr.c_str());
                                 std::exit(-1);
                             }
 
@@ -353,7 +353,7 @@ namespace salmon {
                                                << "file. Please check that the file can "
                                                << "be created properly and that the disk "
                                                << "is not full.  Exiting.\n";
-                                        log->warn(errstr.str());
+                                        log->warn(errstr.c_str());
                                         std::exit(-1);
                                      }
                                     // Eventually, as we do in BAMQueue, we should

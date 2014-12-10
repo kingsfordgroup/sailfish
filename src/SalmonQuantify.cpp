@@ -1853,7 +1853,7 @@ void quantifyLibrary(
                   "run out of disk space.\n"
                   "==========================\n\n",
                   experiment.readFilesAsString(), numObservedFragments, numRequiredFragments);
-                jointLog->warn(errmsg);
+                jointLog->warn(errmsg.c_str());
                 break;
             }
             numPrevObservedFragments = numObservedFragments;
@@ -2127,7 +2127,7 @@ transcript abundance from RNA-seq reads
         std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
 
         bfs::path logPath = logDirectory / "salmon_quant.log";
-        size_t max_q_size = 1000000;
+        size_t max_q_size = 2097152;
         spdlog::set_async_mode(max_q_size);
 
         auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);

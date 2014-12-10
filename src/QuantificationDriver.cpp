@@ -158,7 +158,7 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     bfs::path logDir = outputFilePath.parent_path() / "logs";
 
     bfs::path logPath = logDir / "sailfish_quant.log";
-    size_t max_q_size = 1000000;
+    size_t max_q_size = 2097152;
     spdlog::set_async_mode(max_q_size);
 
     auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);

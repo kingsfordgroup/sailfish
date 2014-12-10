@@ -81,9 +81,16 @@ using fmt::internal::Arg;
 # endif
 #endif
 
+#ifdef FMT_HEADER_ONLY
+# define FMT_FUNC inline
+#else
+# define FMT_FUNC
+#endif
+
 #if _MSC_VER
 # pragma warning(push)
 # pragma warning(disable: 4127)  // conditional expression is constant
+# pragma warning(disable: 4702)  // unreachable code
 #endif
 
 namespace {
@@ -241,6 +248,8 @@ class WidthHandler : public fmt::internal::ArgVisitor<WidthHandler, unsigned> {
  private:
   fmt::FormatSpec &spec_;
 
+  FMT_DISALLOW_COPY_AND_ASSIGN(WidthHandler);
+
  public:
   explicit WidthHandler(fmt::FormatSpec &spec) : spec_(spec) {}
 
@@ -286,6 +295,8 @@ class ArgConverter : public fmt::internal::ArgVisitor<ArgConverter<T>, void> {
   fmt::internal::Arg &arg_;
   wchar_t type_;
 
+  FMT_DISALLOW_COPY_AND_ASSIGN(ArgConverter);
+
  public:
   ArgConverter(fmt::internal::Arg &arg, wchar_t type)
     : arg_(arg), type_(type) {}
@@ -323,6 +334,8 @@ class CharConverter : public fmt::internal::ArgVisitor<CharConverter, void> {
  private:
   fmt::internal::Arg &arg_;
 
+  FMT_DISALLOW_COPY_AND_ASSIGN(CharConverter);
+
  public:
   explicit CharConverter(fmt::internal::Arg &arg) : arg_(arg) {}
 
@@ -348,11 +361,11 @@ inline Arg::StringValue<wchar_t> ignore_incompatible_str(
     Arg::StringValue<wchar_t> s) { return s; }
 }  // namespace
 
-void fmt::SystemError::init(
-    int error_code, StringRef format_str, ArgList args) {
-  error_code_ = error_code;
+FMT_FUNC void fmt::SystemError::init(
+    int err_code, StringRef format_str, ArgList args) {
+  error_code_ = err_code;
   MemoryWriter w;
-  internal::format_system_error(w, error_code, format(format_str, args));
+  internal::format_system_error(w, err_code, format(format_str, args));
   std::runtime_error &base = *this;
   base = std::runtime_error(w.str());
 }
@@ -385,7 +398,8 @@ int fmt::internal::CharTraits<wchar_t>::format_float(
       swprintf(buffer, size, format, width, precision, value);
 }
 
-const char fmt::internal::DIGITS[] =
+template <typename T>
+const char fmt::internal::BasicData<T>::DIGITS[] =
     "0001020304050607080910111213141516171819"
     "2021222324252627282930313233343536373839"
     "4041424344454647484950515253545556575859"
@@ -403,8 +417,13 @@ const char fmt::internal::DIGITS[] =
   factor * 100000000, \
   factor * 1000000000
 
-const uint32_t fmt::internal::POWERS_OF_10_32[] = {0, FMT_POWERS_OF_10(1)};
-const uint64_t fmt::internal::POWERS_OF_10_64[] = {
+template <typename T>
+const uint32_t fmt::internal::BasicData<T>::POWERS_OF_10_32[] = {
+  0, FMT_POWERS_OF_10(1)
+};
+
+template <typename T>
+const uint64_t fmt::internal::BasicData<T>::POWERS_OF_10_64[] = {
   0,
   FMT_POWERS_OF_10(1),
   FMT_POWERS_OF_10(ULongLong(1000000000)),
@@ -413,7 +432,7 @@ const uint64_t fmt::internal::POWERS_OF_10_64[] = {
   ULongLong(1000000000) * ULongLong(1000000000) * 10
 };
 
-void fmt::internal::report_unknown_type(char code, const char *type) {
+FMT_FUNC void fmt::internal::report_unknown_type(char code, const char *type) {
   if (std::isprint(static_cast<unsigned char>(code))) {
     FMT_THROW(fmt::FormatError(
         fmt::format("unknown format code '{}' for {}", code, type)));
@@ -425,7 +444,7 @@ void fmt::internal::report_unknown_type(char code, const char *type) {
 
 #ifdef _WIN32
 
-fmt::internal::UTF8ToUTF16::UTF8ToUTF16(fmt::StringRef s) {
+FMT_FUNC fmt::internal::UTF8ToUTF16::UTF8ToUTF16(fmt::StringRef s) {
   int length = MultiByteToWideChar(
       CP_UTF8, MB_ERR_INVALID_CHARS, s.c_str(), -1, 0, 0);
   static const char ERROR[] = "cannot convert string from UTF-8 to UTF-16";
@@ -438,14 +457,14 @@ fmt::internal::UTF8ToUTF16::UTF8ToUTF16(fmt::StringRef s) {
     FMT_THROW(WindowsError(GetLastError(), ERROR));
 }
 
-fmt::internal::UTF16ToUTF8::UTF16ToUTF8(fmt::WStringRef s) {
+FMT_FUNC fmt::internal::UTF16ToUTF8::UTF16ToUTF8(fmt::WStringRef s) {
   if (int error_code = convert(s)) {
     FMT_THROW(WindowsError(error_code,
         "cannot convert string from UTF-16 to UTF-8"));
   }
 }
 
-int fmt::internal::UTF16ToUTF8::convert(fmt::WStringRef s) {
+FMT_FUNC int fmt::internal::UTF16ToUTF8::convert(fmt::WStringRef s) {
   int length = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), -1, 0, 0, 0, 0);
   if (length == 0)
     return GetLastError();
@@ -457,7 +476,7 @@ int fmt::internal::UTF16ToUTF8::convert(fmt::WStringRef s) {
   return 0;
 }
 
-void fmt::WindowsError::init(
+FMT_FUNC void fmt::WindowsError::init(
     int error_code, StringRef format_str, ArgList args) {
   error_code_ = error_code;
   MemoryWriter w;
@@ -468,15 +487,14 @@ void fmt::WindowsError::init(
 
 #endif
 
-void fmt::internal::format_system_error(
+FMT_FUNC void fmt::internal::format_system_error(
     fmt::Writer &out, int error_code,
     fmt::StringRef message) FMT_NOEXCEPT(true) {
   FMT_TRY {
     MemoryBuffer<char, INLINE_BUFFER_SIZE> buffer;
     buffer.resize(INLINE_BUFFER_SIZE);
-    char *system_message = 0;
     for (;;) {
-      system_message = &buffer[0];
+      char *system_message = &buffer[0];
       int result = safe_strerror(error_code, system_message, buffer.size());
       if (result == 0) {
         out << message << ": " << system_message;
@@ -491,7 +509,7 @@ void fmt::internal::format_system_error(
 }
 
 #ifdef _WIN32
-void fmt::internal::format_windows_error(
+FMT_FUNC void fmt::internal::format_windows_error(
     fmt::Writer &out, int error_code,
     fmt::StringRef message) FMT_NOEXCEPT(true) {
   class String {
@@ -530,6 +548,8 @@ class fmt::internal::ArgFormatter :
   fmt::BasicWriter<Char> &writer_;
   fmt::FormatSpec &spec_;
   const Char *format_;
+
+  FMT_DISALLOW_COPY_AND_ASSIGN(ArgFormatter);
 
  public:
   ArgFormatter(
@@ -592,20 +612,20 @@ class fmt::internal::ArgFormatter :
 template <typename Char>
 template <typename StrChar>
 void fmt::BasicWriter<Char>::write_str(
-    const Arg::StringValue<StrChar> &str, const FormatSpec &spec) {
+    const Arg::StringValue<StrChar> &s, const FormatSpec &spec) {
   // Check if StrChar is convertible to Char.
   internal::CharTraits<Char>::convert(StrChar());
   if (spec.type_ && spec.type_ != 's')
     internal::report_unknown_type(spec.type_, "string");
-  const StrChar *s = str.value;
-  std::size_t size = str.size;
-  if (size == 0) {
-    if (!s)
+  const StrChar *str_value = s.value;
+  std::size_t str_size = s.size;
+  if (str_size == 0) {
+    if (!str_value)
       FMT_THROW(FormatError("string pointer is null"));
-    if (*s)
-      size = std::char_traits<StrChar>::length(s);
+    if (*str_value)
+      str_size = std::char_traits<StrChar>::length(str_value);
   }
-  write_str(s, size, spec);
+  write_str(str_value, str_size, spec);
 }
 
 template <typename Char>
@@ -620,7 +640,7 @@ inline Arg fmt::BasicFormatter<Char>::parse_arg_index(const Char *&s) {
   return arg;
 }
 
-Arg fmt::internal::FormatterBase::do_get_arg(
+FMT_FUNC Arg fmt::internal::FormatterBase::do_get_arg(
     unsigned arg_index, const char *&error) {
   Arg arg = args_[arg_index];
   if (arg.type == Arg::NONE)
@@ -719,9 +739,9 @@ unsigned fmt::internal::PrintfFormatter<Char>::parse_header(
 
 template <typename Char>
 void fmt::internal::PrintfFormatter<Char>::format(
-    BasicWriter<Char> &writer, BasicStringRef<Char> format,
+    BasicWriter<Char> &writer, BasicStringRef<Char> format_str,
     const ArgList &args) {
-  const Char *start = format.c_str();
+  const Char *start = format_str.c_str();
   set_args(args);
   const Char *s = start;
   while (*s) {
@@ -872,8 +892,8 @@ void fmt::internal::PrintfFormatter<Char>::format(
     case Arg::CUSTOM: {
       if (spec.type_)
         internal::report_unknown_type(spec.type_, "object");
-      const void *s = "s";
-      arg.custom.format(&writer, arg.custom.value, &s);
+      const void *str_format = "s";
+      arg.custom.format(&writer, arg.custom.value, &str_format);
       break;
     }
     default:
@@ -888,7 +908,6 @@ template <typename Char>
 const Char *fmt::BasicFormatter<Char>::format(
     const Char *&format_str, const Arg &arg) {
   const Char *s = format_str;
-  const char *error = 0;
   FormatSpec spec;
   if (*s == ':') {
     if (arg.type == Arg::CUSTOM) {
@@ -962,8 +981,6 @@ const Char *fmt::BasicFormatter<Char>::format(
       // Zero may be parsed again as a part of the width, but it is simpler
       // and more efficient than checking if the next char is a digit.
       spec.width_ = parse_nonnegative_int(s);
-      if (error)
-        FMT_THROW(FormatError(error));
     }
 
     // Parse precision.
@@ -972,8 +989,6 @@ const Char *fmt::BasicFormatter<Char>::format(
       spec.precision_ = 0;
       if ('0' <= *s && *s <= '9') {
         spec.precision_ = parse_nonnegative_int(s);
-        if (error)
-          FMT_THROW(FormatError(error));
       } else if (*s == '{') {
         ++s;
         const Arg &precision_arg = parse_arg_index(s);
@@ -1048,35 +1063,35 @@ void fmt::BasicFormatter<Char>::format(
   write(writer_, start_, s);
 }
 
-void fmt::report_system_error(
+FMT_FUNC void fmt::report_system_error(
     int error_code, fmt::StringRef message) FMT_NOEXCEPT(true) {
   report_error(internal::format_system_error, error_code, message);
 }
 
 #ifdef _WIN32
-void fmt::report_windows_error(
+FMT_FUNC void fmt::report_windows_error(
     int error_code, fmt::StringRef message) FMT_NOEXCEPT(true) {
   report_error(internal::format_windows_error, error_code, message);
 }
 #endif
 
-void fmt::print(std::FILE *f, StringRef format_str, ArgList args) {
+FMT_FUNC void fmt::print(std::FILE *f, StringRef format_str, ArgList args) {
   MemoryWriter w;
   w.write(format_str, args);
   std::fwrite(w.data(), 1, w.size(), f);
 }
 
-void fmt::print(StringRef format_str, ArgList args) {
+FMT_FUNC void fmt::print(StringRef format_str, ArgList args) {
   print(stdout, format_str, args);
 }
 
-void fmt::print(std::ostream &os, StringRef format_str, ArgList args) {
+FMT_FUNC void fmt::print(std::ostream &os, StringRef format_str, ArgList args) {
   MemoryWriter w;
   w.write(format_str, args);
   os.write(w.data(), w.size());
 }
 
-void fmt::print_colored(Color c, StringRef format, ArgList args) {
+FMT_FUNC void fmt::print_colored(Color c, StringRef format, ArgList args) {
   char escape[] = "\x1b[30m";
   escape[3] = '0' + static_cast<char>(c);
   std::fputs(escape, stdout);
@@ -1084,10 +1099,11 @@ void fmt::print_colored(Color c, StringRef format, ArgList args) {
   std::fputs(RESET_COLOR, stdout);
 }
 
-int fmt::fprintf(std::FILE *f, StringRef format, ArgList args) {
+FMT_FUNC int fmt::fprintf(std::FILE *f, StringRef format, ArgList args) {
   MemoryWriter w;
   printf(w, format, args);
-  return std::fwrite(w.data(), 1, w.size(), f);
+  std::size_t size = w.size();
+  return std::fwrite(w.data(), 1, size, f) < size ? -1 : static_cast<int>(size);
 }
 
 // Explicit instantiations for char.

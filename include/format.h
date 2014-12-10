@@ -47,11 +47,14 @@
 #ifdef __GNUC__
 # define FMT_GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
 # define FMT_GCC_EXTENSION __extension__
-// Disable warning about "long long" which is sometimes reported even
-// when using __extension__.
 # if FMT_GCC_VERSION >= 406
 #  pragma GCC diagnostic push
+// Disable the warning about "long long" which is sometimes reported even
+// when using __extension__.
 #  pragma GCC diagnostic ignored "-Wlong-long"
+// Disable the warning about declaration shadowing because it affects too
+// many valid cases.
+#  pragma GCC diagnostic ignored "-Wshadow"
 # endif
 #else
 # define FMT_GCC_EXTENSION
@@ -154,7 +157,7 @@ void format(BasicFormatter<Char> &f, const Char *&format_str, const T &value);
   different types of strings to a function, for example::
 
     template <typename... Args>
-    std::string format(StringRef format, const Args & ... args);
+    std::string format(StringRef format_str, const Args & ... args);
 
     format("{}", 42);
     format(std::string("{}"), 42);
@@ -407,13 +410,8 @@ inline int getsign(double value) {
   return sign;
 }
 inline int isinfinity(double x) { return !_finite(x); }
+inline int isinfinity(long double x) { return !_finite(static_cast<double>(x)); }
 #endif
-
-template <typename T>
-struct IsLongDouble { enum {VALUE = 0}; };
-
-template <>
-struct IsLongDouble<long double> { enum {VALUE = 1}; };
 
 template <typename Char>
 class BasicCharTraits {
@@ -510,8 +508,16 @@ FMT_SPECIALIZE_MAKE_UNSIGNED(LongLong, ULongLong);
 
 void report_unknown_type(char code, const char *type);
 
-extern const uint32_t POWERS_OF_10_32[];
-extern const uint64_t POWERS_OF_10_64[];
+// Static data is placed in this class template to allow header-only
+// configuration.
+template <typename T = void>
+struct BasicData {
+  static const uint32_t POWERS_OF_10_32[];
+  static const uint64_t POWERS_OF_10_64[];
+  static const char DIGITS[];
+};
+
+typedef BasicData<> Data;
 
 #if FMT_GCC_VERSION >= 400 || FMT_HAS_BUILTIN(__builtin_clzll)
 // Returns the number of decimal digits in n. Leading zeros are not counted
@@ -520,13 +526,13 @@ inline unsigned count_digits(uint64_t n) {
   // Based on http://graphics.stanford.edu/~seander/bithacks.html#IntegerLog10
   // and the benchmark https://github.com/localvoid/cxx-benchmark-count-digits.
   unsigned t = (64 - __builtin_clzll(n | 1)) * 1233 >> 12;
-  return t - (n < POWERS_OF_10_64[t]) + 1;
+  return t - (n < Data::POWERS_OF_10_64[t]) + 1;
 }
 # if FMT_GCC_VERSION >= 400 || FMT_HAS_BUILTIN(__builtin_clz)
 // Optional version of count_digits for better performance on 32-bit platforms.
 inline unsigned count_digits(uint32_t n) {
   uint32_t t = (32 - __builtin_clz(n | 1)) * 1233 >> 12;
-  return t - (n < POWERS_OF_10_32[t]) + 1;
+  return t - (n < Data::POWERS_OF_10_32[t]) + 1;
 }
 # endif
 #else
@@ -547,8 +553,6 @@ inline unsigned count_digits(uint64_t n) {
 }
 #endif
 
-extern const char DIGITS[];
-
 // Formats a decimal unsigned integer value writing into buffer.
 template <typename UInt, typename Char>
 inline void format_decimal(Char *buffer, UInt value, unsigned num_digits) {
@@ -559,8 +563,8 @@ inline void format_decimal(Char *buffer, UInt value, unsigned num_digits) {
     // "Three Optimization Tips for C++". See speed-test for a comparison.
     unsigned index = (value % 100) * 2;
     value /= 100;
-    buffer[num_digits] = DIGITS[index + 1];
-    buffer[num_digits - 1] = DIGITS[index];
+    buffer[num_digits] = Data::DIGITS[index + 1];
+    buffer[num_digits - 1] = Data::DIGITS[index];
     num_digits -= 2;
   }
   if (value < 10) {
@@ -568,8 +572,8 @@ inline void format_decimal(Char *buffer, UInt value, unsigned num_digits) {
     return;
   }
   unsigned index = static_cast<unsigned>(value * 2);
-  buffer[1] = DIGITS[index + 1];
-  buffer[0] = DIGITS[index];
+  buffer[1] = Data::DIGITS[index + 1];
+  buffer[0] = Data::DIGITS[index];
 }
 
 #ifdef _WIN32
@@ -988,7 +992,7 @@ class PrintfFormatter : private FormatterBase {
 
  public:
   void format(BasicWriter<Char> &writer,
-    BasicStringRef<Char> format, const ArgList &args);
+    BasicStringRef<Char> format_str, const ArgList &args);
 };
 }  // namespace internal
 
@@ -998,6 +1002,8 @@ class BasicFormatter : private internal::FormatterBase {
  private:
   BasicWriter<Char> &writer_;
   const Char *start_;
+  
+  FMT_DISALLOW_COPY_AND_ASSIGN(BasicFormatter);
 
   // Parses argument index and returns corresponding argument.
   internal::Arg parse_arg_index(const Char *&s);
@@ -1092,8 +1098,8 @@ class IntFormatSpec : public SpecT {
   T value_;
 
  public:
-  IntFormatSpec(T value, const SpecT &spec = SpecT())
-  : SpecT(spec), value_(value) {}
+  IntFormatSpec(T val, const SpecT &spec = SpecT())
+  : SpecT(spec), value_(val) {}
 
   T value() const { return value_; }
 };
@@ -1385,7 +1391,7 @@ inline uint64_t make_type(FMT_GEN15(FMT_ARG_TYPE_DEFAULT)) {
 */
 class SystemError : public internal::RuntimeError {
  private:
-  void init(int error_code, StringRef format_str, ArgList args);
+  void init(int err_code, StringRef format_str, ArgList args);
 
  protected:
   int error_code_;
@@ -1495,6 +1501,15 @@ class BasicWriter {
   // as a pointer as std::ostream does, cast it to const void*.
   // Do not implement!
   void operator<<(typename internal::CharTraits<Char>::UnsupportedStrType);
+
+  // Appends floating-point length specifier to the format string.
+  // The second argument is only used for overload resolution.
+  void append_float_length(Char *&format_ptr, long double) {
+    *format_ptr++ = 'L';
+  }
+
+  template<typename T>
+  void append_float_length(Char *&, T) {}
 
   friend class internal::ArgFormatter<Char>;
   friend class internal::PrintfFormatter<Char>;
@@ -1870,13 +1885,13 @@ void BasicWriter<Char>::write_double(
   if (value != value) {
     // Format NaN ourselves because sprintf's output is not consistent
     // across platforms.
-    std::size_t size = 4;
+    std::size_t nan_size = 4;
     const char *nan = upper ? " NAN" : " nan";
     if (!sign) {
-      --size;
+      --nan_size;
       ++nan;
     }
-    CharPtr out = write_str(nan, size, spec);
+    CharPtr out = write_str(nan, nan_size, spec);
     if (sign)
       *out = sign;
     return;
@@ -1885,13 +1900,13 @@ void BasicWriter<Char>::write_double(
   if (internal::isinfinity(value)) {
     // Format infinity ourselves because sprintf's output is not consistent
     // across platforms.
-    std::size_t size = 4;
+    std::size_t inf_size = 4;
     const char *inf = upper ? " INF" : " inf";
     if (!sign) {
-      --size;
+      --inf_size;
       ++inf;
     }
-    CharPtr out = write_str(inf, size, spec);
+    CharPtr out = write_str(inf, inf_size, spec);
     if (sign)
       *out = sign;
     return;
@@ -1926,27 +1941,27 @@ void BasicWriter<Char>::write_double(
     *format_ptr++ = '.';
     *format_ptr++ = '*';
   }
-  if (internal::IsLongDouble<T>::VALUE)
-    *format_ptr++ = 'L';
+
+  append_float_length(format_ptr, value);
   *format_ptr++ = type;
   *format_ptr = '\0';
 
   // Format using snprintf.
   Char fill = static_cast<Char>(spec.fill());
   for (;;) {
-    std::size_t size = buffer_.capacity() - offset;
+    std::size_t buffer_size = buffer_.capacity() - offset;
 #if _MSC_VER
     // MSVC's vsnprintf_s doesn't work with zero size, so reserve
     // space for at least one extra character to make the size non-zero.
     // Note that the buffer's capacity will increase by more than 1.
-    if (size == 0) {
+    if (buffer_size == 0) {
       buffer_.reserve(offset + 1);
-      size = buffer_.capacity() - offset;
+      buffer_size = buffer_.capacity() - offset;
     }
 #endif
     Char *start = &buffer_[offset];
     int n = internal::CharTraits<Char>::format_float(
-        start, size, format, width_for_sprintf, spec.precision(), value);
+        start, buffer_size, format, width_for_sprintf, spec.precision(), value);
     if (n >= 0 && offset + n < buffer_.capacity()) {
       if (sign) {
         if ((spec.align() != ALIGN_RIGHT && spec.align() != ALIGN_DEFAULT) ||
@@ -1960,7 +1975,7 @@ void BasicWriter<Char>::write_double(
       }
       if (spec.align() == ALIGN_CENTER &&
           spec.width() > static_cast<unsigned>(n)) {
-        unsigned width = spec.width();
+        width = spec.width();
         CharPtr p = grow_buffer(width);
         std::copy(p, p + n, p + (width - n) / 2);
         fill_padding(p, spec.width(), n, fill);
@@ -2222,16 +2237,16 @@ class FormatInt {
       // "Three Optimization Tips for C++". See speed-test for a comparison.
       unsigned index = (value % 100) * 2;
       value /= 100;
-      *--buffer_end = internal::DIGITS[index + 1];
-      *--buffer_end = internal::DIGITS[index];
+      *--buffer_end = internal::Data::DIGITS[index + 1];
+      *--buffer_end = internal::Data::DIGITS[index];
     }
     if (value < 10) {
       *--buffer_end = static_cast<char>('0' + value);
       return buffer_end;
     }
     unsigned index = static_cast<unsigned>(value * 2);
-    *--buffer_end = internal::DIGITS[index + 1];
-    *--buffer_end = internal::DIGITS[index];
+    *--buffer_end = internal::Data::DIGITS[index + 1];
+    *--buffer_end = internal::Data::DIGITS[index];
     return buffer_end;
   }
 
@@ -2295,8 +2310,8 @@ inline void format_decimal(char *&buffer, T value) {
       return;
     }
     unsigned index = static_cast<unsigned>(abs_value * 2);
-    *buffer++ = internal::DIGITS[index];
-    *buffer++ = internal::DIGITS[index + 1];
+    *buffer++ = internal::Data::DIGITS[index];
+    *buffer++ = internal::Data::DIGITS[index + 1];
     return;
   }
   unsigned num_digits = internal::count_digits(abs_value);
@@ -2425,6 +2440,10 @@ FMT_VARIADIC(int, fprintf, std::FILE *, StringRef)
 // Restore warnings.
 #if FMT_GCC_VERSION >= 406
 # pragma GCC diagnostic pop
+#endif
+
+#ifdef FMT_HEADER_ONLY
+# include "format.cc"
 #endif
 
 #endif  // FMT_FORMAT_H_

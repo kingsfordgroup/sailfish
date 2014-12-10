@@ -118,7 +118,7 @@ Salmon index if it exists, or creates a new index
         }
 
         bfs::path logPath = indexDirectory / "indexing.log";
-        size_t max_q_size = 1000000;
+        size_t max_q_size = 2097152;
         spdlog::set_async_mode(max_q_size);
 
         auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
@@ -141,7 +141,7 @@ Salmon index if it exists, or creates a new index
             infostr << "[" << tf << "] ";
         }
         infostr << ", " << transcriptBiasFile.c_str() << ", " << useStreamingParser << ", " << numThreads << ")\n";
-        jointLog->info(infostr.str());
+        jointLog->info(infostr.str().c_str());
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
         // ==== finished computing bias fetures
 

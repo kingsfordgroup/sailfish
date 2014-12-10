@@ -636,7 +636,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         std::cerr << "Logs will be written to " << logDirectory.string() << "\n";
 
         bfs::path logPath = logDirectory / "salmon.log";
-        size_t max_q_size = 1000000;
+        size_t max_q_size = 2097152;
         spdlog::set_async_mode(max_q_size);
 
         auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
@@ -653,7 +653,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             fmt::MemoryWriter wstr;
             wstr << "WARNING: you passed in the (-u/--sampleUnaligned) flag, but did not request a sampled "
                  << "output file (-s/--sampleOut).  This flag will be ignored!\n";
-            jointLog->warn(wstr.str());
+            jointLog->warn(wstr.c_str());
         }
 
         // If we made it this far, the output directory exists

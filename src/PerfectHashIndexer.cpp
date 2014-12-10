@@ -334,7 +334,7 @@ the Jellyfish database [thash] of the transcripts.
         boost::filesystem::create_directory(logDir);
 
         bfs::path logPath = logDir / "sailfish_index.log";
-        size_t max_q_size = 1000000;
+        size_t max_q_size = 2097152;
         spdlog::set_async_mode(max_q_size);
 
         auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
@@ -377,7 +377,7 @@ the Jellyfish database [thash] of the transcripts.
             // Read in the Jellyfish hash of the transcripts
             std::ifstream transcriptDB(thashFile.c_str());
             if (!transcriptDB.good()) {
-                jointLog->error() << "Couldn't open the Jellyfish hash [" << thashFile << "] quitting\n";
+                jointLog->error() << "Couldn't open the Jellyfish hash [" << thashFile.string() << "] quitting\n";
                 std::exit(-1);
             }
             jellyfish::file_header header;
