@@ -258,11 +258,6 @@ class SMEMAlignment {
 };
 
 
-struct QueueTraits : public moodycamel::ConcurrentQueueDefaultTraits
-{
-        static const size_t BLOCK_SIZE = 256;       // Use bigger blocks
-};
-
 using AlnGroupQueue = moodycamel::ConcurrentQueue<AlignmentGroup<SMEMAlignment>*>;
 
 inline double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected) {
@@ -1430,7 +1425,7 @@ void processCachedAlignmentsHelper(
         const SalmonOpts& salmonOpts,
         std::mutex& iomutex,
         bool initialRound,
-        bool& cacheExhausted,
+        volatile bool& cacheExhausted,
         bool& burnedIn
         ) {
 
@@ -1450,16 +1445,34 @@ void processCachedAlignmentsHelper(
     uint32_t batchCount{1000};
     uint64_t locRead{0};
     uint64_t locValidHits{0};
-    while(!cacheExhausted) {
-        uint32_t numConsumed{0};
-        hitLists.resize(batchCount);
+    uint32_t numConsumed{0};
+    uint32_t obtained{0};
 
-        auto it = hitLists.begin();
-        while (!cacheExhausted and numConsumed < batchCount) {
-            uint32_t obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed);
+    hitLists.resize(batchCount);
+    auto it = hitLists.begin();
+
+    while(!cacheExhausted or
+          (obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed)) > 0) {
+        numConsumed += obtained;
+        it += obtained;
+        /** Get alignment groups from the queue while they still exist
+         * once the cacheExhausted variable is true, there will be
+         * no more alignment groups written in this round.  If cacheExhausted
+         * is true and the alignment cache is empty, then there are no
+         * more alignments to process (am I certain about this in concurrent
+         * crazy multi-threaded land?).
+         */
+        while (numConsumed < batchCount) {
+            obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed);
             numConsumed += obtained;
             it += obtained;
+            if (cacheExhausted and obtained == 0) {
+                break;
+            }
         }
+        // At this point, we either have the requested # of alignemnts, or
+        // have exhausted the alignment queue.
+
         hitLists.resize(numConsumed);
         for (auto hitList : hitLists) {
             locValidHits += hitList->size();
@@ -1492,7 +1505,14 @@ void processCachedAlignmentsHelper(
         processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
                 fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
 
-        structureCache.enqueue_bulk(hitLists.begin() , hitLists.size());
+        if (!structureCache.enqueue_bulk(hitLists.begin() , hitLists.size())) {
+            std::cerr << "Could not enqueue structures!!!!!!!; exiting\n\n";
+            std::exit(1);
+        }
+        numConsumed = 0;
+        obtained = 0;
+        hitLists.resize(batchCount);
+        it = hitLists.begin();
         // At this point, the parser can re-claim the strings
     }
 
@@ -1525,7 +1545,7 @@ void processCachedAlignments(
         const SalmonOpts& salmonOpts,
         std::mutex& ioMutex,
         bool initialRound,
-        bool& cacheExhausted,
+        volatile bool& cacheExhausted,
         bool& burnedIn,
         size_t numQuantThreads) {
 
@@ -1758,7 +1778,7 @@ bool readAlignmentCache(
         AlnGroupQueue& alnGroupQueue,
         AlnGroupQueue& structureCache,
         uint64_t numWritten,
-        bool& finishedParsing,
+        volatile bool& finishedParsing,
         std::ifstream& inputStream,
         cereal::BinaryInputArchive& inputArchive) {
 
@@ -1918,7 +1938,7 @@ void quantifyLibrary(
                     std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
                     bool& burnedIn) -> void  {
 
-                bool finishedParsing{false};
+                volatile bool finishedParsing{false};
 
                 // The file where the alignment cache was / will be written
                 auto& cf = cacheFiles[libNum];
@@ -1942,6 +1962,11 @@ void quantifyLibrary(
                         salmonOpts, ioMutex, initialRound, finishedParsing,
                         burnedIn, numQuantThreads);
 
+                /** NOTE: shouldn't need after bug fix --- but check this
+                * if the race condition resurfaces.
+                AlignmentGroup<SMEMAlignment>* aln = nullptr;
+                while (alnGroupQueue.try_dequeue(aln)) { groupCache.enqueue(aln); }
+                **/
                 cacheReaderThread.join();
                 alnCacheFile.close();
             };

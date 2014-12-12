@@ -40,4 +40,4 @@ after_success:
     - ./scripts/push-binary.sh
       
 after_failure:
-    - cat $TRAVIS_BUILD_DIR/Testing/Temporary/LastTest.log
+    - cat $TRAVIS_BUILD_DIR/build/Testing/Temporary/LastTest.log
