@@ -203,6 +203,14 @@ An example of some library format strings and their interpretations are:
     OSR (a stranded paired-end protocol where the reads face away from each other,
          read1 comes from reverse strand and read2 comes from the forward strand)
 
+
+.. note:: Strand Matching
+
+    Above, when it is said that the read "comes from" a strand, we mean that
+    the read should align with / map to that strand.  For example, for
+    libraries having the ``OSR`` protocol as described above, we expect that
+    read1 maps to the reverse strand, and read2 maps to the forward strand. 
+
 Misc
 ----
 
