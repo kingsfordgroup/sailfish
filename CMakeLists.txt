@@ -318,6 +318,8 @@ endif()
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
     URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz
+    DOWNLOAD_COMMAND curl -k -L  http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz -o tbb_20140724oss_src.tgz &&
+                     tar -xzvf tbb_20140724oss_src.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     PATCH_COMMAND "${TBB_PATCH_STEP}"
