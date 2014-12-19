@@ -140,6 +140,12 @@ class ReadExperiment {
     std::atomic<uint64_t>& numAssignedFragmentsAtomic() { return numAssignedFragments_; }
     std::atomic<uint64_t>& batchNumAtomic() { return batchNum_; }
 
+    void setNumObservedFragments(uint64_t numObserved) { numObservedFragments_ = numObserved; }
+
+    double mappingRate() {
+        return static_cast<double>(numAssignedFragments_) / numObservedFragments_;
+    }
+
     template <typename CallbackT>
     bool processReads(const uint32_t& numThreads, CallbackT& processReadLibrary) {
         bool burnedIn = (totalAssignedFragments_ + numAssignedFragments_ > 5000000);

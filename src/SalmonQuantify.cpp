@@ -1822,7 +1822,9 @@ void quantifyLibrary(
     //ErrorModel errMod(1.00);
     auto& refs = experiment.transcripts();
     size_t numTranscripts = refs.size();
+    // The *total* number of fragments observed so far (over all passes through the data).
     std::atomic<uint64_t> numObservedFragments{0};
+    uint64_t prevNumObservedFragments{0};
 
     auto jointLog = spdlog::get("jointLog");
 
@@ -1853,6 +1855,7 @@ void quantifyLibrary(
     }
 
     while (numObservedFragments < numRequiredFragments) {
+        prevNumObservedFragments = numObservedFragments;
         if (!initialRound) {
             bool didReset = (salmonOpts.disableMappingCache) ?
                             (experiment.reset()) :
@@ -1993,6 +1996,15 @@ void quantifyLibrary(
         }
     }
 
+    if (numObservedFragments <= prevNumObservedFragments) {
+        jointLog->warn() << "Something seems to be wrong with the calculation "
+            "of the mapping rate.  The recorded ratio is likely wrong.  Please "
+            "file this as a bug report.\n";
+    } else {
+        experiment.setNumObservedFragments(numObservedFragments - prevNumObservedFragments);
+    }
+
+    jointLog->info("Overall mapping rate = {}\%\n", experiment.mappingRate() * 100.0);
     jointLog->info("finished quantifyLibrary()\n");
 }
 
@@ -2176,6 +2188,9 @@ transcript abundance from RNA-seq reads
         jointLog->info("writing output \n");
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
+
+        commentStream << "# mapping rate : " << experiment.mappingRate() * 100.0 << "\%\n";
+        commentString = commentStream.str();
         salmon::utils::writeAbundances(experiment, estFilePath, commentString);
 
         bfs::path libCountFilePath = outputDirectory / "libFormatCounts.txt";
