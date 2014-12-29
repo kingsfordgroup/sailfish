@@ -70,8 +70,9 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
 
     set (GCC TRUE)
 
-    set(WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
-    set (BOOST_CONFIGURE_TOOLSET "")
+    set (WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
+    set (BOOST_TOOLSET "gcc")
+    set (BOOST_CONFIGURE_TOOLSET "--with-toolset=gcc")
     set (BOOST_EXTRA_FLAGS "")
     # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
@@ -79,6 +80,7 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     # If we're on OSX using clang, try to use libc++ instead of libstdc++
     if (APPLE)
         set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+	set (BOOST_TOOLSET "clang")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
         set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
     endif()
@@ -191,8 +193,8 @@ elseif(FETCH_BOOST)
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         #PATCH_COMMAND patch -p2 < ${CMAKE_CURRENT_SOURCE_DIR}/external/boost156.patch
-        CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-        BUILD_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -d0 -j2 ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
+	CONFIGURE_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
+	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -d0 -j2 toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
@@ -411,10 +413,10 @@ message("Build system will compile Staden IOLib")
 message("==================================================================")
 ExternalProject_Add(libstadenio 
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/staden-io_lib/archive/v1.13.7.tar.gz -o staden-io_lib-v1.13.7.tar.gz &&
-                     tar -xzf staden-io_lib-v1.13.7.tar.gz &&
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/staden-io_lib/archive/v1.13.8.tar.gz -o staden-io_lib-v1.13.8.tar.gz &&
+                     tar -xzf staden-io_lib-v1.13.8.tar.gz &&
                      rm -fr staden-io_lib &&
-                     mv -f staden-io_lib-1.13.7 staden-io_lib
+                     mv -f staden-io_lib-1.13.8 staden-io_lib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/staden-io_lib
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ./configure --enable-shared=no --without-libcurl --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
@@ -427,10 +429,10 @@ message("Build system will fetch SPDLOG")
 message("==================================================================")
 ExternalProject_Add(libspdlog
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/spdlog/archive/v1.2.tar.gz -o spdlog-v1.2.tar.gz &&
-                     tar -xzf spdlog-v1.2.tar.gz &&
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/spdlog/archive/v1.3.tar.gz -o spdlog-v1.3.tar.gz &&
+                     tar -xzf spdlog-v1.3.tar.gz &&
                      rm -fr spdlog &&
-                     mv -f  spdlog-1.2 spdlog
+                     mv -f  spdlog-1.3 spdlog
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/spdlog
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""
