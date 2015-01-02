@@ -2189,7 +2189,7 @@ transcript abundance from RNA-seq reads
 
         bfs::path estFilePath = outputDirectory / "quant.sf";
 
-        commentStream << "# mapping rate : " << experiment.mappingRate() * 100.0 << "\%\n";
+        commentStream << "# [ mapping rate ] => { " << experiment.mappingRate() * 100.0 << "\% }\n";
         commentString = commentStream.str();
         salmon::utils::writeAbundances(experiment, estFilePath, commentString);
 
