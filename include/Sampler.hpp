@@ -156,7 +156,7 @@ namespace salmon {
                                     double logFragProb = sailfish::math::LOG_1;
                                     //double fragLength = aln.fragLen();
 
-                                    if (salmonOpts.useFragLenDist) {
+                                    if (!salmonOpts.noFragLengthDist) {
                                         switch (aln->fragType()) {
                                             case ReadType::SINGLE_END:
                                                 if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {

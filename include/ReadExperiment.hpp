@@ -12,6 +12,7 @@ extern "C" {
 #include "ClusterForest.hpp"
 #include "Transcript.hpp"
 #include "ReadLibrary.hpp"
+#include "FragmentLengthDistribution.hpp"
 
 // Logger includes
 #include "spdlog/spdlog.h"
@@ -47,6 +48,17 @@ class ReadExperiment {
 
             // Make sure the read libraries are valid.
             for (auto& rl : readLibraries_) { rl.checkValid(); }
+
+            size_t maxFragLen = 800;
+            size_t meanFragLen = 200;
+            size_t fragLenStd = 80;
+            size_t fragLenKernelN = 4;
+            double fragLenKernelP = 0.5;
+            fragLengthDist_.reset(new FragmentLengthDistribution(1.0, maxFragLen,
+                    meanFragLen, fragLenStd,
+                    fragLenKernelN,
+                    fragLenKernelP, 1));
+
 
             // Make sure the transcript file exists.
             /*
@@ -151,7 +163,8 @@ class ReadExperiment {
         bool burnedIn = (totalAssignedFragments_ + numAssignedFragments_ > 5000000);
         for (auto& rl : readLibraries_) {
             processReadLibrary(rl, idx_, transcripts_, clusterForest(),
-                               numAssignedFragments_, batchNum_, numThreads, burnedIn);
+                               *(fragLengthDist_.get()), numAssignedFragments_,
+                               batchNum_, numThreads, burnedIn);
         }
         return true;
     }
@@ -324,6 +337,7 @@ class ReadExperiment {
     }
 
     std::vector<ReadLibrary>& readLibraries() { return readLibraries_; }
+    FragmentLengthDistribution* fragmentLengthDistribution() { return fragLengthDist_.get(); }
 
     private:
     /**
@@ -360,6 +374,7 @@ class ReadExperiment {
     std::atomic<uint64_t> batchNum_{0};
     uint64_t totalAssignedFragments_;
     size_t quantificationPasses_;
+    std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
 };
 
 #endif // EXPERIMENT_HPP

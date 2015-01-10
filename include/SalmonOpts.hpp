@@ -20,12 +20,18 @@ struct SalmonOpts {
     bool maxMEMIntervals; // If true, don't split (S)MEMs into MEMs
     */
 
-    SalmonOpts() : splitSpanningSeeds(false), useFragLenDist(false),
-                   useReadCompat(false), maxReadOccs(200), extraSeedPass(false) {}
+    SalmonOpts() : splitSpanningSeeds(false), noFragLengthDist(false),
+                   noEffectiveLengthCorrection(false), useReadCompat(false),
+                   maxReadOccs(200), extraSeedPass(false),
+                   mappingCacheMemoryLimit(5000000) {}
     bool splitSpanningSeeds; // Attempt to split seeds that span multiple transcripts.
 
-    bool useFragLenDist; // Give a fragment assignment a likelihood based on an emperically
-                         // observed fragment length distribution.
+    bool noFragLengthDist; // Do not give a fragment assignment a likelihood based on an emperically
+                           // observed fragment length distribution.
+
+    bool noEffectiveLengthCorrection; // Don't take the fragment length distribution into
+                                      // account when computing the probability that a
+                                     // fragment was generated from a transcript.
 
     bool useReadCompat; // Give a fragment assignment a likelihood based on the compatibility
                         // between the manner in which it mapped and the expected read
@@ -46,6 +52,7 @@ struct SalmonOpts {
 
     boost::filesystem::path indexDirectory; // Index directory
 
+    uint32_t mappingCacheMemoryLimit;
     uint32_t numThreads;
     uint32_t numQuantThreads;
     uint32_t numParseThreads;

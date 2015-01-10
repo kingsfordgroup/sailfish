@@ -172,7 +172,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         double logFragProb = sailfish::math::LOG_1;
                         //double fragLength = aln.fragLen();
 
-                        if (salmonOpts.useFragLenDist) {
+                        if (!salmonOpts.noFragLengthDist) {
                             if(aln->fragLen() == 0) {
                                 if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
                                     logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
@@ -497,11 +497,16 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
                         "example, fragments with an incorrect relative oritenation with respect  to the provided library "
                         "format string will be assigned a 0 probability.")
-    ("useFragLenDist,d", po::bool_switch(&(sopt.useFragLenDist))->default_value(false), "[Currently Experimental] : "
-                        "Consider concordance with the learned fragment length distribution when trying to determing "
-                        "the probability that a fragment has originated from a specified location.  Fragments with "
-                        "unlikely lengths will be assigned a smaller relative probability than those with more likely "
-                        "lengths.")
+    ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
+                        "effective length correction when computing the probability that a fragment was generated "
+                        "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
+                        "into account when computing this probability.")
+    ("noFragLengthDist", po::bool_switch(&(sopt.noFragLengthDist))->default_value(false), "[Currently Experimental] : "
+                        "Don't consider concordance with the learned fragment length distribution when trying to determine "
+                        "the probability that a fragment has originated from a specified location.  Normally, Fragments with "
+                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
+                        "lengths.  When this flag is passed in, the observed fragment length has no effect on that fragment's "
+                        "a priori probability.")
     ("useErrorModel", po::bool_switch(&(sopt.useErrorModel))->default_value(false), "[Currently Experimental] : "
                         "Learn and apply an error model for the aligned reads.  This takes into account the "
                         "the observed frequency of different types of mismatches when computing the likelihood of "
@@ -695,7 +700,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                                           sopt);
                     bool burnedIn = quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
-                    salmon::utils::writeAbundances(alnLib, outputFile, commentString);
+                    salmon::utils::writeAbundances(sopt, alnLib, outputFile, commentString);
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
                         salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
@@ -710,10 +715,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                                       sopt);
                     bool burnedIn = quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
-                    salmon::utils::writeAbundances(alnLib, outputFile, commentString);
+                    salmon::utils::writeAbundances(sopt, alnLib, outputFile, commentString);
 
                     // Test writing out the fragment length distribution
-                    if (sopt.useFragLenDist) {
+                    if (!sopt.noFragLengthDist) {
                         bfs::path distFileName = paramsDir / "flenDist.txt";
                         {
                             std::unique_ptr<std::FILE, int (*)(std::FILE *)> distOut(std::fopen(distFileName.c_str(), "w"), std::fclose);

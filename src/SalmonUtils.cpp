@@ -50,7 +50,8 @@ namespace utils {
 
 
     template <typename ExpLib>
-    void writeAbundances(ExpLib& alnLib,
+    void writeAbundances(const SalmonOpts& sopt,
+                         ExpLib& alnLib,
                          boost::filesystem::path& fname,
                          std::string headerComments) {
         using sailfish::math::LOG_0;
@@ -86,7 +87,7 @@ namespace utils {
                 Transcript& t = refs[transcriptID];
                 t.uniqueCounts = t.uniqueCount();
                 t.totalCounts = t.totalCount();
-                //clusterCount += t.totalCounts;
+                ++clusterSize;
             }
 
             for (auto transcriptID : members) {
@@ -100,7 +101,6 @@ namespace utils {
                     requiresProjection |= t.projectedCounts > static_cast<double>(t.totalCounts) or
                         t.projectedCounts < static_cast<double>(t.uniqueCounts);
                 }
-                ++clusterSize;
             }
 
             if (clusterSize > 1 and requiresProjection) {
@@ -112,19 +112,27 @@ namespace utils {
         auto& transcripts_ = refs;
         double tfracDenom{0.0};
         for (auto& transcript : transcripts_) {
-            tfracDenom += (transcript.projectedCounts / numMappedReads) / transcript.RefLength;
+            double refLength = sopt.noEffectiveLengthCorrection ?
+                               transcript.RefLength :
+                               std::exp(transcript.getCachedEffectiveLength());
+            refLength = transcript.RefLength;
+            tfracDenom += (transcript.projectedCounts / numMappedReads) / refLength;
         }
 
         // Now posterior has the transcript fraction
         for (auto& transcript : transcripts_) {
-            double logLength = std::log(transcript.RefLength);
+            double logLength = sopt.noEffectiveLengthCorrection ?
+                               std::log(transcript.RefLength) :
+                               transcript.getCachedEffectiveLength();
+            logLength = std::log(transcript.RefLength);
             double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
             double count = transcript.projectedCounts;
             //double countTotal = transcripts_[transcriptID].totalCounts;
             //double countUnique = transcripts_[transcriptID].uniqueCounts;
             double fpkm = count > 0 ? fpkmFactor * count : 0.0;
             double npm = (transcript.projectedCounts / numMappedReads);
-            double tfrac = (npm / transcript.RefLength) / tfracDenom;
+            double refLength = std::exp(logLength);
+            double tfrac = (npm / refLength) / tfracDenom;
             double tpm = tfrac * million;
 
             fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
@@ -191,16 +199,22 @@ namespace utils {
 }
 
 template
-void salmon::utils::writeAbundances<AlignmentLibrary<ReadPair>>(AlignmentLibrary<ReadPair>& alnLib,
+void salmon::utils::writeAbundances<AlignmentLibrary<ReadPair>>(
+                                              const SalmonOpts& opts,
+                                              AlignmentLibrary<ReadPair>& alnLib,
                                               boost::filesystem::path& fname,
                                               std::string headerComments);
 
 template
-void salmon::utils::writeAbundances<AlignmentLibrary<UnpairedRead>>(AlignmentLibrary<UnpairedRead>& alnLib,
+void salmon::utils::writeAbundances<AlignmentLibrary<UnpairedRead>>(
+                                                  const SalmonOpts& opts,
+                                                  AlignmentLibrary<UnpairedRead>& alnLib,
                                                   boost::filesystem::path& fname,
                                                   std::string headerComments);
 template
-void salmon::utils::writeAbundances<ReadExperiment>(ReadExperiment& alnLib,
+void salmon::utils::writeAbundances<ReadExperiment>(
+                                                  const SalmonOpts& opts,
+                                                  ReadExperiment& alnLib,
                                                   boost::filesystem::path& fname,
                                                   std::string headerComments);
 

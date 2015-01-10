@@ -8,8 +8,9 @@ extern "C" {
 
 #include "format.h"
 
-#include <boost/filesystem.hpp>
+#include "SalmonOpts.hpp"
 
+#include <boost/filesystem.hpp>
 #include <memory>
 
 class ReadExperiment;
@@ -25,7 +26,8 @@ namespace utils {
     bool headersAreConsistent(std::vector<SAM_hdr*>&& headers);
 
     template <typename AlnLibT>
-    void writeAbundances(AlnLibT& alnLib,
+    void writeAbundances(const SalmonOpts& sopt,
+                         AlnLibT& alnLib,
                          boost::filesystem::path& fname,
                          std::string headerComments="");
     /**

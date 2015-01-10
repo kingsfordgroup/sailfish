@@ -103,6 +103,7 @@ extern "C" {
 #include "SalmonUtils.hpp"
 #include "ReadLibrary.hpp"
 #include "SalmonConfig.hpp"
+#include "IOUtils.hpp"
 
 #include "AlignmentGroup.hpp"
 #include "PairSequenceParser.hpp"
@@ -305,6 +306,7 @@ void processMiniBatch(
 
     size_t numTranscripts{transcripts.size()};
     size_t localNumAssignedFragments{0};
+    size_t priorNumAssignedFragments{numAssignedFragments};
     std::uniform_real_distribution<> uni(0.0, 1.0 + std::numeric_limits<double>::min());
     std::vector<uint64_t> libTypeCounts(LibraryFormat::maxLibTypeID() + 1);
 
@@ -325,8 +327,6 @@ void processMiniBatch(
 
     double clustTotal = std::log(batchHits.size()) + logForgettingMass;
     {
-        // E-step
-
         // Iterate over each group of alignments (a group consists of all alignments reported
         // for a single read).  Distribute the read's mass proportionally dependent on the
         // current hits
@@ -335,7 +335,7 @@ void processMiniBatch(
             double sumOfAlignProbs{LOG_0};
             // update the cluster-level properties
             bool transcriptUnique{true};
-            // AGCHANGE: auto firstTranscriptID = alnGroup.front().transcriptID();
+
             auto firstTranscriptID = alnGroup->alignments().front().transcriptID();
             std::unordered_set<size_t> observedTranscripts;
             for (auto& aln : alnGroup->alignments()) {
@@ -349,7 +349,23 @@ void processMiniBatch(
 
                 // The alignment probability is the product of a transcript-level term (based on abundance and) an alignment-level
                 // term below which is P(Q_1) * P(Q_2) * P(F | T)
-                double logRefLength = std::log(refLength);
+                double logRefLength;
+                if (salmonOpts.noEffectiveLengthCorrection or !burnedIn) {
+                    logRefLength = std::log(transcript.RefLength);
+                } else {
+                    logRefLength = transcript.getCachedEffectiveLength();
+                }
+                /*
+                double logRefLength = (salmonOpts.noEffectiveLengthCorrection) ?
+                                      std::log(transcript.RefLength) :
+                                      transcript.getEffectiveLength(
+                                              fragLengthDist,
+                                              priorNumAssignedFragments,
+                                              numBurninFrags);
+
+                if (!burnedIn) { logRefLength = std::log(transcript.RefLength); }
+                */
+
                 double transcriptLogCount = transcript.mass();
                 if ( transcriptLogCount != LOG_0 ) {
                     double errLike = sailfish::math::LOG_1;
@@ -357,9 +373,9 @@ void processMiniBatch(
                         //errLike = errMod.logLikelihood(aln, transcript);
                     }
 
-                    double logFragProb = (salmonOpts.useFragLenDist) ?
-                                         ((aln.fragLength() > 0) ? fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) : LOG_1) :
-                                         LOG_1;
+                    double logFragProb = (salmonOpts.noFragLengthDist) ?
+                                         LOG_1 :
+                                         ((aln.fragLength() > 0) ? fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) : LOG_1);
                     // The probability that the fragments align to the given strands in the
                     // given orientations.
                     double logAlignCompatProb = (salmonOpts.useReadCompat) ?
@@ -397,6 +413,8 @@ void processMiniBatch(
                 auto transcriptID = aln.transcriptID();
                 auto& transcript = transcripts[transcriptID];
 
+                transcript.addMass( logForgettingMass + aln.logProb );
+
                 double r = uni(randEng);
                 if (!burnedIn and r < std::exp(aln.logProb)) {
                     //errMod.update(aln, transcript, aln.logProb, logForgettingMass);
@@ -426,6 +444,7 @@ void processMiniBatch(
 
         double individualTotal = LOG_0;
         {
+            /*
             // M-step
             double totalMass{0.0};
             for (auto kv = hitsForTranscript.begin(); kv != hitsForTranscript.end(); ++kv) {
@@ -450,9 +469,13 @@ void processMiniBatch(
                 totalMass = logAdd(totalMass, updateMass);
                 transcript.addMass(updateMass);
             } // end for
+            */
         } // end timer
         numAssignedFragments += localNumAssignedFragments;
-        if (numAssignedFragments >= numBurninFrags and !burnedIn) { burnedIn = true; }
+        if (numAssignedFragments >= numBurninFrags and !burnedIn) {
+            burnedIn = true;
+            for (auto& t : transcripts) {  t.updateEffectiveLength(fragLengthDist); }
+        }
         readLib.updateLibTypeCounts(libTypeCounts);
 }
 
@@ -1779,27 +1802,124 @@ bool readAlignmentCache(
         AlnGroupQueue& structureCache,
         uint64_t numWritten,
         volatile bool& finishedParsing,
-        std::ifstream& inputStream,
-        cereal::BinaryInputArchive& inputArchive) {
+        boost::filesystem::path& cacheFilePath) {
+
+        std::ifstream alnCacheFile(cacheFilePath.c_str(), std::ios::binary);
+        cereal::BinaryInputArchive alnCacheArchive(alnCacheFile);
 
         uint64_t numRead{0};
         AlignmentGroup<SMEMAlignment>* alnGroup;
         while (numRead < numWritten) {
             while (!structureCache.try_dequeue(alnGroup)) {}
-            inputArchive((*alnGroup));
+            alnCacheArchive((*alnGroup));
             alnGroupQueue.enqueue(alnGroup);
             ++numRead;
         }
         finishedParsing = true;
+
+        alnCacheFile.close();
         return true;
 }
 
 struct CacheFile {
     CacheFile(boost::filesystem::path& pathIn, uint64_t numWrittenIn) :
-        filePath(pathIn), numWritten(numWrittenIn) {}
+        filePath(pathIn), numWritten(numWrittenIn), inMemory(false){}
+
+    bool populateCache(volatile bool& finishedParsing,
+                       uint32_t buffQueueSize) {
+
+        if (inMemory) {
+            // If the queue already exists, then just
+            // swap the processed and unprocessed structs
+            // and return
+             if (toProcess) {
+                std::swap(toProcess, processed);
+                finishedParsing = true;
+                return true;
+             } else {
+                // otherwise, create the queues and fill them as we
+                // normally would (i.e. if we weren't holding every thing
+                // in memory).
+                toProcess.reset(new AlnGroupQueue(numWritten));
+                initCache.reset(new AlnGroupQueue(numWritten));
+                for (size_t i = 0; i < numWritten; ++i) {
+                    initCache->enqueue( new AlignmentGroup<SMEMAlignment>() );
+                }
+                processed.reset(new AlnGroupQueue);
+             }
+        } else {
+            // If we won't be keeping everything in memory
+            // determine whether or not we need to create "working space"
+            // queues (this is only necessary the first time).
+            if (!toProcess) {
+                toProcess.reset(new AlnGroupQueue(buffQueueSize));
+                processed.reset(new AlnGroupQueue(buffQueueSize));
+                for (size_t i = 0; i < buffQueueSize; ++i) {
+                    processed->enqueue( new AlignmentGroup<SMEMAlignment>() );
+                }
+            }
+        }
+
+        // At this point, the queues exist, and we're either reading the
+        // information from file and using the queue as a buffer, or we're
+        // making our first "in memory" pass and we have to fill the buffers
+        // anyway
+        if (inMemory) {
+            cacheReaderThread_.reset(new std::thread (readAlignmentCache,
+                        std::ref(*toProcess),
+                        std::ref(*initCache),
+                        numWritten,
+                        std::ref(finishedParsing),
+                        std::ref(filePath)));
+        } else {
+            cacheReaderThread_.reset(new std::thread (readAlignmentCache,
+                        std::ref(*toProcess),
+                        std::ref(*processed),
+                        numWritten,
+                        std::ref(finishedParsing),
+                        std::ref(filePath)));
+        }
+        return true;
+    }
+
+    bool flushCache() {
+        if (cacheReaderThread_) {
+            cacheReaderThread_->join();
+            cacheReaderThread_.reset(nullptr);
+        }
+        return true;
+    }
+
+    void clearQueues() {
+        AlignmentGroup<SMEMAlignment>* ag;
+
+        if (toProcess) {
+            while (toProcess->try_dequeue(ag)) { delete ag; }
+        }
+        if (processed) {
+            while (processed->try_dequeue(ag)) { delete ag; }
+        }
+        if (initCache) {
+            while (initCache->try_dequeue(ag)) { delete ag; }
+        }
+    }
+
 
     boost::filesystem::path filePath;
     uint64_t numWritten{0};
+    bool inMemory;
+
+    std::unique_ptr<AlnGroupQueue> toProcess{nullptr};
+    std::unique_ptr<AlnGroupQueue> processed{nullptr};
+    std::unique_ptr<AlnGroupQueue> initCache{nullptr};
+
+    // If the file is small enough, we'll make the mapping cache reside "in memory"
+    // that's what this guy is for.
+    // std::vector<char> inMemoryMappingCache;
+
+    private:
+        // The thread that will read the mapping cache
+        std::unique_ptr<std::thread> cacheReaderThread_{nullptr};
 };
 
 /**
@@ -1828,18 +1948,10 @@ void quantifyLibrary(
 
     auto jointLog = spdlog::get("jointLog");
 
-    size_t maxFragLen = 800;
-    size_t meanFragLen = 200;
-    size_t fragLenStd = 80;
-    size_t fragLenKernelN = 4;
-    double fragLenKernelP = 0.5;
-    FragmentLengthDistribution fragLengthDist(1.0, maxFragLen,
-                                              meanFragLen, fragLenStd,
-                                              fragLenKernelN,
-                                              fragLenKernelP, 1);
     double logForgettingMass{std::log(1.0)};
     double forgettingFactor{0.60};
     bool initialRound{true};
+    uint32_t roundNum{0};
 
     std::mutex ffMutex;
     std::mutex ioMutex;
@@ -1849,10 +1961,6 @@ void quantifyLibrary(
 
     size_t maxReadGroup{miniBatchSize};
     uint32_t structCacheSize = numQuantThreads * maxReadGroup * 10;
-    AlnGroupQueue groupCache(structCacheSize);
-    for (size_t i = 0; i < structCacheSize; ++i) {
-        groupCache.enqueue( new AlignmentGroup<SMEMAlignment>() );
-    }
 
     while (numObservedFragments < numRequiredFragments) {
         prevNumObservedFragments = numObservedFragments;
@@ -1879,16 +1987,27 @@ void quantifyLibrary(
                 jointLog->warn() << errmsg;
                 break;
             }
+
+            if (numObservedFragments - numPrevObservedFragments <= salmonOpts.mappingCacheMemoryLimit
+                and roundNum < 2) {
+                for (auto& cf : cacheFiles) { cf.inMemory = true; }
+            }
             numPrevObservedFragments = numObservedFragments;
         }
 
         if (initialRound or salmonOpts.disableMappingCache) {
             AlnGroupQueue outputGroups(structCacheSize);
+            AlnGroupQueue groupCache(structCacheSize);
+            for (size_t i = 0; i < structCacheSize; ++i) {
+                groupCache.enqueue( new AlignmentGroup<SMEMAlignment>() );
+            }
+
 
             volatile bool writeToCache = !salmonOpts.disableMappingCache;
             auto processReadLibraryCallback =  [&](
                     ReadLibrary& rl, bwaidx_t* idx,
                     std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
+                    FragmentLengthDistribution& fragLengthDist,
                     std::atomic<uint64_t>& numAssignedFragments,
                     std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
                     bool& burnedIn) -> void  {
@@ -1929,14 +2048,15 @@ void quantifyLibrary(
 
             // Process all of the reads
             experiment.processReads(numQuantThreads, processReadLibraryCallback);
+            // TODO: Empty the structure cache here ?
+            AlignmentGroup<SMEMAlignment>* ag;
+            while (groupCache.try_dequeue(ag)) { delete ag; }
         } else {
-            AlnGroupQueue alnGroupQueue;
-
-
             uint32_t libNum{0};
             auto processReadLibraryCallback =  [&](
                     ReadLibrary& rl, bwaidx_t* idx,
                     std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
+                    FragmentLengthDistribution& fragLengthDist,
                     std::atomic<uint64_t>& numAssignedFragments,
                     std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
                     bool& burnedIn) -> void  {
@@ -1947,31 +2067,19 @@ void quantifyLibrary(
                 auto& cf = cacheFiles[libNum];
                 ++libNum;
 
-                std::ifstream alnCacheFile(cf.filePath.c_str(), std::ios::binary);
-                cereal::BinaryInputArchive alnCacheArchive(alnCacheFile);
+                cf.populateCache(finishedParsing, structCacheSize);
 
-                std::thread cacheReaderThread(readAlignmentCache,
-                        std::ref(alnGroupQueue),
-                        std::ref(groupCache),
-                        cf.numWritten,
-                        std::ref(finishedParsing),
-                        std::ref(alnCacheFile),
-                        std::ref(alnCacheArchive));
-
-                processCachedAlignments(rl, groupCache, alnGroupQueue,
+                processCachedAlignments(rl,
+                        //groupCache, alnGroupQueue,
+                        *(cf.processed.get()),
+                        *(cf.toProcess.get()),
                         numObservedFragments, numAssignedFragments,
                         transcripts, batchNum, logForgettingMass,
                         ffMutex, clusterForest, fragLengthDist,
                         salmonOpts, ioMutex, initialRound, finishedParsing,
                         burnedIn, numQuantThreads);
 
-                /** NOTE: shouldn't need after bug fix --- but check this
-                * if the race condition resurfaces.
-                AlignmentGroup<SMEMAlignment>* aln = nullptr;
-                while (alnGroupQueue.try_dequeue(aln)) { groupCache.enqueue(aln); }
-                **/
-                cacheReaderThread.join();
-                alnCacheFile.close();
+                cf.flushCache();
             };
 
             // Process all of the reads
@@ -1979,6 +2087,7 @@ void quantifyLibrary(
         }
 
         initialRound = false;
+        ++roundNum;
         fmt::print(stderr, "\n# observed = {} / # required = {}\n",
                    numObservedFragments, numRequiredFragments);
         fmt::print(stderr, "# assigned = {} / # observed (this round) = {}\033[F\033[F",
@@ -1987,13 +2096,14 @@ void quantifyLibrary(
     }
     fmt::print(stderr, "\n\n\n\n");
 
-    AlignmentGroup<SMEMAlignment>* ag;
-    while (groupCache.try_dequeue(ag)) { delete ag; }
     // delete any temporary alignment cache files
     for (auto& cf : cacheFiles) {
         if (boost::filesystem::exists(cf.filePath)) {
             boost::filesystem::remove(cf.filePath);
         }
+        // TODO: clear any queues allocated by
+        // the cache files.
+        cf.clearQueues();
     }
 
     if (numObservedFragments <= prevNumObservedFragments) {
@@ -2052,11 +2162,16 @@ int salmonQuantify(int argc, char *argv[]) {
                         "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
                         "example, fragments with an incorrect relative oritenation with respect  to the provided library "
                         "format string will be assigned a 0 probability.")
-    ("useFragLenDist,d", po::bool_switch(&(sopt.useFragLenDist))->default_value(false), "[Currently Experimental] : "
-                        "Consider concordance with the learned fragment length distribution when trying to determing "
-                        "the probability that a fragment has originated from a specified location.  Fragments with "
-                        "unlikely lengths will be assigned a smaller relative probability than those with more likely "
-                        "lengths.")
+    ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
+                        "effective length correction when computing the probability that a fragment was generated "
+                        "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
+                        "into account when computing this probability.")
+    ("noFragLengthDist", po::bool_switch(&(sopt.noFragLengthDist))->default_value(false), "[Currently Experimental] : "
+                        "Don't consider concordance with the learned fragment length distribution when trying to determine "
+                        "the probability that a fragment has originated from a specified location.  Normally, Fragments with "
+                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
+                        "lengths.  When this flag is passed in, the observed fragment length has no effect on that fragment's "
+                        "a priori probability.")
     ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before "
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
@@ -2074,11 +2189,15 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "libraries (i.e. where the number of mapped fragments is less than the required number of observations). However, "
                                         "for very large read libraries, the mapping cache is unnecessary, and disabling it may allow salmon to more effectively "
                                         "make use of a very large number of threads.")
+    ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(5000000), "If the file contained fewer than this "
+                                        "many reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
+                                        "not be too large if you wish to keep a low memory usage, but setting it large enough can substantially speed up "
+                                        "inference on \"small\" files that contain only a few million reads.")
     ("extraSensitive", po::bool_switch(&(sopt.extraSeedPass))->default_value(false), "Setting this option enables an extra pass of \"seed\" search. "
                                         "Enabling this option may improve sensitivity (the number of reads having sufficient coverage), but will "
                                         "typically slow down quantification by ~40%.  Consider enabling this option if you find the mapping rate to "
                                         "be significantly lower than expected.")
-    ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.75), "required coverage of read by union of SMEMs to consider it a \"hit\".")
+    ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.70), "required coverage of read by union of SMEMs to consider it a \"hit\".")
     ("output,o", po::value<std::string>()->required(), "Output quantification file.")
     ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
                                                                "qunatification estimates.")
@@ -2173,6 +2292,16 @@ transcript abundance from RNA-seq reads
         auto fileLog = spdlog::create("fileLog", {fileSink});
         auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
 
+        // Verify that no inconsistent options were provided
+        {
+            if (sopt.noFragLengthDist and !sopt.noEffectiveLengthCorrection) {
+                jointLog->info() << "Error: You cannot enable --noFragLengthDist without "
+                                 << "also enabling --noEffectiveLengthCorrection; exiting!\n";
+                std::exit(1);
+            }
+        }
+        // END: option checking
+
         jointLog->info() << "parsing read library format";
 
         vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
@@ -2191,10 +2320,31 @@ transcript abundance from RNA-seq reads
 
         commentStream << "# [ mapping rate ] => { " << experiment.mappingRate() * 100.0 << "\% }\n";
         commentString = commentStream.str();
-        salmon::utils::writeAbundances(experiment, estFilePath, commentString);
+        salmon::utils::writeAbundances(sopt, experiment, estFilePath, commentString);
+
+        // Now create a subdirectory for any parameters of interest
+        bfs::path paramsDir = outputDirectory / "libParams";
+        if (!boost::filesystem::exists(paramsDir)) {
+            if (!boost::filesystem::create_directory(paramsDir)) {
+                fmt::print(stderr, "{}ERROR{}: Could not create "
+                           "output directory for experimental parameter "
+                           "estimates [{}]. exiting.", ioutils::SET_RED,
+                           ioutils::RESET_COLOR, paramsDir);
+                std::exit(-1);
+            }
+        }
 
         bfs::path libCountFilePath = outputDirectory / "libFormatCounts.txt";
         experiment.summarizeLibraryTypeCounts(libCountFilePath);
+
+        // Test writing out the fragment length distribution
+        if (!sopt.noFragLengthDist) {
+            bfs::path distFileName = paramsDir / "flenDist.txt";
+            {
+                std::unique_ptr<std::FILE, int (*)(std::FILE *)> distOut(std::fopen(distFileName.c_str(), "w"), std::fclose);
+                fmt::print(distOut.get(), "{}\n", experiment.fragmentLengthDistribution()->toString());
+            }
+        }
 
         if (biasCorrect) {
             auto origExpressionFile = estFilePath;

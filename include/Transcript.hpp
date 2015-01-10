@@ -6,15 +6,19 @@
 #include <limits>
 #include "SailfishStringUtils.hpp"
 #include "SailfishMath.hpp"
+#include "FragmentLengthDistribution.hpp"
 #include "tbb/atomic.h"
 
 class Transcript {
 public:
-    Transcript(size_t idIn, const char* name, uint32_t len, double alpha = 0.005) :
+    Transcript(size_t idIn, const char* name, uint32_t len, double alpha = 0.05) :
         RefName(name), RefLength(len), id(idIn), Sequence(nullptr),
+        logPerBasePrior_(std::log(alpha)),
         priorMass_(std::log(alpha*len)),
         mass_(sailfish::math::LOG_0), sharedCount_(0.0)  {
             uniqueCount_.store(0);
+            lastUpdate_.store(0);
+            cachedEffectiveLength_.store(std::log(static_cast<double>(RefLength)));
         }
 
     Transcript(Transcript&& other) {
@@ -24,6 +28,13 @@ public:
         RefLength = other.RefLength;
         Sequence = other.Sequence;
         uniqueCount_.store(other.uniqueCount_);
+        totalCount_.store(other.totalCount_.load());
+        sharedCount_.store(other.sharedCount_.load());
+        mass_.store(other.mass_.load());
+        lastUpdate_.store(other.lastUpdate_.load());
+        cachedEffectiveLength_.store(other.cachedEffectiveLength_.load());
+        logPerBasePrior_ = other.logPerBasePrior_;
+        priorMass_ = other.priorMass_;
     }
 
     Transcript& operator=(Transcript&& other) {
@@ -33,6 +44,13 @@ public:
         RefLength = other.RefLength;
         Sequence = other.Sequence;
         uniqueCount_.store(other.uniqueCount_);
+        totalCount_.store(other.totalCount_.load());
+        sharedCount_.store(other.sharedCount_.load());
+        mass_.store(other.mass_.load());
+        lastUpdate_.store(other.lastUpdate_.load());
+        cachedEffectiveLength_.store(other.cachedEffectiveLength_.load());
+        logPerBasePrior_ = other.logPerBasePrior_;
+        priorMass_ = other.priorMass_;
         return *this;
     }
 
@@ -102,6 +120,57 @@ public:
         return (withPrior) ? sailfish::math::logAdd(priorMass_, mass_.load()) : mass_.load();
     }
 
+    /**
+      *  NOTE: Adopted from "est_effective_length" at (https://github.com/adarob/eXpress/blob/master/src/targets.cpp)
+      *  originally written by Adam Roberts.
+      *
+      *
+      */
+    double updateEffectiveLength(const FragmentLengthDistribution& fragLengthDist) {
+
+        double effectiveLength = sailfish::math::LOG_0;
+        double refLen = static_cast<double>(RefLength);
+        double logLength = std::log(refLen);
+
+        if (logLength < fragLengthDist.mean()) {
+            effectiveLength = logLength;
+        } else {
+            uint32_t mval = fragLengthDist.maxVal();
+            for (size_t l = fragLengthDist.minVal(); l <= std::min(RefLength, mval); ++l) {
+                effectiveLength = sailfish::math::logAdd(
+                        effectiveLength,
+                        fragLengthDist.pmf(l) + std::log(refLen - l + 1));
+            }
+        }
+
+        return effectiveLength;
+    }
+
+    double getCachedEffectiveLength() {
+        return cachedEffectiveLength_.load();
+    }
+
+    double getEffectiveLength(const FragmentLengthDistribution& fragLengthDist,
+                              size_t currObs,
+                              size_t burnInObs) {
+        if (lastUpdate_ == 0 or
+            (currObs - lastUpdate_ >= 250000) or
+            (lastUpdate_ < burnInObs and currObs > burnInObs)) {
+            // compute new number
+            double cel = updateEffectiveLength(fragLengthDist);
+            cachedEffectiveLength_.store(cel);
+            lastUpdate_.store(currObs);
+            //priorMass_ = cel + logPerBasePrior_;
+            return cachedEffectiveLength_.load();
+        } else {
+            // return cached number
+            return cachedEffectiveLength_.load();
+        }
+    }
+
+    double perBasePrior() { return std::exp(logPerBasePrior_); }
+
+
     std::string RefName;
     uint32_t RefLength;
     uint32_t id;
@@ -119,6 +188,9 @@ private:
     double priorMass_;
     tbb::atomic<double> mass_;
     tbb::atomic<double> sharedCount_;
+    tbb::atomic<double> cachedEffectiveLength_;
+    tbb::atomic<size_t> lastUpdate_;
+    double logPerBasePrior_;
 };
 
 #endif //TRANSCRIPT
