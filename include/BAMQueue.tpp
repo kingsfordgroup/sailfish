@@ -382,10 +382,12 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
             }
             if((bam_flag(rpair.read1) & BAM_FPROPER_PAIR) != (bam_flag(rpair.read2) & BAM_FPROPER_PAIR)) {
                 std::cerr << "\tThe proper-pair statuses are inconsistent:\n";
-                std::cerr << "read1 : " << (!(bam_flag(rpair.read1) & BAM_FPROPER_PAIR) ? "no " : "") << "proper-pair; "
+                std::cerr << "read1 [" << bam_name(rpair.read1) << "] : " 
+                    << (!(bam_flag(rpair.read1) & BAM_FPROPER_PAIR) ? "no " : "") << "proper-pair; "
                     << ((bam_flag(rpair.read1) & BAM_FUNMAP) ? "not " : "") << "mapped; mate"
                     << ((bam_flag(rpair.read1) & BAM_FMUNMAP) ? "not " : "") << "mapped\n\n";
-                std::cerr << "read2: " << (!(bam_flag(rpair.read2) & BAM_FPROPER_PAIR) ? "no " : "") << "proper-pair; "
+                std::cerr << "read2 : [" << bam_name(rpair.read1) << "] : " 
+                    << (!(bam_flag(rpair.read2) & BAM_FPROPER_PAIR) ? "no " : "") << "proper-pair; "
                     << ((bam_flag(rpair.read2) & BAM_FUNMAP) ? "not " : "") << "mapped; mate"
                     << ((bam_flag(rpair.read2) & BAM_FMUNMAP) ? "not " : "") << "mapped\n\n";
             }
