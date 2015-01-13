@@ -91,8 +91,7 @@ if (APPLE)
     ## This DOES NOT do what I / any one sane, expects.  Setting the 
     ## linker path on OSX is messed up.  Just tell the user to use 
     ## DYLD_FALLBACK_LIBRARY_PATH for now
-    SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-    set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 else()
     set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
 endif()
@@ -169,6 +168,16 @@ target_link_libraries(salmon
 )
 
 add_dependencies(salmon libbwa)
+
+##
+#  This ensures that the salmon executable should work with or without `make install`
+##
+if (APPLE)
+	add_custom_command(TARGET salmon
+		POST_BUILD
+		COMMAND install_name_tool -add_rpath ${GAT_SOURCE_DIR}/external/install/lib salmon 
+		)
+endif()
 
 # Link the executable
 #target_link_libraries(salmon-read
@@ -302,7 +311,18 @@ set(INSTALL_INCLUDE_DIR include )
 install(DIRECTORY 
         ${GAT_SOURCE_DIR}/external/install/lib/ 
         DESTINATION ${INSTALL_LIB_DIR}
+	FILES_MATCHING PATTERN "libtbb*.${SHARED_LIB_EXTENSION}"
     )
+
+
+if (APPLE)
+install(DIRECTORY 
+        ${GAT_SOURCE_DIR}/external/install/lib/ 
+        DESTINATION ${INSTALL_LIB_DIR}
+	FILES_MATCHING PATTERN "libcmph*.${SHARED_LIB_EXTENSION}"
+       )
+endif()
+
 
 # install(FILES ${Boost_LIBRARIES}
 # 	           DESTINATION ${INSTALL_LIB_DIR})
