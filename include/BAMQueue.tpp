@@ -253,8 +253,8 @@ inline AlignmentType getPairedAlignmentType_(bam_seq_t* aln) {
     if (!mateIsMapped and !readIsMapped) {
         return AlignmentType::UnmappedPair;
     }
-    logger_->error("\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
-                   "Please file a bug report on GitHub. Exiting.\n");
+    std::cerr << "\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
+              << "Please file a bug report on GitHub. Exiting.\n";
     std::exit(1);
 }
 
