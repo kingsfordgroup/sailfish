@@ -73,8 +73,9 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_TOOLSET "gcc")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=gcc")
-    set (BOOST_EXTRA_FLAGS "")
-    # Tentatively, we support clang now
+    set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags="-std=c++11 -stdlib=libstdc++"  linkflags="-stdlib=libstdc++")
+
+# Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(CLANG TRUE)
     # If we're on OSX using clang, try to use libc++ instead of libstdc++
@@ -82,7 +83,8 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
         set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 	set (BOOST_TOOLSET "clang")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
-        set (BOOST_EXTRA_FLAGS toolset=clang cxxflags="-stdlib=libc++"  linkflags="-stdlib=libc++")
+	set (BCXX_FLAGS "-stdlib=libc++ -DBOOST_HAS_INT128")
+	set (BOOST_EXTRA_FLAGS toolset=clang cxxflags=${BCXX_FLAGS} linkflags="-stdlib=libc++")
     endif()
     # There's currently a bug with clang-3.4 & Boost 1.55 -- this hack fixes it
     # but we should do something better (does this break things if CPU doesn't
@@ -345,6 +347,7 @@ endif()
 if(TBB_WILL_RECONFIGURE)
     set(TBB_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(TBB_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
+    #set(TBB_LIBRARIES tbb tbbmalloc)
     set(TBB_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbb.${SHARED_LIB_EXTENSION}
                       ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libtbbmalloc.${SHARED_LIB_EXTENSION}
     )

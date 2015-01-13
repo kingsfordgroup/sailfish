@@ -211,7 +211,7 @@ inline bool checkProperPairedNames_(const char* qname1, const char* qname2, cons
 * If the reads are single-end, the strings must be identical.
 */
 template <typename T>
-inline bool sameReadName_(const char* qname1, const char* qname2, const uint32_t nameLen)  = delete;
+inline bool sameReadName_(const char* qname1, const char* qname2, const uint32_t nameLen); // (OSX) clang can't handle this? = delete;
 
 
 // Specialization for unpaired reads.

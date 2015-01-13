@@ -91,7 +91,8 @@ if (APPLE)
     ## This DOES NOT do what I / any one sane, expects.  Setting the 
     ## linker path on OSX is messed up.  Just tell the user to use 
     ## DYLD_FALLBACK_LIBRARY_PATH for now
-    set(CMAKE_INSTALL_RPATH "@executable_path/../lib:@executable_path/../../lib:@executable_path/")
+    SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+    set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 else()
     set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
 endif()
@@ -129,6 +130,24 @@ target_link_libraries(sailfish
     pthread
 )
 
+# Grumble grumble . . . OSX
+if (APPLE)
+    # Both libstaden and libcmph declare, apparently,
+    # the symbol _hash.  The OSX linker throws a fit when
+    # we attempt to link statically, so we must link one
+    # of them dynamically
+    add_custom_command(TARGET salmon
+        PRE_LINK
+        COMMAND install_name_tool -id @rpath/libcmph.dylib ${GAT_SOURCE_DIR}/external/install/lib/libcmph.0.dylib
+        COMMAND install_name_tool -id @rpath/libcmph.0.dylib ${GAT_SOURCE_DIR}/external/install/lib/libcmph.0.dylib
+        COMMAND install_name_tool -id @rpath/libtbb.dylib ${GAT_SOURCE_DIR}/external/install/lib/libtbb.dylib
+        COMMAND install_name_tool -id @rpath/libtbbmalloc.dylib ${GAT_SOURCE_DIR}/external/install/lib/libtbbmalloc.dylib
+    )
+    set (CMPH_LIBRARY cmph)
+else()
+    set (CMPH_LIBRARY ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a) 
+endif()
+
 # Link the executable
 target_link_libraries(salmon
     sailfish_core 
@@ -136,7 +155,7 @@ target_link_libraries(salmon
     ${Boost_LIBRARIES} 
     ${GAT_SOURCE_DIR}/external/install/lib/libstaden-read.a
     ${ZLIB_LIBRARY} 
-    ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a # perfect hashing library
+    ${CMPH_LIBRARY}
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     ${GAT_SOURCE_DIR}/external/install/lib/libbwa.a
     m

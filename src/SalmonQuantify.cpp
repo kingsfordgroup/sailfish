@@ -1337,8 +1337,7 @@ void processReadsMEM(ParserT* parser,
 	           std::mutex& iomutex,
                bool initialRound,
                bool& burnedIn,
-               volatile bool& writeToCache
-               ) {
+               volatile bool& writeToCache) {
   uint64_t count_fwd = 0, count_bwd = 0;
 
   double forgettingFactor{0.65};
@@ -1399,7 +1398,7 @@ void processReadsMEM(ParserT* parser,
             green[3] = '0' + static_cast<char>(fmt::GREEN);
             char red[] = "\x1b[30m";
             red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\033[F\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+            fmt::print(stderr, "\033[A\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
             fmt::print(stderr, "hits per frag:  {}", validHits / static_cast<float>(prevObservedFrags));
     	    iomutex.unlock();
         }
@@ -1449,8 +1448,7 @@ void processCachedAlignmentsHelper(
         std::mutex& iomutex,
         bool initialRound,
         volatile bool& cacheExhausted,
-        bool& burnedIn
-        ) {
+        bool& burnedIn) {
 
     double forgettingFactor{0.65};
 
@@ -1512,7 +1510,7 @@ void processCachedAlignmentsHelper(
             green[3] = '0' + static_cast<char>(fmt::GREEN);
             char red[] = "\x1b[30m";
             red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\033[F\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+            fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
             fmt::print(stderr, "hits per frag:  {} / {} = {}", locValidHits, locRead, locValidHits / static_cast<float>(locRead));
             iomutex.unlock();
         }
@@ -1620,7 +1618,7 @@ void processReadLibrary(
         size_t numThreads,
         AlnGroupQueue& structureCache,
         AlnGroupQueue& outputGroups,
-        volatile bool& writeToCache) {
+        volatile bool& writeToCache){
 
             std::vector<std::thread> threads;
 
@@ -2048,7 +2046,8 @@ void quantifyLibrary(
 
             // Process all of the reads
             experiment.processReads(numQuantThreads, processReadLibraryCallback);
-            // TODO: Empty the structure cache here ?
+
+            // Empty the structure cache here
             AlignmentGroup<SMEMAlignment>* ag;
             while (groupCache.try_dequeue(ag)) { delete ag; }
         } else {
@@ -2090,7 +2089,7 @@ void quantifyLibrary(
         ++roundNum;
         fmt::print(stderr, "\n# observed = {} / # required = {}\n",
                    numObservedFragments, numRequiredFragments);
-        fmt::print(stderr, "# assigned = {} / # observed (this round) = {}\033[F\033[F",
+        fmt::print(stderr, "# assigned = {} / # observed (this round) = {}\033[A\033[A",
                    experiment.numAssignedFragments(),
                    numObservedFragments - numPrevObservedFragments);
     }

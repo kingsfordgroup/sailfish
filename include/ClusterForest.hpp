@@ -6,6 +6,7 @@
 
 #include "Transcript.hpp"
 #include "TranscriptCluster.hpp"
+#include "SpinLock.hpp"
 
 #include <unordered_set>
 #include <vector>
@@ -32,7 +33,11 @@ public:
     void mergeClusters(typename std::vector<FragT>::iterator start,
                        typename std::vector<FragT>::iterator finish) {
         // Use a lock_guard to ensure this is a locked (and exception-safe) operation
+#if defined __APPLE__
+        spin_lock::scoped_lock sl(clusterMutex_);
+#else
         std::lock_guard<std::mutex> lock(clusterMutex_);
+#endif
         size_t firstCluster, otherCluster;
         auto firstTranscriptID = start->transcriptID();
         ++start;
@@ -57,7 +62,12 @@ public:
     void mergeClusters(typename std::vector<FragT*>::iterator start,
                        typename std::vector<FragT*>::iterator finish) {
         // Use a lock_guard to ensure this is a locked (and exception-safe) operation
+#if defined __APPLE__
+        spin_lock::scoped_lock sl(clusterMutex_);
+#else
         std::lock_guard<std::mutex> lock(clusterMutex_);
+#endif
+
         size_t firstCluster, otherCluster;
         auto firstTranscriptID = (*start)->transcriptID();
         ++start;
@@ -103,7 +113,11 @@ public:
 */
     void updateCluster(size_t memberTranscript, size_t newCount, double logNewMass, bool updateCount) {
         // Use a lock_guard to ensure this is a locked (and exception-safe) operation
+#if defined __APPLE__
+        spin_lock::scoped_lock sl(clusterMutex_);
+#else
         std::lock_guard<std::mutex> lock(clusterMutex_);
+#endif
         auto clusterID = disjointSets_.find_set(memberTranscript);
         auto& cluster = clusters_[clusterID];
         if (updateCount) {
@@ -133,7 +147,11 @@ private:
     std::vector<size_t> parent_;
     boost::disjoint_sets<size_t*, size_t*> disjointSets_;
     std::vector<TranscriptCluster> clusters_;
+    #if defined __APPLE__
+    spin_lock clusterMutex_;
+    #else
     std::mutex clusterMutex_;
+    #endif
 };
 
 #endif // __CLUSTER_FOREST_HPP__
