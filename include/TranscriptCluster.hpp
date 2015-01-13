@@ -90,7 +90,7 @@ public:
             if (round % 100 == 0) {
                 std::cerr << "\r\rproject to polytope: " << round;
             }
-            if (round > 10000) {
+            if (round > 50000) {
                 return;
             }
 

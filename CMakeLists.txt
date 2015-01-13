@@ -74,7 +74,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (BOOST_TOOLSET "gcc")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=gcc")
 	set (BCXX_FLAGS "-std=c++11")
-    set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags=${BCXX_FLAGS}  linkflags="-stdlib=libstdc++")
+    set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags=${BCXX_FLAGS})
 
 # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")

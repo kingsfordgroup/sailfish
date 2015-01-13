@@ -253,8 +253,8 @@ inline AlignmentType getPairedAlignmentType_(bam_seq_t* aln) {
     if (!mateIsMapped and !readIsMapped) {
         return AlignmentType::UnmappedPair;
     }
-    std::cerr << "\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
-        << "Please file a bug report on GitHub. Exiting.\n";
+    logger_->error("\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
+                   "Please file a bug report on GitHub. Exiting.\n");
     std::exit(1);
 }
 
@@ -309,8 +309,8 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
                     break;
                     // === end if MappedDiscordantPair case
                 default:
-                    std::cerr << "\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
-                        << "Please file a bug report on GitHub. Exiting.\n";
+                    logger_->error("\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
+                                   "Please file a bug report on GitHub. Exiting.\n");
                     std::exit(1);
                     break;
             }
@@ -373,24 +373,27 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
         // and should either be concordantly aligned (proper pair) or both unaligned.
         if (BOOST_UNLIKELY(
                     !sameName or ((bam_flag(rpair.read1) & BAM_FPROPER_PAIR) != (bam_flag(rpair.read2) & BAM_FPROPER_PAIR)))) {
-            std::cerr << "\n\n\n";
-            std::cerr << "WARNING: Detected suspicious pair --- \n";
+            
+            fmt::MemoryWriter errmsg;
+            errmsg << "\n\n\n";
+            errmsg << "WARNING: Detected suspicious pair --- \n";
             if (!sameName) {
-                std::cerr << "\tThe names are different:\n";
-                std::cerr << "\tread1 : " << bam_name(rpair.read1) << "\n";
-                std::cerr << "\tread2 : " << bam_name(rpair.read2) << "\n";
+                errmsg << "\tThe names are different:\n";
+                errmsg << "\tread1 : " << bam_name(rpair.read1) << "\n";
+                errmsg << "\tread2 : " << bam_name(rpair.read2) << "\n";
             }
             if((bam_flag(rpair.read1) & BAM_FPROPER_PAIR) != (bam_flag(rpair.read2) & BAM_FPROPER_PAIR)) {
-                std::cerr << "\tThe proper-pair statuses are inconsistent:\n";
-                std::cerr << "read1 [" << bam_name(rpair.read1) << "] : " 
+                errmsg << "\tThe proper-pair statuses are inconsistent:\n";
+                errmsg << "read1 [" << bam_name(rpair.read1) << "] : " 
                     << (!(bam_flag(rpair.read1) & BAM_FPROPER_PAIR) ? "no " : "") << "proper-pair; "
                     << ((bam_flag(rpair.read1) & BAM_FUNMAP) ? "not " : "") << "mapped; mate"
                     << ((bam_flag(rpair.read1) & BAM_FMUNMAP) ? "not " : "") << "mapped\n\n";
-                std::cerr << "read2 : [" << bam_name(rpair.read1) << "] : " 
+                errmsg << "read2 : [" << bam_name(rpair.read1) << "] : " 
                     << (!(bam_flag(rpair.read2) & BAM_FPROPER_PAIR) ? "no " : "") << "proper-pair; "
                     << ((bam_flag(rpair.read2) & BAM_FUNMAP) ? "not " : "") << "mapped; mate"
                     << ((bam_flag(rpair.read2) & BAM_FMUNMAP) ? "not " : "") << "mapped\n\n";
             }
+            logger_->warn() << errmsg.str();
         }
         switch (alnType) {
             case AlignmentType::MappedConcordantPair:
@@ -408,8 +411,8 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
                 }
                 break;
             default:
-                std::cerr << "\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
-                    << "Please file a bug report on GitHub. Exiting.\n";
+                logger_->error("\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
+                               "Please file a bug report on GitHub. Exiting.\n");
                 std::exit(1);
                 break;
         }

@@ -2178,7 +2178,7 @@ int salmonQuantify(int argc, char *argv[]) {
     ("minLen,k", po::value<int>(&(memOptions->min_seed_len))->default_value(19), "(S)MEMs smaller than this size won't be considered.")
     ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(200), "(S)MEMs occuring more than this many times won't be considered.")
     ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(100), "Reads \"mapping\" to more than this many places won't be considered.")
-    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(0), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
+    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(2), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
                                         "The default value will not split (S)MEMs, a higher value will result in more MEMs being explore and, thus, will "
                                         "result in increased running time.")
     ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
