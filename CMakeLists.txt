@@ -73,7 +73,8 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_TOOLSET "gcc")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=gcc")
-    set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags="-std=c++11 -stdlib=libstdc++"  linkflags="-stdlib=libstdc++")
+	set (BCXX_FLAGS "-stdlib=libstdc++ -std=c++11")
+    set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags=${BCXX_FLAGS}  linkflags="-stdlib=libstdc++")
 
 # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
