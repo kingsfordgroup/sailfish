@@ -311,15 +311,13 @@ set(INSTALL_INCLUDE_DIR include )
 install(DIRECTORY 
         ${GAT_SOURCE_DIR}/external/install/lib/ 
         DESTINATION ${INSTALL_LIB_DIR}
-	FILES_MATCHING PATTERN "libtbb*.${SHARED_LIB_EXTENSION}"
+	    FILES_MATCHING PATTERN "libtbb*.${SHARED_LIB_EXTENSION}*"
     )
-
-
 if (APPLE)
 install(DIRECTORY 
         ${GAT_SOURCE_DIR}/external/install/lib/ 
         DESTINATION ${INSTALL_LIB_DIR}
-	FILES_MATCHING PATTERN "libcmph*.${SHARED_LIB_EXTENSION}"
+	    FILES_MATCHING PATTERN "libcmph*.${SHARED_LIB_EXTENSION}*"
        )
 endif()
 
