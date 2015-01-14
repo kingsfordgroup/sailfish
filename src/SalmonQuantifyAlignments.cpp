@@ -436,7 +436,7 @@ bool quantifyLibrary(
         initialRound = false;
         numObservedFragments += alnLib.numMappedReads();
 
-        fmt::print(stderr, "# observed = {} / # required = {}\033[F\033[F\033[F\033[F\033[F",
+        fmt::print(stderr, "# observed = {} / # required = {}\033[A\033[A\033[A\033[A\033[A",
                    numObservedFragments, numRequiredFragments);
     }
 
@@ -521,13 +521,13 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "fragment assignment ambiguity into account, you should use this output.")
     ("sampleUnaligned,u", po::bool_switch(&sampleUnaligned)->default_value(false), "In addition to sampling the aligned reads, also write "
                         "the un-aligned reads to \"posSample.bam\".")
-    ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental]: Output both bias-corrected and non-bias-corrected "
+    ("biasCorrect", po::value(&biasCorrect)->zero_tokens(), "[Experimental]: Output both bias-corrected and non-bias-corrected "
                                                              "qunatification estimates.")
-    ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
+    ("numRequiredObs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before "
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
                                         "input file, then it will be read through multiple times.")
-    ("gene_map,g", po::value<std::string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
+    ("geneMap,g", po::value<std::string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
                                         "Sailfish will output both quant.sf and quant.genes.sf files, where the latter "
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping "
                                         "should be provided as either a GTF file, or a in a simple tab-delimited format "
@@ -571,14 +571,14 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         std::string commentString = commentStream.str();
         fmt::print(stderr, "{}", commentString);
 
-        // Verify the gene_map before we start doing any real work.
+        // Verify the geneMap before we start doing any real work.
         bfs::path geneMapPath;
-        if (vm.count("gene_map")) {
+        if (vm.count("geneMap")) {
             // Make sure the provided file exists
-            geneMapPath = vm["gene_map"].as<std::string>();
+            geneMapPath = vm["geneMap"].as<std::string>();
             if (!bfs::exists(geneMapPath)) {
                 fmt::print(stderr, "Could not find transcript <=> gene map file {} \n"
-                           "Exiting now; please either omit the \'gene_map\' option or "
+                           "Exiting now; please either omit the \'geneMap\' option or "
                            "provide a valid file\n", geneMapPath);
                 std::exit(1);
             }
@@ -764,7 +764,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         }
 
         /** If the user requested gene-level abundances, then compute those now **/
-        if (vm.count("gene_map")) {
+        if (vm.count("geneMap")) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                                                             outputDirectory,

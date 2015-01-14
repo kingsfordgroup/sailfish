@@ -1398,7 +1398,7 @@ void processReadsMEM(ParserT* parser,
             green[3] = '0' + static_cast<char>(fmt::GREEN);
             char red[] = "\x1b[30m";
             red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\033[A\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+            fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
             fmt::print(stderr, "hits per frag:  {}", validHits / static_cast<float>(prevObservedFrags));
     	    iomutex.unlock();
         }
@@ -2150,7 +2150,7 @@ int salmonQuantify(int argc, char *argv[]) {
     ("help,h", "produce help message")
     ("index,i", po::value<string>()->required(), "Salmon index")
     ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
-    ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
+    ("unmatedReads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
      "List of files containing unmated reads of (e.g. single-end reads)")
     ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),
         "File containing the #1 mates")
@@ -2171,14 +2171,14 @@ int salmonQuantify(int argc, char *argv[]) {
                          "unlikely lengths will be assigned a smaller relative probability than those with more likely "
                         "lengths.  When this flag is passed in, the observed fragment length has no effect on that fragment's "
                         "a priori probability.")
-    ("num_required_obs,n", po::value(&requiredObservations)->default_value(50000000),
+    ("numRequiredObs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before "
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
                                         "input file, then it will be read through multiple times.")
     ("minLen,k", po::value<int>(&(memOptions->min_seed_len))->default_value(19), "(S)MEMs smaller than this size won't be considered.")
     ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(200), "(S)MEMs occuring more than this many times won't be considered.")
     ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(100), "Reads \"mapping\" to more than this many places won't be considered.")
-    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(2), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
+    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(0), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
                                         "The default value will not split (S)MEMs, a higher value will result in more MEMs being explore and, thus, will "
                                         "result in increased running time.")
     ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
@@ -2198,9 +2198,9 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "be significantly lower than expected.")
     ("coverage,c", po::value<double>(&coverageThresh)->default_value(0.70), "required coverage of read by union of SMEMs to consider it a \"hit\".")
     ("output,o", po::value<std::string>()->required(), "Output quantification file.")
-    ("bias_correct", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
+    ("biasCorrect", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
                                                                "qunatification estimates.")
-    ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
+    ("geneMap,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
                                         "Salmon will output both quant.sf and quant.genes.sf files, where the latter "
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping "
                                         "should be provided as either a GTF file, or a in a simple tab-delimited format "
@@ -2245,14 +2245,14 @@ transcript abundance from RNA-seq reads
         std::string commentString = commentStream.str();
         fmt::print(stderr, "{}", commentString);
 
-        // Verify the gene_map before we start doing any real work.
+        // Verify the geneMap before we start doing any real work.
         bfs::path geneMapPath;
-        if (vm.count("gene_map")) {
+        if (vm.count("geneMap")) {
             // Make sure the provided file exists
-            geneMapPath = vm["gene_map"].as<std::string>();
+            geneMapPath = vm["geneMap"].as<std::string>();
             if (!bfs::exists(geneMapPath)) {
                 std::cerr << "Could not fine transcript <=> gene map file " << geneMapPath << "\n";
-                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file\n";
+                std::cerr << "Exiting now: please either omit the \'geneMap\' option or provide a valid file\n";
                 std::exit(1);
             }
         }
@@ -2357,7 +2357,7 @@ transcript abundance from RNA-seq reads
         }
 
         /** If the user requested gene-level abundances, then compute those now **/
-        if (vm.count("gene_map")) {
+        if (vm.count("geneMap")) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                                                             outputDirectory,
