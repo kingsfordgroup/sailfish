@@ -79,7 +79,7 @@ namespace salmon {
                     MiniBatchQueue<AlignmentGroup<FragT*>>& workQueue,
                     std::condition_variable& workAvailable,
                     std::mutex& cvmutex,
-                    std::atomic<bool>& doneParsing,
+                    volatile bool& doneParsing,
                     std::atomic<size_t>& activeBatches,
                     const SalmonOpts& salmonOpts,
                     bool& burnedIn,
@@ -88,6 +88,7 @@ namespace salmon {
 
                 // Seed with a real random value, if available
                 std::random_device rd;
+                auto log = spdlog::get("jointLog");
 
                 // Create a random uniform distribution
                 std::default_random_engine eng(rd());
@@ -105,17 +106,18 @@ namespace salmon {
                 auto& errMod = alnLib.errorModel();
 
                 std::chrono::microseconds sleepTime(1);
-                MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch;
+                MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch = nullptr;
                 size_t numTranscripts = refs.size();
 
-                while (!doneParsing) {
-                    miniBatch = nullptr;
-                    {
+                while (!doneParsing or !workQueue.empty()) {
+                    bool foundWork = workQueue.try_pop(miniBatch);
+                    // If work wasn't immediately available, then wait for it.
+                    if (!foundWork) {
                         std::unique_lock<std::mutex> l(cvmutex);
                         workAvailable.wait(l, [&miniBatch, &workQueue, &doneParsing]() { return workQueue.try_pop(miniBatch) or doneParsing; });
                     }
                     if (miniBatch != nullptr) {
-                        ++activeBatches;
+                       ++activeBatches;
                         size_t batchReads{0};
                         std::vector<AlignmentGroup<FragT*>*>& alignmentGroups = *(miniBatch->alignments);
 
@@ -132,7 +134,7 @@ namespace salmon {
                             for (auto a : alnGroup->alignments()) {
                                 auto transcriptID = a->transcriptID();
                                 if (transcriptID < 0 or transcriptID >= refs.size()) {
-                                    std::cerr << "Invalid Transcript ID: " << transcriptID << "\n";
+                                    log->warn("Invalid Transcript ID: {}\n", transcriptID);
                                 }
                                 hitList[transcriptID].emplace_back(a);
                             }
@@ -154,7 +156,6 @@ namespace salmon {
                                     double refLength = transcript.RefLength > 0 ? transcript.RefLength : 1.0;
 
                                     double logFragProb = sailfish::math::LOG_1;
-                                    //double fragLength = aln.fragLen();
 
                                     if (!salmonOpts.noFragLengthDist) {
                                         switch (aln->fragType()) {
@@ -194,7 +195,12 @@ namespace salmon {
                                     }
                                 }
                                 // normalize the hits
-                                if (sumOfAlignProbs == LOG_0) { std::cerr << "0 probability fragment; skipping\n"; continue; }
+                                if (sumOfAlignProbs == LOG_0) {
+                                    auto aln = alnGroup->alignments().front();
+                                    log->warn("0 probability fragment [{}];"
+                                              "length = [{}]; skipping\n", aln->getName(), aln->fragLen());
+                                    continue;
+                                }
 
 
                                 if (transcriptUnique) {
@@ -224,12 +230,11 @@ namespace salmon {
                                         currentMass += massInc;
                                     } // end alignment group
                                     if (BOOST_UNLIKELY(!choseAlignment)) {
-                                        std::cerr << "[Sampler.hpp]: Failed to sample an alignment for this read; "
-                                                  << "this shouldn't happen\n";
-                                        std::cerr << "currentMass = " << currentMass << ", r = " << r << "\n";
+                                        log->warn("[Sampler.hpp]: Failed to sample an alignment for this read; "
+                                                  "this shouldn't happen\n"
+                                                  "currentMass = {}, r = {}\n", currentMass, r);
                                     }
                                 } // non-unique read
-
                                 ++batchReads;
                             } // end read group
                         }// end timer
@@ -239,6 +244,7 @@ namespace salmon {
                         --activeBatches;
                         processedReads += batchReads;
                     }
+                    miniBatch = nullptr;
                 } // nothing left to process
             }
 
@@ -303,7 +309,7 @@ namespace salmon {
                     return false;
                 }
 
-                std::atomic<bool> doneParsing{false};
+                volatile bool doneParsing{false};
                 std::condition_variable workAvailable;
                 std::mutex cvmutex;
                 std::vector<std::thread> workers;
@@ -409,6 +415,18 @@ namespace salmon {
                 delete alignments;
 
                 doneParsing = true;
+
+                /**
+                 * This could be a problem for small sets of alignments --- make sure the
+                 * work queue is empty!!
+                 * --- Thanks for finding a dataset that exposes this bug, Richard (Smith-Unna)!
+                 */
+                size_t t = 0;
+                while (!workQueue.empty()) {
+                    std::unique_lock<std::mutex> l(cvmutex);
+                    workAvailable.notify_one();
+                }
+
                 size_t tnum{0};
                 for (auto& t : workers) {
                     fmt::print(stderr, "killing thread {} . . . ", tnum++);

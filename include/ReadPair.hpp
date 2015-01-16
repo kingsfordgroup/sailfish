@@ -69,7 +69,7 @@ struct ReadPair {
     }
 
     inline char* getName() {
-        return bam_name(read1);//bam1_qname(read1);
+        return bam_name(read1);
     }
 
     inline uint32_t getNameLength() {

@@ -15,7 +15,7 @@ public:
         RefName(name), RefLength(len), id(idIn), Sequence(nullptr),
         logPerBasePrior_(std::log(alpha)),
         priorMass_(std::log(alpha*len)),
-        mass_(sailfish::math::LOG_0), sharedCount_(0.0)  {
+        mass_(sailfish::math::LOG_0), sharedCount_(0.0) {
             uniqueCount_.store(0);
             lastUpdate_.store(0);
             cachedEffectiveLength_.store(std::log(static_cast<double>(RefLength)));
@@ -169,7 +169,6 @@ public:
     }
 
     double perBasePrior() { return std::exp(logPerBasePrior_); }
-
 
     std::string RefName;
     uint32_t RefLength;

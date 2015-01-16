@@ -92,7 +92,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                       MiniBatchQueue<AlignmentGroup<FragT*>>& workQueue,
                       std::condition_variable& workAvailable,
                       std::mutex& cvmutex,
-                      std::atomic<bool>& doneParsing,
+                      volatile bool& doneParsing,
                       std::atomic<size_t>& activeBatches,
                       const SalmonOpts& salmonOpts,
                       bool& burnedIn,
@@ -101,6 +101,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
     // Seed with a real random value, if available
     std::random_device rd;
+    auto log = spdlog::get("jointLog");
 
     // Create a random uniform distribution
     std::default_random_engine eng(rd());
@@ -118,13 +119,14 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
     auto& errMod = alnLib.errorModel();
 
     std::chrono::microseconds sleepTime(1);
-    MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch;
+    MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch = nullptr;
     bool updateCounts = initialRound;
     size_t numTranscripts = refs.size();
 
-    while (!doneParsing) {
-        miniBatch = nullptr;
-        {
+    while (!doneParsing or !workQueue.empty()) {
+        bool foundWork = workQueue.try_pop(miniBatch);
+        // If work wasn't immediately available, then wait for it.
+        if (!foundWork) {
             std::unique_lock<std::mutex> l(cvmutex);
             workAvailable.wait(l, [&miniBatch, &workQueue, &doneParsing]() { return workQueue.try_pop(miniBatch) or doneParsing; });
         }
@@ -170,7 +172,6 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         double refLength = transcript.RefLength > 0 ? transcript.RefLength : 1.0;
 
                         double logFragProb = sailfish::math::LOG_1;
-                        //double fragLength = aln.fragLen();
 
                         if (!salmonOpts.noFragLengthDist) {
                             if(aln->fragLen() == 0) {
@@ -182,7 +183,6 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             } else {
                                 logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
                             }
-
                         }
 
                         // @TODO: handle this case better
@@ -190,17 +190,10 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         //fragProb = std::max(fragProb, 1e-3);
                         //fragProb /= cdf(fragLengthDist, refLength);
 
-                        // Some aligners (e.g. Bowtie) don't output alignment qualities, so prepare for this.
-                        /*
-                        auto q1 = aln.read1->core.qual;
-                        auto q2 = aln.read2->core.qual;
-                        double logP1 = (q1 == 255) ? calcQuality(aln.read1) : std::log(std::pow(10.0, -q1 * 0.1));
-                        double logP2 = (q2 == 255) ? calcQuality(aln.read2) : std::log(std::pow(10.0, -q2 * 0.1));
-                        */
-
                         // The alignment probability is the product of a transcript-level term (based on abundance and) an alignment-level
                         // term below which is P(Q_1) * P(Q_2) * P(F | T)
                         double logRefLength = std::log(refLength);
+
                         // double adjustedTranscriptLength = std::max(refLength - aln.fragLen() + 1, 1.0);
                         // double logStartPosProb = std::log(1.0 / adjustedTranscriptLength);
 
@@ -213,13 +206,13 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         double transcriptLogCount = transcript.mass(initialRound);
 
                         if ( transcriptLogCount != LOG_0 ) {
-
+                            // Adjustment to the likelihood due to the
+                            // error model
                             double errLike = sailfish::math::LOG_1;
-
                             if (burnedIn and salmonOpts.useErrorModel) {
                                 errLike = errMod.logLikelihood(*aln, transcript);
                             }
-                            //aln.logProb = (transcriptLogCount - logRefLength) + qualProb + errLike;
+
                             aln->logProb = transcriptLogCount + qualProb + errLike;
 
                             sumOfAlignProbs = logAdd(sumOfAlignProbs, aln->logProb);
@@ -229,10 +222,19 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             }
                         } else {
                             aln->logProb = LOG_0;
+                            log->warn("Reported alignment yielded 0 probability");
                         }
                     }
-                    // normalize the hits
-                    if (sumOfAlignProbs == LOG_0) { std::cerr << "0 probability fragment; skipping\n"; continue; }
+
+                    // If we have a 0-probability fragment
+                    if (sumOfAlignProbs == LOG_0) {
+                        auto aln = alnGroup->alignments().front();
+                        log->warn("0 probability fragment [{}];"
+                                  "length = [{}]; skipping\n", aln->getName(), aln->fragLen());
+                        continue;
+                    }
+
+                    // Normalize the scores
                     for (auto& aln : alnGroup->alignments()) {
                         aln->logProb -= sumOfAlignProbs;
 
@@ -244,7 +246,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                                 errMod.update(*aln, transcript, aln->logProb, logForgettingMass);
                             }
                             if (aln->isPaired()) {
-                                double fragLength = aln->fragLen();//std::abs(aln.read1->core.pos - aln.read2->core.pos) + aln.read2->core.l_qseq;
+                                double fragLength = aln->fragLen();
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
                             }
                         }
@@ -284,14 +286,24 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                     // The set of alignments that match transcriptID
                     auto& hits = kv->second;
                     std::for_each(hits.begin(), hits.end(), [&](FragT* aln) -> void {
-                            if (!std::isfinite(aln->logProb)) { std::cerr << "hitMass = " << aln->logProb << "\n"; }
+                            if (!std::isfinite(aln->logProb)) { log->warn("hitMass = {}\n", aln->logProb); }
                             hitMass = logAdd(hitMass, aln->logProb);
                     });
 
+                    // Lock the target
+                    if (hitMass == LOG_0) {
+                        log->warn("\n\n\n\nA set of *valid* alignments for a read appeared to "
+                                  "have 0 probability.  This should not happen.  Please report "
+                                  "this bug.  exiting!");
+
+                        std::cerr << "\n\n\n\nA set of *valid* alignments for a read appeared to "
+                                  << "have 0 probability.  This should not happen.  Please report "
+                                  << "this bug.  exiting!";
+                        std::exit(1);
+                    }
+
                     double updateMass = logForgettingMass + hitMass;
                     individualTotal = logAdd(individualTotal, updateMass);
-
-                    // Lock the target
                     transcript.addMass(updateMass);
 
                    // unlock the target
@@ -304,6 +316,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
             processedReads += batchReads;
             if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
         }
+        miniBatch = nullptr;
     } // nothing left to process
 }
 
@@ -355,7 +368,8 @@ bool quantifyLibrary(
                 break;
             }
         }
-        std::atomic<bool> doneParsing{false};
+
+        volatile bool doneParsing{false};
         std::condition_variable workAvailable;
         std::mutex cvmutex;
         std::vector<std::thread> workers;
@@ -421,6 +435,18 @@ bool quantifyLibrary(
         delete alignments;
 
         doneParsing = true;
+
+        /**
+          * This could be a problem for small sets of alignments --- make sure the
+          * work queue is empty!!
+          * --- Thanks for finding a dataset that exposes this bug, Richard (Smith-Unna)!
+          */
+        size_t t = 0;
+        while (!workQueue.empty()) {
+            std::unique_lock<std::mutex> l(cvmutex);
+            workAvailable.notify_one();
+        }
+
         size_t tnum{0};
         for (auto& t : workers) {
             fmt::print(stderr, "\r\rkilling thread {} . . . ", tnum++);
@@ -703,7 +729,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                     salmon::utils::writeAbundances(sopt, alnLib, outputFile, commentString);
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
-                        salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
+                        bool didSample = salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
+                        if (!didSample) {
+                            jointLog->warn("There may have been a problem generating the sampled output file; please check the log\n");
+                        }
                     }
                 }
                 break;
@@ -728,7 +757,11 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
-                        salmon::sampler::sampleLibrary<ReadPair>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
+                        bool didSample = salmon::sampler::sampleLibrary<ReadPair>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
+                        if (!didSample) {
+                            jointLog->warn("There may have been a problem generating the sampled output file; please check the log\n");
+                        }
+
                     }
                 }
                 break;
