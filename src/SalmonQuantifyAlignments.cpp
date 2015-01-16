@@ -236,6 +236,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
                     // Normalize the scores
                     for (auto& aln : alnGroup->alignments()) {
+                        if (aln->logProb == LOG_0) { continue; }
                         aln->logProb -= sumOfAlignProbs;
 
                         double r = uni(eng);

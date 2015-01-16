@@ -158,16 +158,14 @@ namespace salmon {
                                     double logFragProb = sailfish::math::LOG_1;
 
                                     if (!salmonOpts.noFragLengthDist) {
-                                        switch (aln->fragType()) {
-                                            case ReadType::SINGLE_END:
-                                                if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
-                                                    logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
-                                                } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
-                                                    logFragProb = fragLengthDist.cmf(aln->right());
-                                                }
-                                                break;
-                                            case ReadType::PAIRED_END:
-                                                logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
+                                        if(aln->fragLen() == 0) {
+                                            if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
+                                                logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
+                                            } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
+                                                logFragProb = fragLengthDist.cmf(aln->right());
+                                            }
+                                        } else {
+                                            logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
                                         }
                                     }
 
@@ -214,6 +212,7 @@ namespace salmon {
                                     double massInc{0.0};
                                     bool choseAlignment{false};
                                     for (auto& aln : alnGroup->alignments()) {
+                                        if (aln->logProb == LOG_0) { continue; }
                                         aln->logProb -= sumOfAlignProbs;
 
                                         massInc = std::exp(aln->logProb);
