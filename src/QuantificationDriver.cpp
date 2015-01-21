@@ -412,7 +412,7 @@ int runSailfishEstimation(const std::string& sfCommand,
     argStream << sfCommand << " ";
     // argStream << "estimate ";
     if (noBiasCorrect) {
-        argStream << "--noBiasCorrect";
+        argStream << "--noBiasCorrect ";
     }
     argStream << "--index " << indexBasePath.string() << " ";
     argStream << "--counts " << countFile.string() << " ";
@@ -420,7 +420,7 @@ int runSailfishEstimation(const std::string& sfCommand,
     //argStream << "--tgmap " << tgmap << " ";
     argStream << "--lutfile " << lookupTableBase.string() << " ";
     argStream << "--iterations " << iterations << " ";
-    argStream << "--minAbundance" << minAbundance << " ";
+    argStream << "--minAbundance " << minAbundance << " ";
     argStream << "--delta " << maxDelta << " ";
     argStream << "--out " << outFilePath.string();
 
