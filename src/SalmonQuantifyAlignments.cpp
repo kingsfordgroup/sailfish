@@ -510,7 +510,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
     generic.add_options()
     ("version,v", "print version string.")
     ("help,h", "produce help message.")
-    ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type.")
+    ("libType,l", po::value<std::string>()->required(), "Format string describing the library type.")
     ("alignments,a", po::value<vector<string>>()->multitoken()->required(), "input alignment (BAM) file(s).")
     //("alignments,a", po::value<string>()->required(), "input alignment (BAM) file(s)")
     ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(200), "Reads \"mapping\" to more than this many places won't be considered.")
@@ -625,7 +625,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             }
         }
 
-        std::string libFmtStr = vm["libtype"].as<std::string>();
+        std::string libFmtStr = vm["libType"].as<std::string>();
         LibraryFormat libFmt = sailfish::utils::parseLibraryFormatStringNew(libFmtStr);
         if (libFmt.check()) {
             std::cerr << libFmt << "\n";

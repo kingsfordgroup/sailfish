@@ -97,14 +97,14 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
     po::options_description config("Configuration");
     config.add_options()
       //("genes,g", po::value< std::vector<string> >(), "gene sequences")
-      ("min_abundance, m", po::value<double>(&minAbundance)->default_value(0.0),
+      ("minAbundance, m", po::value<double>(&minAbundance)->default_value(0.0),
        "transcripts with abundance (KPKM) lower than this will be reported at 0.")
       ("counts,c", po::value<string>(), "count file")
       ("index,i", po::value<string>(), "sailfish index prefix (without .sfi/.sfc)")
       ("bias,b", po::value<string>(), "bias index prefix (without .bin/.dict)")
       //("thash,t", po::value<string>(), "transcript jellyfish hash file")
       ("output,o", po::value<string>(), "output file")
-      ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
+      ("noBiasCorrect", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction")
       ("delta,d", po::value<double>(&maxDelta)->default_value(5e-3), "consider the optimization to have converged if the relative change in \n"
        "the estimated abundance of all transcripts is below this threshold")
       //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
@@ -412,7 +412,7 @@ int runSailfishEstimation(const std::string& sfCommand,
     argStream << sfCommand << " ";
     // argStream << "estimate ";
     if (noBiasCorrect) {
-        argStream << "--no_bias_correct ";
+        argStream << "--noBiasCorrect";
     }
     argStream << "--index " << indexBasePath.string() << " ";
     argStream << "--counts " << countFile.string() << " ";
@@ -420,7 +420,7 @@ int runSailfishEstimation(const std::string& sfCommand,
     //argStream << "--tgmap " << tgmap << " ";
     argStream << "--lutfile " << lookupTableBase.string() << " ";
     argStream << "--iterations " << iterations << " ";
-    argStream << "--min_abundance " << minAbundance << " ";
+    argStream << "--minAbundance" << minAbundance << " ";
     argStream << "--delta " << maxDelta << " ";
     argStream << "--out " << outFilePath.string();
 
@@ -485,9 +485,8 @@ int mainQuantify( int argc, char *argv[] ) {
     ("version,v", "print version string.")
     ("help,h", "produce help message.")
     ("index,i", po::value<string>()->required(), "Sailfish index [output of the \"Sailfish index\" command.")
-    ("libtype,l", po::value<vector<string>>()->required(), "Format string describing the library type.")
-    //("libtype,l", po::value<string>(), "Format string describing the library type")
-    ("unmated_reads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
+    ("libType,l", po::value<vector<string>>()->required(), "Format string describing the library type.")
+    ("unmatedReads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
      "List of files containing unmated reads of (e.g. single-end reads).")
     // ("forward,F", po::value<vector<string>>(&fwdReadFiles)->multitoken(),
     //  "List of files containing reads oriented in the \"sense\" direction")
@@ -497,8 +496,8 @@ int mainQuantify( int argc, char *argv[] ) {
         "File containing the #1 mates.")
     ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
         "File containing the #2 mates.")
-    ("no_bias_correct", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
-    ("min_abundance,m", po::value<double>(&minAbundance)->default_value(0.0),
+    ("noBiasCorrect", po::value(&noBiasCorrect)->zero_tokens(), "turn off bias correction.")
+    ("minAbundance,m", po::value<double>(&minAbundance)->default_value(0.0),
      "transcripts with an abundance (KPKM) lower than this value will be reported at zero.")
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("out,o", po::value<string>()->required(), "Basename of file where estimates are written.")
@@ -508,7 +507,7 @@ int mainQuantify( int argc, char *argv[] ) {
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use when counting kmers.")
     ("force,f", po::bool_switch(), "Force the counting phase to rerun, even if a count databse exists." )
     ("polya,a", po::bool_switch(), "polyA/polyT k-mers should be discarded.")
-    ("gene_map,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
+    ("geneMap,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided\n"
                                         "Sailfish will output both quant.sf and quant.genes.sf files, where the latter\n"
                                         "contains aggregated gene-level abundance estimates.  The transcript to gene mapping\n"
                                         "should be provided as either a GTF file, or a in a simple tab-delimited format\n"
@@ -532,14 +531,14 @@ int mainQuantify( int argc, char *argv[] ) {
 
         po::notify(vm);
 
-        // Verify the gene_map before we start doing any real work.
+        // Verify the geneMap before we start doing any real work.
         bfs::path geneMapPath;
-        if (vm.count("gene_map")) {
+        if (vm.count("geneMap")) {
             // Make sure the provided file exists
-            geneMapPath = vm["gene_map"].as<std::string>();
+            geneMapPath = vm["geneMap"].as<std::string>();
             if (!bfs::exists(geneMapPath)) {
                 std::cerr << "Could not load transcript <=> gene map file " << geneMapPath << "\n";
-                std::cerr << "Exiting now: please either omit the \'gene_map\' option or provide a valid file path\n";
+                std::cerr << "Exiting now: please either omit the \'geneMap\' option or provide a valid file path\n";
                 std::exit(1);
             }
         }
@@ -549,7 +548,7 @@ int mainQuantify( int argc, char *argv[] ) {
         /*
         vector<ReadLibrary> readLibraries;
         for (auto& opt : orderedOptions.options) {
-            if (opt.string_key == "libtype") {
+            if (opt.string_key == "libType") {
                 LibraryFormat libFmt = sailfish::utils::parseLibraryFormatString(opt.value[0]);
                 if (libFmt.check()) {
                     std::cerr << libFmt << "\n";
@@ -563,7 +562,7 @@ int mainQuantify( int argc, char *argv[] ) {
                 readLibraries.back().addMates1(opt.value);
             } else if (opt.string_key == "mates2") {
                 readLibraries.back().addMates2(opt.value);
-            } else if (opt.string_key == "unmated_reads") {
+            } else if (opt.string_key == "unmatedReads") {
                 readLibraries.back().addUnmated(opt.value);
             }
         }
@@ -681,7 +680,7 @@ int mainQuantify( int argc, char *argv[] ) {
                               noBiasCorrect, minAbundance, maxDelta);
 
         /** If the user requested gene-level abundances, then compute those now **/
-        if (vm.count("gene_map")) {
+        if (vm.count("geneMap")) {
            std::cerr << "Computing gene-level abundance estimates\n";
            bfs::path gtfExtension(".gtf");
            auto extension = geneMapPath.extension();

@@ -1500,9 +1500,11 @@ void processCachedAlignmentsHelper(
         }
         validHits += locValidHits;
         locRead += numConsumed;
-        uint64_t prevMod = numObservedFragments % 200000;
+
+        uint32_t updateRate = 200000;
+        uint64_t prevMod = numObservedFragments % updateRate;
         numObservedFragments += numConsumed;
-        uint64_t newMod = numObservedFragments % 200000;
+        uint64_t newMod = numObservedFragments % updateRate;
         if (newMod < prevMod) {
             iomutex.lock();
             const char RESET_COLOR[] = "\x1b[0m";
@@ -1627,6 +1629,7 @@ void processReadLibrary(
             // If the read library is paired-end
             // ------ Paired-end --------
             if (rl.format().type == ReadType::PAIRED_END) {
+
                 char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
                     const_cast<char*>(rl.mates2().front().c_str()) };
 
@@ -2000,7 +2003,6 @@ void quantifyLibrary(
                 groupCache.enqueue( new AlignmentGroup<SMEMAlignment>() );
             }
 
-
             volatile bool writeToCache = !salmonOpts.disableMappingCache;
             auto processReadLibraryCallback =  [&](
                     ReadLibrary& rl, bwaidx_t* idx,
@@ -2149,7 +2151,7 @@ int salmonQuantify(int argc, char *argv[]) {
     ("version,v", "print version string")
     ("help,h", "produce help message")
     ("index,i", po::value<string>()->required(), "Salmon index")
-    ("libtype,l", po::value<std::string>()->required(), "Format string describing the library type")
+    ("libType,l", po::value<std::string>()->required(), "Format string describing the library type")
     ("unmatedReads,r", po::value<vector<string>>(&unmatedReadFiles)->multitoken(),
      "List of files containing unmated reads of (e.g. single-end reads)")
     ("mates1,1", po::value<vector<string>>(&mate1ReadFiles)->multitoken(),

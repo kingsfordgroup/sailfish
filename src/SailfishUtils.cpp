@@ -102,7 +102,7 @@ std::vector<ReadLibrary> extractReadLibraries(boost::program_options::parsed_opt
 	std::vector<ReadLibrary> seLibs{ReadLibrary(seFormat)};
 	for (auto& opt : orderedOptions.options) {
 		// Update the library type
-		if (opt.string_key == "libtype") {
+		if (opt.string_key == "libType") {
 			auto libFmt = parseLibraryFormatStringNew(opt.value[0]);
 			if (libFmt.type == ReadType::PAIRED_END) {
 				peFormat = libFmt;
@@ -118,7 +118,7 @@ std::vector<ReadLibrary> extractReadLibraries(boost::program_options::parsed_opt
 		if (opt.string_key == "mates2") {
 			peLibs.back().addMates2(opt.value);
 		}
-		if (opt.string_key == "unmated_reads") {
+		if (opt.string_key == "unmatedReads") {
 			seLibs.back().addUnmated(opt.value);
 		}
 	}
