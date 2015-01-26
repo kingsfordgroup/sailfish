@@ -5,15 +5,16 @@
 
 template <typename FragT>
 BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt,
-                          uint32_t numParseThreads):
+                          uint32_t numParseThreads, uint32_t cacheSize):
     files_(std::vector<AlignmentFile>()),
     libFmt_(libFmt), totalReads_(0),
     numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
 
         logger_ = spdlog::get("jointLog");
 
-        size_t capacity{5000000};
-        fragmentQueue_.set_capacity(capacity);
+        uint32_t localCacheSize = std::max(uint32_t{5000000}, cacheSize);
+        uint32_t capacity{localCacheSize};
+        //fragmentQueue_.set_capacity(capacity);
         for (size_t i = 0; i < capacity; ++i) {
             // avoid r-value ref until we figure out what's
             // up with TBB 4.3
@@ -21,7 +22,7 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
             fragmentQueue_.push(fragPtr);
         }
 
-        size_t groupCapacity = 5000000;
+        size_t groupCapacity = localCacheSize;
         alnGroupPool_.set_capacity(groupCapacity);
         for (size_t i = 0; i < groupCapacity; ++i) {
             // avoid r-value ref until we figure out what's
@@ -125,10 +126,11 @@ BAMQueue<FragT>::~BAMQueue() {
     fmt::print(stderr, "\nClosed all files . . . ");
     // Free the structure holding all of the reads
     FragT* frag;
-    while(!fragmentQueue_.empty()) { 
-        fragmentQueue_.pop(frag); 
-        delete frag;
-        frag = nullptr;
+    while (!fragmentQueue_.empty()) { 
+        while (fragmentQueue_.try_pop(frag)) { 
+            delete frag;
+            frag = nullptr;
+        }
     }
     fmt::print(stderr, "\nEmptied frag queue. . . ");
 
@@ -181,7 +183,7 @@ void BAMQueue<FragT>::start(FilterT filt) {
 }
 
 template <typename FragT>
-tbb::concurrent_bounded_queue<FragT*>& BAMQueue<FragT>::getFragmentQueue() {
+tbb::concurrent_queue<FragT*>& BAMQueue<FragT>::getFragmentQueue() {
     return fragmentQueue_;
 }
 
@@ -483,7 +485,9 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     hdr_ = currFile_->header;
 
     FragT* f;
-    fragmentQueue_.pop(f);
+    if (!fragmentQueue_.try_pop(f)) {
+        f = new FragT;
+    }
 
     uint32_t prevLen{1};
     char* prevReadName = new char[255];
@@ -512,7 +516,10 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
             alngroup->addAlignment(f);
             f = nullptr;
        }
-        fragmentQueue_.pop(f);
+
+       if (!fragmentQueue_.try_pop(f)) {
+        f = new FragT;
+       }
         /*
         if (n % 100000 == 0) {
             std::cerr << "fragmentQueue size = " << fragmentQueue_.size() << "\n\n\n";

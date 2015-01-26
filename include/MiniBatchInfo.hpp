@@ -20,7 +20,7 @@ class MiniBatchInfo {
         double logForgettingMass;
 
         template <typename FragT>
-        void release(tbb::concurrent_bounded_queue<FragT*>& fragmentQueue,
+        void release(tbb::concurrent_queue<FragT*>& fragmentQueue,
                      tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue){
             size_t ng{0};
             for (auto& alnGroup : *alignments) {

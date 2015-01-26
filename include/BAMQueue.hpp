@@ -49,7 +49,8 @@ struct AlignmentFile {
 template <typename FragT>
 class BAMQueue {
 public:
-  BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt, uint32_t numParseThreads);
+  BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryFormat& libFmt,
+           uint32_t numParseThreads, uint32_t cacheSize);
   ~BAMQueue();
   void forceEndParsing();
 
@@ -69,7 +70,7 @@ public:
 
   void reset();
 
-  tbb::concurrent_bounded_queue<FragT*>& getFragmentQueue();
+  tbb::concurrent_queue<FragT*>& getFragmentQueue();
   tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& getAlignmentGroupQueue();
 
 private:
@@ -102,7 +103,7 @@ private:
   size_t totalReads_;
   size_t numUnaligned_;
   size_t numMappedReads_;
-  tbb::concurrent_bounded_queue<FragT*> fragmentQueue_;
+  tbb::concurrent_queue<FragT*> fragmentQueue_;
   tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*> alnGroupPool_;
   //tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupQueue_;
   boost::lockfree::spsc_queue<AlignmentGroup<FragT*>*,

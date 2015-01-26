@@ -124,7 +124,7 @@ extern "C" {
  */
 
 extern unsigned char nst_nt4_table[256];
-char* bwa_pg = "cha";
+char const* bwa_pg = "cha";
 
 
 /******* STUFF THAT IS STATIC IN BWAMEM THAT WE NEED HERE --- Just re-define it *************/
@@ -231,6 +231,11 @@ class SMEMAlignment {
             transcriptID_(transcriptIDIn), format_(format), score_(scoreIn),
             fragLength_(fragLengthIn), logProb(logProbIn) {}
 
+        SMEMAlignment(const SMEMAlignment& o) = default;
+        SMEMAlignment(SMEMAlignment&& o) = default;
+        SMEMAlignment& operator=(SMEMAlignment& o) = default;
+        SMEMAlignment& operator=(SMEMAlignment&& o) = default;
+
         inline TranscriptID transcriptID() { return transcriptID_; }
         inline uint32_t fragLength() { return fragLength_; }
         inline LibraryFormat libFormat() { return format_; }
@@ -304,6 +309,7 @@ void processMiniBatch(
 
     constexpr uint64_t numBurninFrags = 5000000;
 
+    auto log = spdlog::get("jointLog");
     size_t numTranscripts{transcripts.size()};
     size_t localNumAssignedFragments{0};
     size_t priorNumAssignedFragments{numAssignedFragments};
@@ -370,6 +376,7 @@ void processMiniBatch(
                 if ( transcriptLogCount != LOG_0 ) {
                     double errLike = sailfish::math::LOG_1;
                     if (burnedIn) {
+                        // TODO: Error model for smem-based quantification
                         //errLike = errMod.logLikelihood(aln, transcript);
                     }
 
@@ -389,6 +396,8 @@ void processMiniBatch(
                     aln.logProb = (transcriptLogCount - logRefLength) + logFragProb + logAlignCompatProb;// + qualProb + errLike;
 
                     sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
+                    //std::cerr << "logAlignCompatProb = " << logAlignCompatProb << "\n";
+                    //std::cerr << "sumOfAlignProbs = " << sumOfAlignProbs << "\n";
 
                     if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
                         if (updateCounts) { transcripts[transcriptID].addTotalCount(1); }
@@ -402,9 +411,11 @@ void processMiniBatch(
             // If this fragment has a zero probability,
             // go to the next one
             if (sumOfAlignProbs == LOG_0) {
+                log->warn("0 probability fragment; skipping");
                 continue;
             } else { // otherwise, count it as assigned
                 ++localNumAssignedFragments;
+                //std::cerr << "assigned = true\n";
             }
 
             // normalize the hits
@@ -1340,7 +1351,7 @@ void processReadsMEM(ParserT* parser,
                volatile bool& writeToCache) {
   uint64_t count_fwd = 0, count_bwd = 0;
 
-  double forgettingFactor{0.65};
+  double forgettingFactor{0.60};
 
   // Seed with a real random value, if available
   std::random_device rd;
@@ -1450,7 +1461,7 @@ void processCachedAlignmentsHelper(
         volatile bool& cacheExhausted,
         bool& burnedIn) {
 
-    double forgettingFactor{0.65};
+    double forgettingFactor{0.60};
 
     // Seed with a real random value, if available
     std::random_device rd;
@@ -1463,7 +1474,7 @@ void processCachedAlignmentsHelper(
     uint64_t prevObservedFrags{1};
     auto expectedLibType = rl.format();
 
-    uint32_t batchCount{1000};
+    uint32_t batchCount{miniBatchSize};
     uint64_t locRead{0};
     uint64_t locValidHits{0};
     uint32_t numConsumed{0};
@@ -1950,7 +1961,7 @@ void quantifyLibrary(
     auto jointLog = spdlog::get("jointLog");
 
     double logForgettingMass{std::log(1.0)};
-    double forgettingFactor{0.60};
+    //double forgettingFactor{0.60};
     bool initialRound{true};
     uint32_t roundNum{0};
 

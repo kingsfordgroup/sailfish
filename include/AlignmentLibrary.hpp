@@ -76,7 +76,8 @@ class AlignmentLibrary {
             // The alignment file existed, so create the alignment queue
             size_t numParseThreads = salmonOpts.numParseThreads;
             std::cerr << "parseThreads = " << numParseThreads << "\n";
-            bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(alnFiles, libFmt_, numParseThreads));
+            bq = std::unique_ptr<BAMQueue<FragT>>(new BAMQueue<FragT>(alnFiles, libFmt_, numParseThreads,
+                                                                      salmonOpts.mappingCacheMemoryLimit));
 
             std::cerr << "Checking that provided alignment files have consistent headers . . . ";
             if (! salmon::utils::headersAreConsistent(bq->headers()) ) {
@@ -142,7 +143,7 @@ class AlignmentLibrary {
         return *errMod_.get();
     }
 
-    inline tbb::concurrent_bounded_queue<FragT*>& fragmentQueue() {
+    inline tbb::concurrent_queue<FragT*>& fragmentQueue() {
         return bq->getFragmentQueue();
     }
 

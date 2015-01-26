@@ -187,7 +187,7 @@ namespace utils {
         if (isForward) {
             return LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::S);
         } else {
-            return LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::S);
+            return LibraryFormat(ReadType::SINGLE_END, ReadOrientation::NONE, ReadStrandedness::A);
         }
         // SHOULD NOT GET HERE
         fmt::print(stderr, "WARNING: Could not associate known library type with read!\n");

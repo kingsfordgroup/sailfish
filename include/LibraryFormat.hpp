@@ -11,6 +11,12 @@ enum class ReadStrandedness  : std::uint8_t { SA = 0, AS = 1, S = 2, A = 3, U = 
 class LibraryFormat {
 public:
     LibraryFormat(ReadType type_in, ReadOrientation orientation_in, ReadStrandedness strandedness_in);
+
+    LibraryFormat(const LibraryFormat& o) = default;
+    LibraryFormat(LibraryFormat&& o) = default;
+    LibraryFormat& operator=(LibraryFormat& o) = default;
+    LibraryFormat& operator=(LibraryFormat&& o) = default;
+
     ReadType type;
     ReadOrientation orientation;
     ReadStrandedness strandedness;
@@ -22,15 +28,16 @@ public:
     // The maximum index that could be returned for a library type
     constexpr static uint8_t maxLibTypeID() {
         return 0 |
-            ((0x01 & static_cast<uint8_t>(ReadType::PAIRED_END)) |
-             (0xB & static_cast<uint8_t>(ReadOrientation::NONE)) << 1 |
-             (0x6F & static_cast<uint8_t>(ReadStrandedness::U)) << 3);
+            ((static_cast<uint8_t>(ReadType::PAIRED_END)) |
+             (static_cast<uint8_t>(ReadOrientation::NONE)) << 1 |
+             (static_cast<uint8_t>(ReadStrandedness::U)) << 3);
     }
 
     inline static LibraryFormat formatFromID(uint8_t id) {
         ReadType rt;
         ReadOrientation ro;
         ReadStrandedness rs;
+
         switch (id & 0x01) {
             case 0:
                 rt = ReadType::SINGLE_END;
@@ -39,7 +46,8 @@ public:
                 rt = ReadType::PAIRED_END;
                 break;
         }
-        switch ((id >> 1) & 0xB) {
+
+        switch ((id >> 1) & 0x3) {
             case static_cast<uint8_t>(ReadOrientation::SAME):
                 ro = ReadOrientation::SAME;
                 break;
@@ -54,7 +62,7 @@ public:
                 break;
         }
 
-        switch ((id >> 3) & 0x6F) {
+        switch ((id >> 3) & 0x7) {
             case static_cast<uint8_t>(ReadStrandedness::SA):
                 rs = ReadStrandedness::SA;
                 break;
@@ -82,9 +90,9 @@ public:
         // mask: 00000001
         id |= (0x01 & static_cast<uint8_t>(type));
         // mask: 00000110
-        id |= (0xB & static_cast<uint8_t>(orientation)) << 1;
+        id |= (0x3 & static_cast<uint8_t>(orientation)) << 1;
         // mask: 00111000
-        id |= (0x6F & static_cast<uint8_t>(strandedness)) << 3;
+        id |= (0x7 &static_cast<uint8_t>(strandedness)) << 3;
         return id;
     }
 };

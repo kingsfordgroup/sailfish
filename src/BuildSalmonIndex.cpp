@@ -147,12 +147,14 @@ Salmon index if it exists, or creates a new index
 
         bfs::path outputPrefix = indexDirectory / "bwaidx";
 
-        std::vector<char*> bwaArgVec{ "index", "-p",
-                                    const_cast<char*>(outputPrefix.string().c_str()),
-                                    const_cast<char*>(transcriptFile.c_str()) };
+        std::vector<char const*> bwaArgVec{ "index", "-p",
+                                    outputPrefix.string().c_str(),
+                                    transcriptFile.c_str()};
 
-        char* bwaArgv[] = { bwaArgVec[0], bwaArgVec[1],
-                            bwaArgVec[2], bwaArgVec[3] };
+        char* bwaArgv[] = { const_cast<char*>(bwaArgVec[0]),
+                            const_cast<char*>(bwaArgVec[1]),
+                            const_cast<char*>(bwaArgVec[2]),
+                            const_cast<char*>(bwaArgVec[3]) };
         int bwaArgc = 4;
 
         ret = bwa_index(bwaArgc, bwaArgv);

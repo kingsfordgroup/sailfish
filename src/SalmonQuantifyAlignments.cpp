@@ -64,6 +64,8 @@ using sailfish::math::LOG_1;
 using sailfish::math::logAdd;
 using sailfish::math::logSub;
 
+constexpr uint32_t miniBatchSize{1000};
+
 template <typename FragT>
 using AlignmentBatch = std::vector<FragT>;
 
@@ -90,6 +92,7 @@ void scaleBy(std::vector<T>& vec, T scale) {
 template <typename FragT>
 void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                       MiniBatchQueue<AlignmentGroup<FragT*>>& workQueue,
+                      MiniBatchQueue<AlignmentGroup<FragT*>>* processedCache,
                       std::condition_variable& workAvailable,
                       std::mutex& cvmutex,
                       volatile bool& doneParsing,
@@ -115,6 +118,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
     auto& clusterForest = alnLib.clusterForest();
     auto& fragmentQueue = alnLib.fragmentQueue();
     auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
+
     auto& fragLengthDist = alnLib.fragmentLengthDistribution();
     auto& errMod = alnLib.errorModel();
 
@@ -239,6 +243,9 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         if (aln->logProb == LOG_0) { continue; }
                         aln->logProb -= sumOfAlignProbs;
 
+                        auto transcriptID = aln->transcriptID();
+                        refs[transcriptID].addMass(logForgettingMass + aln->logProb);
+
                         double r = uni(eng);
                         if (!burnedIn and r < std::exp(aln->logProb)) {
                             auto transcriptID = aln->transcriptID();
@@ -273,6 +280,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
             double individualTotal = LOG_0;
             {
+                /*
                 // M-step
                 for (auto kv = hitList.begin(); kv != hitList.end(); ++kv) {
                     auto transcriptID = kv->first;
@@ -309,10 +317,20 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
                    // unlock the target
                 } // end for
+                */
             } // end timer
 
-            miniBatch->release(fragmentQueue, alignmentGroupQueue);
-            delete miniBatch;
+            // If we're not keeping around a cache, then
+            // reclaim the memory for these fragments and alignments
+            // and delete the mini batch.
+            if (processedCache == nullptr) {
+                miniBatch->release(fragmentQueue, alignmentGroupQueue);
+                delete miniBatch;
+            } else {
+            // Otherwise, just put the mini-batch on the processed queue
+            // to be re-used in the next round.
+                processedCache->push(miniBatch);
+            }
             --activeBatches;
             processedReads += batchReads;
             if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
@@ -339,14 +357,21 @@ bool quantifyLibrary(
 
     auto& refs = alnLib.transcripts();
     size_t numTranscripts = refs.size();
-    size_t miniBatchSize{1000};
+    //size_t miniBatchSize{1000};
     size_t numObservedFragments{0};
 
     MiniBatchQueue<AlignmentGroup<FragT*>> workQueue;
+    MiniBatchQueue<AlignmentGroup<FragT*>>* workQueuePtr{&workQueue};
+    MiniBatchQueue<AlignmentGroup<FragT*>> processedCache;
+    MiniBatchQueue<AlignmentGroup<FragT*>>* processedCachePtr{nullptr};
+
     double logForgettingMass{std::log(1.0)};
     double forgettingFactor{0.60};
     size_t batchNum{0};
     bool initialRound{true};
+    bool haveCache{false};
+    bool doReset{true};
+    size_t maxCacheSize{salmonOpts.mappingCacheMemoryLimit};
 
     NullFragmentFilter<FragT>* nff = nullptr;
 
@@ -355,7 +380,29 @@ bool quantifyLibrary(
 
     while (numObservedFragments < numRequiredFragments) {
         if (!initialRound) {
-            if (!alnLib.reset(true, nff)) {
+
+            if (haveCache) {
+                MiniBatchInfo<AlignmentGroup<FragT*>>* mbi = nullptr;
+                while (!processedCache.empty()) {
+                    while (processedCache.try_pop(mbi)) {
+                        ++batchNum;
+                        if (batchNum > 1) {
+                            logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
+                                std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
+                        }
+                        mbi->logForgettingMass = logForgettingMass;
+                        workQueue.push(mbi);
+                    }
+                }
+                doReset = false;
+                fmt::print(stderr, "\n\n");
+            } else if (alnLib.numMappedReads() <= maxCacheSize) {
+                processedCachePtr = &processedCache;
+                doReset = true;
+                fmt::print(stderr, "\n");
+            }
+
+            if (doReset and !alnLib.reset(true, nff)) {
                 fmt::print(stderr,
                   "\n\n======== WARNING ========\n"
                   "A provided alignment file "
@@ -376,10 +423,12 @@ bool quantifyLibrary(
         std::vector<std::thread> workers;
         std::atomic<size_t> activeBatches{0};
         std::atomic<size_t> processedReads{0};
-        for (uint32_t i = 0; i < numQuantThreads; ++i) {
+        auto currentQuantThreads = (haveCache) ? numQuantThreads * 2 : numQuantThreads;
+        for (uint32_t i = 0; i < currentQuantThreads; ++i) {
             workers.emplace_back(processMiniBatch<FragT>,
                     std::ref(alnLib),
-                    std::ref(workQueue),
+                    std::ref(*workQueuePtr),
+                    processedCachePtr,
                     std::ref(workAvailable), std::ref(cvmutex),
                     std::ref(doneParsing), std::ref(activeBatches),
                     std::ref(salmonOpts),
@@ -388,52 +437,58 @@ bool quantifyLibrary(
                     std::ref(processedReads));
         }
 
-        size_t numProc{0};
+        if (!haveCache) {
+            size_t numProc{0};
 
-        BAMQueue<FragT>& bq = alnLib.getAlignmentGroupQueue();
-        std::vector<AlignmentGroup<FragT*>*>* alignments = new std::vector<AlignmentGroup<FragT*>*>;
-        alignments->reserve(miniBatchSize);
-        AlignmentGroup<FragT*>* ag;
+            BAMQueue<FragT>& bq = alnLib.getAlignmentGroupQueue();
+            std::vector<AlignmentGroup<FragT*>*>* alignments = new std::vector<AlignmentGroup<FragT*>*>;
+            alignments->reserve(miniBatchSize);
+            AlignmentGroup<FragT*>* ag;
 
-        bool alignmentGroupsRemain = bq.getAlignmentGroup(ag);
-        while (alignmentGroupsRemain or alignments->size() > 0) {
-            if (alignmentGroupsRemain) { alignments->push_back(ag); }
-            // If this minibatch has reached the size limit, or we have nothing
-            // left to fill it up with
-            if (alignments->size() >= miniBatchSize or !alignmentGroupsRemain) {
-                ++batchNum;
-                if (batchNum > 1) {
-                    logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
-                        std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
+            bool alignmentGroupsRemain = bq.getAlignmentGroup(ag);
+            while (alignmentGroupsRemain or alignments->size() > 0) {
+                if (alignmentGroupsRemain) { alignments->push_back(ag); }
+                // If this minibatch has reached the size limit, or we have nothing
+                // left to fill it up with
+                if (alignments->size() >= miniBatchSize or !alignmentGroupsRemain) {
+                    ++batchNum;
+                    if (batchNum > 1) {
+                        logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
+                            std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
+                    }
+                    MiniBatchInfo<AlignmentGroup<FragT*>>* mbi =
+                        new MiniBatchInfo<AlignmentGroup<FragT*>>(batchNum, alignments, logForgettingMass);
+                    workQueuePtr->push(mbi);
+                    {
+                        std::unique_lock<std::mutex> l(cvmutex);
+                        workAvailable.notify_one();
+                    }
+                    alignments = new std::vector<AlignmentGroup<FragT*>*>;
+                    alignments->reserve(miniBatchSize);
                 }
-                MiniBatchInfo<AlignmentGroup<FragT*>>* mbi =
-                    new MiniBatchInfo<AlignmentGroup<FragT*>>(batchNum, alignments, logForgettingMass);
-                workQueue.push(mbi);
-                {
-                    std::unique_lock<std::mutex> l(cvmutex);
-                    workAvailable.notify_one();
+
+                if ((numProc % 1000000 == 0) or !alignmentGroupsRemain) {
+                    fmt::print(stderr, "\r\r{}processed{} {} {}reads in current round{}",
+                            ioutils::SET_GREEN, ioutils::SET_RED, numProc,
+                            ioutils::SET_GREEN, ioutils::RESET_COLOR);
                 }
-                alignments = new std::vector<AlignmentGroup<FragT*>*>;
-                alignments->reserve(miniBatchSize);
+
+                ++numProc;
+                alignmentGroupsRemain = bq.getAlignmentGroup(ag);
             }
+            fmt::print(stderr, "\n");
 
-            if ((numProc % 1000000 == 0) or !alignmentGroupsRemain) {
-                fmt::print(stderr, "\r\r{}processed{} {} {}reads in current round{}",
-                           ioutils::SET_GREEN, ioutils::SET_RED, numProc,
-                           ioutils::SET_GREEN, ioutils::RESET_COLOR);
+            // Free the alignments and the vector holding them
+            if (processedCachePtr == nullptr) {
+                for (auto& aln : *alignments) {
+                    aln->alignments().clear();
+                    delete aln; aln = nullptr;
+                }
+                delete alignments;
             }
-
-            ++numProc;
-            alignmentGroupsRemain = bq.getAlignmentGroup(ag);
+        } else {
+            fmt::print(stderr, "\n");
         }
-        fmt::print(stderr, "\n");
-
-        // Free the alignments and the vector holding them
-        for (auto& aln : *alignments) {
-            aln->alignments().clear();
-            delete aln; aln = nullptr;
-        }
-        delete alignments;
 
         doneParsing = true;
 
@@ -443,7 +498,7 @@ bool quantifyLibrary(
           * --- Thanks for finding a dataset that exposes this bug, Richard (Smith-Unna)!
           */
         size_t t = 0;
-        while (!workQueue.empty()) {
+        while (!workQueuePtr->empty()) {
             std::unique_lock<std::mutex> l(cvmutex);
             workAvailable.notify_one();
         }
@@ -465,9 +520,31 @@ bool quantifyLibrary(
 
         fmt::print(stderr, "# observed = {} / # required = {}\033[A\033[A\033[A\033[A\033[A",
                    numObservedFragments, numRequiredFragments);
+
+        // If we're done our second pass and we've decided to use
+        // the in-memory cache, then activate it now.
+        if (!initialRound and processedCachePtr != nullptr) {
+            haveCache = true;
+        }
     }
 
     fmt::print(stderr, "\n\n\n\n");
+
+    // In this case, we have to give the structures held
+    // in the cache back to the appropriate queues
+    if (haveCache) {
+        auto& fragmentQueue = alnLib.fragmentQueue();
+        auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
+
+        MiniBatchInfo<AlignmentGroup<FragT*>>* mbi = nullptr;
+        while (!processedCache.empty()) {
+            while (processedCache.try_pop(mbi)) {
+                mbi->release(fragmentQueue, alignmentGroupQueue);
+                delete mbi;
+            }
+        }
+    }
+
     return burnedIn;
     // Write the inferred fragment length distribution
     /*
@@ -538,6 +615,10 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "Learn and apply an error model for the aligned reads.  This takes into account the "
                         "the observed frequency of different types of mismatches when computing the likelihood of "
                         "a given alignment.")
+    ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(5000000), "If the file contained fewer than this "
+                                        "many mapped reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
+                                        "not be too large if you wish to keep a low memory usage, but setting it large enough to accommodate all of the mapped "
+                                        "read can substantially speed up inference on \"small\" files that contain only a few million reads.")
     ("maxReadLen,r", po::value<uint32_t>(&(sopt.maxExpectedReadLen))->default_value(250), "The maximum expected length of an observed read.  "
                         "This is used to determine the size of the error model.  If a read longer than this is "
                         "encountered, then the error model will be disabled")
