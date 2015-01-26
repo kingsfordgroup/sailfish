@@ -333,7 +333,10 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
             }
             --activeBatches;
             processedReads += batchReads;
-            if (processedReads >= 5000000 and !burnedIn) { burnedIn = true; }
+            if (processedReads >= 5000000 and !burnedIn) {
+                burnedIn = true;
+                fragLengthDist.cacheCMF();
+            }
         }
         miniBatch = nullptr;
     } // nothing left to process
@@ -368,6 +371,7 @@ bool quantifyLibrary(
     double logForgettingMass{std::log(1.0)};
     double forgettingFactor{0.60};
     size_t batchNum{0};
+    std::atomic<size_t> totalProcessedReads{0};
     bool initialRound{true};
     bool haveCache{false};
     bool doReset{true};
@@ -422,7 +426,6 @@ bool quantifyLibrary(
         std::mutex cvmutex;
         std::vector<std::thread> workers;
         std::atomic<size_t> activeBatches{0};
-        std::atomic<size_t> processedReads{0};
         auto currentQuantThreads = (haveCache) ? numQuantThreads * 2 : numQuantThreads;
         for (uint32_t i = 0; i < currentQuantThreads; ++i) {
             workers.emplace_back(processMiniBatch<FragT>,
@@ -434,7 +437,7 @@ bool quantifyLibrary(
                     std::ref(salmonOpts),
                     std::ref(burnedIn),
                     initialRound,
-                    std::ref(processedReads));
+                    std::ref(totalProcessedReads));
         }
 
         if (!haveCache) {

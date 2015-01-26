@@ -23,6 +23,8 @@ FragmentLengthDistribution::FragmentLengthDistribution(double alpha, size_t max_
                                        size_t kernel_n, double kernel_p,
                                        size_t bin_size)
     : hist_(max_val/bin_size+1),
+      cachedCMF_(hist_.size()),
+      haveCachedCMF_(false),
       totMass_(sailfish::math::LOG_0),
       sum_(sailfish::math::LOG_0),
       min_(max_val/bin_size),
@@ -133,16 +135,28 @@ double FragmentLengthDistribution::pmf(size_t len) const {
 }
 
 double FragmentLengthDistribution::cmf(size_t len) const {
-    double cum = sailfish::math::LOG_0;
-    len /= binSize_;
-    if (len > maxVal()) {
-        len = maxVal();
-    }
+    if(haveCachedCMF_) {
+        return cachedCMF_[len];
+    } else {
+        double cum = sailfish::math::LOG_0;
+        len /= binSize_;
+        if (len > maxVal()) {
+            len = maxVal();
+        }
 
-    for (size_t i = 0; i <= len; ++i) {
-        cum = sailfish::math::logAdd(cum, hist_[i]);
+        for (size_t i = 0; i <= len; ++i) {
+            cum = sailfish::math::logAdd(cum, hist_[i]);
+        }
+        return cum - totMass_;
     }
-    return cum - totMass_;
+}
+
+void FragmentLengthDistribution::cacheCMF() {
+    std::lock_guard<std::mutex> lg(fldMut_);
+    if (!haveCachedCMF_) {
+        cachedCMF_ = cmf();
+        haveCachedCMF_ = true;
+    }
 }
 
 vector<double> FragmentLengthDistribution::cmf() const {

@@ -14,6 +14,7 @@
 #include <atomic>
 #include <vector>
 #include <string>
+#include <mutex>
 
 /**
  * The LengthDistribution class keeps track of the observed length distribution.
@@ -31,6 +32,14 @@ class FragmentLengthDistribution {
    * A private vector that stores the observed (logged) mass for each length.
    */
     std::vector<tbb::atomic<double>> hist_;
+
+   /**
+   * A private vector that stores the observed (logged) mass for each length.
+   */
+    std::vector<double> cachedCMF_;
+    volatile bool haveCachedCMF_;
+    std::mutex fldMut_;
+
   /**
    * A private double that stores the total observed (logged) mass.
    */
@@ -103,6 +112,15 @@ public:
    * @return (Logged) cmf value of length.
    */
   double cmf(size_t len) const;
+
+  /**
+    * A member function that caches the cumulative mass function into
+    * a vector.  This should be called (once), when the fld will no
+    * longer be updated.  It will make future calls to cmf(len)
+    * much faster.
+    */
+  void cacheCMF();
+
   /**
    * A member function that returns a vector containing the (logged) cumulative
    * mass function *for the bins*.

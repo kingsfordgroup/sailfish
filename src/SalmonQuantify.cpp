@@ -1957,6 +1957,9 @@ void quantifyLibrary(
     // The *total* number of fragments observed so far (over all passes through the data).
     std::atomic<uint64_t> numObservedFragments{0};
     uint64_t prevNumObservedFragments{0};
+    // The *total* number of fragments assigned so far (over all passes through the data).
+    std::atomic<uint64_t> totalAssignedFragments{0};
+    uint64_t prevNumAssignedFragments{0};
 
     auto jointLog = spdlog::get("jointLog");
 
@@ -2045,11 +2048,14 @@ void quantifyLibrary(
                 }
 
                 processReadLibrary(rl, idx, transcripts, clusterForest,
-                        numObservedFragments, numAssignedFragments, batchNum,
+                        numObservedFragments, totalAssignedFragments, batchNum,
                         initialRound, burnedIn, logForgettingMass, ffMutex, fragLengthDist,
                         memOptions, salmonOpts, coverageThresh, greedyChain,
                         ioMutex, numQuantThreads,
                         groupCache, outputGroups, writeToCache);
+
+                numAssignedFragments = totalAssignedFragments - prevNumAssignedFragments;
+                prevNumAssignedFragments = totalAssignedFragments;
 
                 // join the thread the writes the file
                 writeToCache = false;
@@ -2085,13 +2091,16 @@ void quantifyLibrary(
                         //groupCache, alnGroupQueue,
                         *(cf.processed.get()),
                         *(cf.toProcess.get()),
-                        numObservedFragments, numAssignedFragments,
+                        numObservedFragments, totalAssignedFragments,
                         transcripts, batchNum, logForgettingMass,
                         ffMutex, clusterForest, fragLengthDist,
                         salmonOpts, ioMutex, initialRound, finishedParsing,
                         burnedIn, numQuantThreads);
 
                 cf.flushCache();
+
+                numAssignedFragments = totalAssignedFragments - prevNumAssignedFragments;
+                prevNumAssignedFragments = totalAssignedFragments;
             };
 
             // Process all of the reads
