@@ -254,7 +254,6 @@ namespace salmon {
         template <typename FragT>
         bool sampleLibrary(
                     AlignmentLibrary<FragT>& alnLib,
-                    uint32_t numQuantThreads,
                     const SalmonOpts& salmonOpts,
                     bool burnedIn,
                     bfs::path& sampleFilePath,
@@ -316,7 +315,7 @@ namespace salmon {
                 std::atomic<size_t> processedReads{0};
 
                 size_t numProc{0};
-                for (uint32_t i = 0; i < numQuantThreads; ++i) {
+                for (uint32_t i = 0; i < salmonOpts.numQuantThreads; ++i) {
                     workers.emplace_back(sampleMiniBatch<FragT>,
                             std::ref(alnLib),
                             std::ref(workQueue),

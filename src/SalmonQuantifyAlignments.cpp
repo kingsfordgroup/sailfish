@@ -353,7 +353,6 @@ template <typename FragT>
 bool quantifyLibrary(
         AlignmentLibrary<FragT>& alnLib,
         size_t numRequiredFragments,
-        uint32_t numQuantThreads,
         const SalmonOpts& salmonOpts) {
 
     bool burnedIn{false};
@@ -426,7 +425,10 @@ bool quantifyLibrary(
         std::mutex cvmutex;
         std::vector<std::thread> workers;
         std::atomic<size_t> activeBatches{0};
-        auto currentQuantThreads = (haveCache) ? numQuantThreads * 2 : numQuantThreads;
+        auto currentQuantThreads = (haveCache) ?
+                                   salmonOpts.numQuantThreads + salmonOpts.numParseThreads :
+                                   salmonOpts.numQuantThreads;
+
         for (uint32_t i = 0; i < currentQuantThreads; ++i) {
             workers.emplace_back(processMiniBatch<FragT>,
                     std::ref(alnLib),
@@ -809,12 +811,12 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                                           transcriptFile,
                                                           libFmt,
                                                           sopt);
-                    bool burnedIn = quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, numQuantThreads, sopt);
+                    bool burnedIn = quantifyLibrary<UnpairedRead>(alnLib, requiredObservations, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(sopt, alnLib, outputFile, commentString);
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
-                        bool didSample = salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
+                        bool didSample = salmon::sampler::sampleLibrary<UnpairedRead>(alnLib, sopt, burnedIn, sampleFilePath, sampleUnaligned);
                         if (!didSample) {
                             jointLog->warn("There may have been a problem generating the sampled output file; please check the log\n");
                         }
@@ -827,7 +829,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                                       transcriptFile,
                                                       libFmt,
                                                       sopt);
-                    bool burnedIn = quantifyLibrary<ReadPair>(alnLib, requiredObservations, numQuantThreads, sopt);
+                    bool burnedIn = quantifyLibrary<ReadPair>(alnLib, requiredObservations, sopt);
                     fmt::print(stderr, "\n\nwriting output \n");
                     salmon::utils::writeAbundances(sopt, alnLib, outputFile, commentString);
 
@@ -842,7 +844,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
                     if (sampleOutput) {
                         bfs::path sampleFilePath = outputDirectory / "postSample.bam";
-                        bool didSample = salmon::sampler::sampleLibrary<ReadPair>(alnLib, numQuantThreads, sopt, burnedIn, sampleFilePath, sampleUnaligned);
+                        bool didSample = salmon::sampler::sampleLibrary<ReadPair>(alnLib, sopt, burnedIn, sampleFilePath, sampleUnaligned);
                         if (!didSample) {
                             jointLog->warn("There may have been a problem generating the sampled output file; please check the log\n");
                         }
