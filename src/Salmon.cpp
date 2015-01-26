@@ -21,7 +21,6 @@
 
 
 #include <boost/thread/thread.hpp>
-#include <boost/lockfree/queue.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -34,13 +33,8 @@
 #include <memory>
 #include <functional>
 #include <unordered_map>
-#include <mutex>
 #include <thread>
-#include <chrono>
-#include <iomanip>
 
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/range/irange.hpp>
@@ -49,8 +43,6 @@
 #include "BiasIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
-#include "CountDBNew.hpp"
-#include "CollapsedIterativeOptimizer.hpp"
 #include "SalmonConfig.hpp"
 #include "VersionChecker.hpp"
 
