@@ -381,23 +381,36 @@ void processMiniBatch(
                     }
 
                     double logFragProb = (salmonOpts.noFragLengthDist) ?
-                                         LOG_1 :
-                                         ((aln.fragLength() > 0) ? fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) : LOG_1);
+                        LOG_1 :
+                        ((aln.fragLength() > 0) ? fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) : LOG_1);
+                    // TODO: Take the fragment length distribution into account
+                    // for single-end fragments as in the alignment-based code below
+                    /*
+                    if (!salmonOpts.noFragLengthDist) {
+                        if(aln->fragLen() == 0) {
+                            if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
+                                logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
+                            } else if (aln->isRight() and aln->right() < fragLengthDist.maxVal()) {
+                                logFragProb = fragLengthDist.cmf(aln->right());
+                            }
+                        } else {
+                            logFragProb = fragLengthDist.pmf(static_cast<size_t>(aln->fragLen()));
+                        }
+                    }
+                    */
+
                     // The probability that the fragments align to the given strands in the
                     // given orientations.
                     double logAlignCompatProb = (salmonOpts.useReadCompat) ?
                                                 (logAlignFormatProb(aln.libFormat(), expectedLibraryFormat)) :
                                                 LOG_1;
+
                     // Increment the count of this type of read that we've seen
                     ++libTypeCounts[aln.libFormat().formatID()];
 
-                    //aln.logProb = std::log(aln.kmerCount) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
-                    //aln.logProb = std::log(std::pow(aln.kmerCount,2.0)) + (transcriptLogCount - logRefLength);// + qualProb + errLike;
                     aln.logProb = (transcriptLogCount - logRefLength) + logFragProb + logAlignCompatProb;// + qualProb + errLike;
 
                     sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
-                    //std::cerr << "logAlignCompatProb = " << logAlignCompatProb << "\n";
-                    //std::cerr << "sumOfAlignProbs = " << sumOfAlignProbs << "\n";
 
                     if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
                         if (updateCounts) { transcripts[transcriptID].addTotalCount(1); }
@@ -415,7 +428,6 @@ void processMiniBatch(
                 continue;
             } else { // otherwise, count it as assigned
                 ++localNumAssignedFragments;
-                //std::cerr << "assigned = true\n";
             }
 
             // normalize the hits
