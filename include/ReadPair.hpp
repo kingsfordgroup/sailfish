@@ -13,6 +13,7 @@ struct ReadPair {
     bam_seq_t* read2 = nullptr;
     salmon::utils::OrphanStatus orphanStatus;
     double logProb;
+    LibraryFormat libFmt{ReadType::PAIRED_END, ReadOrientation::NONE, ReadStrandedness::U};
 
     ReadPair():
         read1(staden::utils::bam_init()),
@@ -20,14 +21,17 @@ struct ReadPair {
         orphanStatus(salmon::utils::OrphanStatus::Paired),
         logProb(sailfish::math::LOG_0) {}
 
-    ReadPair(bam_seq_t* r1, bam_seq_t* r2, salmon::utils::OrphanStatus os, double lp) :
-        read1(r1), read2(r2), orphanStatus(os), logProb(lp) {}
+    ReadPair(bam_seq_t* r1, bam_seq_t* r2, salmon::utils::OrphanStatus os, double lp,
+             LibraryFormat lf) :
+        read1(r1), read2(r2), orphanStatus(os), logProb(lp),
+        libFmt(lf){}
 
     ReadPair(ReadPair&& other) {
         orphanStatus = other.orphanStatus;
         logProb = other.logProb;
         std::swap(read1, other.read1);
         std::swap(read2, other.read2);
+        libFmt = other.libFmt;
     }
 
     ReadPair& operator=(ReadPair&& other) {
@@ -35,16 +39,17 @@ struct ReadPair {
         logProb = other.logProb;
         std::swap(read1, other.read1);
         std::swap(read2, other.read2);
+        libFmt = other.libFmt;
         return *this;
     }
 
 
-   ReadPair(const ReadPair& other) = default;
+   ReadPair(ReadPair& other) = default;
 
-   ReadPair& operator=(const ReadPair& other) = default;
+   ReadPair& operator=(ReadPair& other) = default;
 
    ReadPair* clone() {
-       return new ReadPair(bam_dup(read1), bam_dup(read2), orphanStatus, logProb);
+       return new ReadPair(bam_dup(read1), bam_dup(read2), orphanStatus, logProb, libFmt);
    }
 
     ~ReadPair() {
@@ -52,6 +57,7 @@ struct ReadPair {
         staden::utils::bam_destroy(read2);
     }
 
+    inline LibraryFormat& libFormat() { return libFmt; }
     inline bool isPaired() const { return (orphanStatus == salmon::utils::OrphanStatus::Paired); }
     inline bool isLeftOrphan() const { return (orphanStatus == salmon::utils::OrphanStatus::LeftOrphan); }
     inline bool isRightOrphan() const { return (orphanStatus == salmon::utils::OrphanStatus::RightOrphan); }
@@ -73,7 +79,12 @@ struct ReadPair {
     }
 
     inline uint32_t getNameLength() {
-        return bam_name_len(read1);
+        uint32_t l = bam_name_len(read1);
+        char* r = getName();
+        if ( l > 2  and r[l-2] == '/') {
+            return l-2;
+        }
+        return l;//bam_name_len(read1);
     }
 
     inline uint32_t fragLen() {
@@ -112,11 +123,14 @@ struct ReadPair {
     inline int32_t transcriptID() { return bam_ref(read1); }
 
     inline double logQualProb() {
+        return sailfish::math::LOG_1;
+        /*
         double q1 = bam_map_qual(read1);
         double q2 = bam_map_qual(read2);
         double logP1 = (q1 == 255) ? sailfish::math::LOG_1 : std::log(std::pow(10.0, -q1 * 0.1));
         double logP2 = (q2 == 255) ? sailfish::math::LOG_1 : std::log(std::pow(10.0, -q2 * 0.1));
         return logP1 + logP2;
+        */
     }
 };
 

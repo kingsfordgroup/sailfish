@@ -49,6 +49,53 @@ namespace utils {
     }
 
 
+    std::ostream& operator<<(std::ostream& os, OrphanStatus s) {
+        switch (s) {
+            case OrphanStatus::LeftOrphan:
+                os << "left orphan";
+                break;
+            case OrphanStatus::RightOrphan:
+                os << "right orphan";
+                break;
+            case OrphanStatus::Paired:
+                os << "paired";
+                break;
+        }
+        return os;
+    }
+
+    double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected, double incompatPrior) {
+        // Allow orphaned reads in a paired-end library, but
+        // decrease their a priori probability.
+        if (expected.type == ReadType::PAIRED_END and
+            observed.type == ReadType::SINGLE_END) {
+            double logOrphanProb = sailfish::math::LOG_ORPHAN_PROB;
+            if (expected.strandedness == ReadStrandedness::U or
+                expected.strandedness == ReadStrandedness::AS or
+                expected.strandedness == ReadStrandedness::SA) {
+                return sailfish::math::LOG_1;
+            } else {
+                return (expected.strandedness == observed.strandedness) ? logOrphanProb : incompatPrior;
+            }
+        } else if (observed.type != expected.type or
+            observed.orientation != expected.orientation ) {
+            return incompatPrior;
+        } else {
+            if (expected.strandedness == ReadStrandedness::U) {
+                return sailfish::math::LOG_ONEHALF;
+            } else {
+                if (expected.strandedness == observed.strandedness) {
+                    return sailfish::math::LOG_1;
+                } else {
+                    return incompatPrior;
+                }
+            }
+        }
+
+        fmt::print(stderr, "WARNING: logAlignFormatProb --- should not get here");
+        return sailfish::math::LOG_0;
+    }
+
     template <typename ExpLib>
     void writeAbundances(const SalmonOpts& sopt,
                          ExpLib& alnLib,
@@ -115,7 +162,7 @@ namespace utils {
             double refLength = sopt.noEffectiveLengthCorrection ?
                                transcript.RefLength :
                                std::exp(transcript.getCachedEffectiveLength());
-            refLength = transcript.RefLength;
+            //refLength = transcript.RefLength;
             tfracDenom += (transcript.projectedCounts / numMappedReads) / refLength;
         }
 
@@ -124,7 +171,7 @@ namespace utils {
             double logLength = sopt.noEffectiveLengthCorrection ?
                                std::log(transcript.RefLength) :
                                transcript.getCachedEffectiveLength();
-            logLength = std::log(transcript.RefLength);
+            //logLength = std::log(transcript.RefLength);
             double fpkmFactor = std::exp(logBillion - logLength - logNumFragments);
             double count = transcript.projectedCounts;
             //double countTotal = transcripts_[transcriptID].totalCounts;

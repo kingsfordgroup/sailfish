@@ -433,10 +433,10 @@ message("Build system will fetch SPDLOG")
 message("==================================================================")
 ExternalProject_Add(libspdlog
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/spdlog/archive/v1.3.tar.gz -o spdlog-v1.3.tar.gz &&
-                     tar -xzf spdlog-v1.3.tar.gz &&
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/spdlog/archive/v1.4.tar.gz -o spdlog-v1.4.tar.gz &&
+                     tar -xzf spdlog-v1.4.tar.gz &&
                      rm -fr spdlog &&
-                     mv -f  spdlog-1.3 spdlog
+                     mv -f  spdlog-1.4 spdlog
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/spdlog
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""

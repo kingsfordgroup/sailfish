@@ -48,6 +48,7 @@ extern "C" {
 #include "Transcript.hpp"
 #include "ReadPair.hpp"
 #include "ErrorModel.hpp"
+#include "AlignmentModel.hpp"
 #include "FragmentLengthDistribution.hpp"
 #include "TranscriptCluster.hpp"
 #include "SailfishUtils.hpp"
@@ -103,7 +104,9 @@ namespace salmon {
                 auto& fragmentQueue = alnLib.fragmentQueue();
                 auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
                 auto& fragLengthDist = alnLib.fragmentLengthDistribution();
-                auto& errMod = alnLib.errorModel();
+                auto& errMod = alnLib.alignmentModel();
+
+                const auto expectedLibraryFormat = alnLib.format();
 
                 std::chrono::microseconds sleepTime(1);
                 MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch = nullptr;
@@ -173,9 +176,13 @@ namespace salmon {
                                     // term below which is P(Q_1) * P(Q_2) * P(F | T)
                                     double logRefLength = std::log(refLength);
 
+                                    double logAlignCompatProb = (salmonOpts.useReadCompat) ?
+                                        (salmon::utils::logAlignFormatProb(aln->libFormat(), expectedLibraryFormat, salmonOpts.incompatPrior)) :
+                                        LOG_1;
+
                                     // P(Fn | Tn) = Probability of selecting a fragment of this length, given the transcript is t
                                     // d(Fn) / sum_x = 1^{lt} d(x)
-                                    double qualProb = -logRefLength + logFragProb + aln->logQualProb();
+                                    double qualProb = -logRefLength + logFragProb + aln->logQualProb() + logAlignCompatProb;
                                     double transcriptLogCount = transcript.mass(false);
 
                                     if ( transcriptLogCount != LOG_0 ) {
@@ -195,8 +202,8 @@ namespace salmon {
                                 // normalize the hits
                                 if (sumOfAlignProbs == LOG_0) {
                                     auto aln = alnGroup->alignments().front();
-                                    log->warn("0 probability fragment [{}];"
-                                              "length = [{}]; skipping\n", aln->getName(), aln->fragLen());
+                                    log->warn("0 probability fragment [{}] "
+                                              "encountered\n", aln->getName());
                                     continue;
                                 }
 
@@ -345,27 +352,29 @@ namespace salmon {
                             }
 
                             FragT* aln{nullptr};
-                            while (outQueue.try_pop(aln) or !consumedAllInput) {
-                                if (aln != nullptr) {
-                                    int ret = aln->writeToFile(bf);
-                                    if (ret != 0) {
-                                        std::cerr << "ret = " << ret << "\n";
-                                        fmt::MemoryWriter errstr;
-                                        errstr << ioutils::SET_RED << "ERROR:"
-                                               << ioutils::RESET_COLOR << "Could not write "
-                                               << "a sampled alignment to the output BAM "
-                                               << "file. Please check that the file can "
-                                               << "be created properly and that the disk "
-                                               << "is not full.  Exiting.\n";
-                                        log->warn() << errstr.str();
-                                        std::exit(-1);
-                                     }
-                                    // Eventually, as we do in BAMQueue, we should
-                                    // have queue of bam1_t structures that can be
-                                    // re-used rather than continually calling
-                                    // new and delete.
-                                    delete aln;
-                                    aln = nullptr;
+                            while (!outQueue.empty() or !consumedAllInput) {
+                                while (outQueue.try_pop(aln)) {
+                                    if (aln != nullptr) {
+                                        int ret = aln->writeToFile(bf);
+                                        if (ret != 0) {
+                                            std::cerr << "ret = " << ret << "\n";
+                                            fmt::MemoryWriter errstr;
+                                            errstr << ioutils::SET_RED << "ERROR:"
+                                                << ioutils::RESET_COLOR << "Could not write "
+                                                << "a sampled alignment to the output BAM "
+                                                << "file. Please check that the file can "
+                                                << "be created properly and that the disk "
+                                                << "is not full.  Exiting.\n";
+                                            log->warn() << errstr.str();
+                                            std::exit(-1);
+                                        }
+                                        // Eventually, as we do in BAMQueue, we should
+                                        // have queue of bam1_t structures that can be
+                                        // re-used rather than continually calling
+                                        // new and delete.
+                                        delete aln;
+                                        aln = nullptr;
+                                    }
                                 }
                             }
 
@@ -378,9 +387,13 @@ namespace salmon {
                 std::vector<AlignmentGroup<FragT*>*>* alignments = new std::vector<AlignmentGroup<FragT*>*>;
                 alignments->reserve(miniBatchSize);
                 AlignmentGroup<FragT*>* ag;
-                while (bq.getAlignmentGroup(ag)) {
-                    alignments->push_back(ag);
-                    if (alignments->size() >= miniBatchSize) {
+
+                bool alignmentGroupsRemain = bq.getAlignmentGroup(ag);
+                while (alignmentGroupsRemain or alignments->size() > 0) {
+                    if (alignmentGroupsRemain) { alignments->push_back(ag); }
+                    // If this minibatch has reached the size limit, or we have nothing
+                    // left to fill it up with
+                    if (alignments->size() >= miniBatchSize or !alignmentGroupsRemain) {
                         // Don't need to update the batch number or log forgetting mass in this phase
                         MiniBatchInfo<AlignmentGroup<FragT*>>* mbi =
                             new MiniBatchInfo<AlignmentGroup<FragT*>>(batchNum, alignments, logForgettingMass);
@@ -401,8 +414,9 @@ namespace salmon {
                         fmt::print(stderr, "\r\r{}processed{} {} {}reads{}", green, red, numProc, green, RESET_COLOR);
                     }
                     ++numProc;
+                    alignmentGroupsRemain = bq.getAlignmentGroup(ag);
+
                 }
-                consumedAllInput = true;
                 std::cerr << "\n";
 
                 // Free the alignments and the vector holding them
@@ -436,6 +450,7 @@ namespace salmon {
                     fmt::print(stderr, "done\r\r");
                 }
                 fmt::print(stderr, "\n");
+                consumedAllInput = true;
 
                 numObservedFragments += alnLib.numMappedReads();
                 fmt::print(stderr, "# observed = {} mapped fragments.\033[F\033[F\033[F\033[F",

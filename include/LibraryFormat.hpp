@@ -20,6 +20,7 @@ public:
     ReadType type;
     ReadOrientation orientation;
     ReadStrandedness strandedness;
+
     /**
      * Returns true if the specified library format is OK, false otherwise.
      */

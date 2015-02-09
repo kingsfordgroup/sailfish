@@ -107,6 +107,7 @@ extern "C" {
 
 #include "AlignmentGroup.hpp"
 #include "PairSequenceParser.hpp"
+#include "ForgettingMassCalculator.hpp"
 #include "FragmentLengthDistribution.hpp"
 #include "ReadExperiment.hpp"
 #include "SalmonOpts.hpp"
@@ -266,27 +267,6 @@ class SMEMAlignment {
 
 using AlnGroupQueue = moodycamel::ConcurrentQueue<AlignmentGroup<SMEMAlignment>*>;
 
-inline double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected) {
-
-    if (observed.type != expected.type or
-        observed.orientation != expected.orientation ) {
-        return sailfish::math::LOG_0;
-    } else {
-        if (expected.strandedness == ReadStrandedness::U) {
-            return sailfish::math::LOG_ONEHALF;
-        } else {
-            if (expected.strandedness == observed.strandedness) {
-                return sailfish::math::LOG_1;
-            } else {
-                return sailfish::math::LOG_0;
-            }
-        }
-    }
-
-    fmt::print(stderr, "WARNING: logAlignFormatProb --- should not get here");
-    return sailfish::math::LOG_0;
-}
-
 void processMiniBatch(
         double logForgettingMass,
         ReadLibrary& readLib,
@@ -402,7 +382,7 @@ void processMiniBatch(
                     // The probability that the fragments align to the given strands in the
                     // given orientations.
                     double logAlignCompatProb = (salmonOpts.useReadCompat) ?
-                                                (logAlignFormatProb(aln.libFormat(), expectedLibraryFormat)) :
+                                                (salmon::utils::logAlignFormatProb(aln.libFormat(), expectedLibraryFormat, salmonOpts.incompatPrior)) :
                                                 LOG_1;
 
                     // Increment the count of this type of read that we've seen
@@ -424,7 +404,8 @@ void processMiniBatch(
             // If this fragment has a zero probability,
             // go to the next one
             if (sumOfAlignProbs == LOG_0) {
-                log->warn("0 probability fragment; skipping");
+                log->warn("0 probability fragment encountered; "
+                          "skipping\n");
                 continue;
             } else { // otherwise, count it as assigned
                 ++localNumAssignedFragments;
@@ -1349,9 +1330,7 @@ void processReadsMEM(ParserT* parser,
                std::atomic<uint64_t>& validHits,
                bwaidx_t *idx,
                std::vector<Transcript>& transcripts,
-               std::atomic<uint64_t>& batchNum,
-               double& logForgettingMass,
-               std::mutex& ffMutex,
+               ForgettingMassCalculator& fmCalc,
                ClusterForest& clusterForest,
                FragmentLengthDistribution& fragLengthDist,
                mem_opt_t* memOptions,
@@ -1362,8 +1341,6 @@ void processReadsMEM(ParserT* parser,
                bool& burnedIn,
                volatile bool& writeToCache) {
   uint64_t count_fwd = 0, count_bwd = 0;
-
-  double forgettingFactor{0.60};
 
   // Seed with a real random value, if available
   std::random_device rd;
@@ -1429,13 +1406,7 @@ void processReadsMEM(ParserT* parser,
 
     } // end for i < j->nb_filled
 
-    auto oldBatchNum = batchNum++;
-    if (oldBatchNum > 1) {
-        ffMutex.lock();
-        logForgettingMass += forgettingFactor * std::log(static_cast<double>(oldBatchNum-1)) -
-        std::log(std::pow(static_cast<double>(oldBatchNum), forgettingFactor) - 1);
-        ffMutex.unlock();
-    }
+    double logForgettingMass = fmCalc();
 
     prevObservedFrags = numObservedFragments;
     processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
@@ -1462,9 +1433,7 @@ void processCachedAlignmentsHelper(
         std::atomic<uint64_t>& numAssignedFragments,
         std::atomic<uint64_t>& validHits,
         std::vector<Transcript>& transcripts,
-        std::atomic<uint64_t>& batchNum,
-        double& logForgettingMass,
-        std::mutex& ffMutex,
+        ForgettingMassCalculator& fmCalc,
         ClusterForest& clusterForest,
         FragmentLengthDistribution& fragLengthDist,
         const SalmonOpts& salmonOpts,
@@ -1472,8 +1441,6 @@ void processCachedAlignmentsHelper(
         bool initialRound,
         volatile bool& cacheExhausted,
         bool& burnedIn) {
-
-    double forgettingFactor{0.60};
 
     // Seed with a real random value, if available
     std::random_device rd;
@@ -1540,13 +1507,7 @@ void processCachedAlignmentsHelper(
             iomutex.unlock();
         }
 
-        auto oldBatchNum = batchNum++;
-        if (oldBatchNum > 1) {
-            ffMutex.lock();
-            logForgettingMass += forgettingFactor * std::log(static_cast<double>(oldBatchNum-1)) -
-                std::log(std::pow(static_cast<double>(oldBatchNum), forgettingFactor) - 1);
-            ffMutex.unlock();
-        }
+        double logForgettingMass = fmCalc();
 
         processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
                 fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
@@ -1583,9 +1544,7 @@ void processCachedAlignments(
         std::atomic<uint64_t>& numObservedFragments,
         std::atomic<uint64_t>& numAssignedFragments,
         std::vector<Transcript>& transcripts,
-        std::atomic<uint64_t>& batchNum,
-        double& logForgettingMass,
-        std::mutex& ffMutex,
+        ForgettingMassCalculator& fmCalc,
         ClusterForest& clusterForest,
         FragmentLengthDistribution& fragLengthDist,
         const SalmonOpts& salmonOpts,
@@ -1607,9 +1566,7 @@ void processCachedAlignments(
                         std::ref(numAssignedFragments),
                         std::ref(numValidHits),
                         std::ref(transcripts),
-                        std::ref(batchNum),
-                        std::ref(logForgettingMass),
-                        std::ref(ffMutex),
+                        std::ref(fmCalc),
                         std::ref(clusterForest),
                         std::ref(fragLengthDist),
                         std::ref(salmonOpts),
@@ -1629,11 +1586,9 @@ void processReadLibrary(
         ClusterForest& clusterForest,
         std::atomic<uint64_t>& numObservedFragments, // total number of reads we've looked at
         std::atomic<uint64_t>& numAssignedFragments, // total number of assigned reads
-        std::atomic<uint64_t>& batchNum,
         bool initialRound,
         bool& burnedIn,
-        double& logForgettingMass,
-        std::mutex& ffMutex,
+        ForgettingMassCalculator& fmCalc,
         FragmentLengthDistribution& fragLengthDist,
         mem_opt_t* memOptions,
         const SalmonOpts& salmonOpts,
@@ -1674,9 +1629,7 @@ void processReadLibrary(
                                     numValidHits,
                                     idx,
                                     transcripts,
-                                    batchNum,
-                                    logForgettingMass,
-                                    ffMutex,
+                                    fmCalc,
                                     clusterForest,
                                     fragLengthDist,
                                     memOptions,
@@ -1742,9 +1695,7 @@ void processReadLibrary(
                                     numValidHits,
                                     idx,
                                     transcripts,
-                                    batchNum,
-                                    logForgettingMass,
-                                    ffMutex,
+                                    fmCalc,
                                     clusterForest,
                                     fragLengthDist,
                                     memOptions,
@@ -1975,8 +1926,7 @@ void quantifyLibrary(
 
     auto jointLog = spdlog::get("jointLog");
 
-    double logForgettingMass{std::log(1.0)};
-    //double forgettingFactor{0.60};
+    ForgettingMassCalculator fmCalc(salmonOpts.forgettingFactor);
     bool initialRound{true};
     uint32_t roundNum{0};
 
@@ -2035,8 +1985,7 @@ void quantifyLibrary(
                     std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
                     FragmentLengthDistribution& fragLengthDist,
                     std::atomic<uint64_t>& numAssignedFragments,
-                    std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
-                    bool& burnedIn) -> void  {
+                    size_t numQuantThreads, bool& burnedIn) -> void  {
 
                 // The file where the alignment cache was / will be written
                 fmt::MemoryWriter fname;
@@ -2060,8 +2009,8 @@ void quantifyLibrary(
                 }
 
                 processReadLibrary(rl, idx, transcripts, clusterForest,
-                        numObservedFragments, totalAssignedFragments, batchNum,
-                        initialRound, burnedIn, logForgettingMass, ffMutex, fragLengthDist,
+                        numObservedFragments, totalAssignedFragments,
+                        initialRound, burnedIn, fmCalc, fragLengthDist,
                         memOptions, salmonOpts, coverageThresh, greedyChain,
                         ioMutex, numQuantThreads,
                         groupCache, outputGroups, writeToCache);
@@ -2088,8 +2037,7 @@ void quantifyLibrary(
                     std::vector<Transcript>& transcripts, ClusterForest& clusterForest,
                     FragmentLengthDistribution& fragLengthDist,
                     std::atomic<uint64_t>& numAssignedFragments,
-                    std::atomic<uint64_t>& batchNum, size_t numQuantThreads,
-                    bool& burnedIn) -> void  {
+                    size_t numQuantThreads, bool& burnedIn) -> void  {
 
                 volatile bool finishedParsing{false};
 
@@ -2104,8 +2052,7 @@ void quantifyLibrary(
                         *(cf.processed.get()),
                         *(cf.toProcess.get()),
                         numObservedFragments, totalAssignedFragments,
-                        transcripts, batchNum, logForgettingMass,
-                        ffMutex, clusterForest, fragLengthDist,
+                        transcripts, fmCalc, clusterForest, fragLengthDist,
                         salmonOpts, ioMutex, initialRound, finishedParsing,
                         burnedIn, numQuantThreads);
 
@@ -2195,6 +2142,16 @@ int salmonQuantify(int argc, char *argv[]) {
                         "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
                         "example, fragments with an incorrect relative oritenation with respect  to the provided library "
                         "format string will be assigned a 0 probability.")
+    ("incompatPrior", po::value<double>(&(sopt.incompatPrior))->default_value(1e-5), "This option can only be used in conjunction "
+                        "with --useReadCompat.  It sets the prior probability that an alignment that disagrees with the specified "
+                        "library type (--libType) results from the true fragment origin.  Setting this to 0 says that alignments "
+                        "that disagree with the library type should be \"impossible\", while setting it to 1 says that alignments "
+                        "that disagree with the library type are no less likely than those that do (in this case, though, there "
+                        "is no reason to even use --useReadCompat)")
+    ("forgettingFactor,f", po::value<double>(&(sopt.forgettingFactor))->default_value(0.65), "The forgetting factor used "
+                        "in the online learning schedule.  A smaller value results in quicker learning, but higher variance "
+                        "and may be unstable.  A larger value results in slower learning but may be more stable.  Value should "
+                        "be in the interval (0.5, 1.0].")
     ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
                         "effective length correction when computing the probability that a fragment was generated "
                         "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
@@ -2331,6 +2288,15 @@ transcript abundance from RNA-seq reads
                 jointLog->info() << "Error: You cannot enable --noFragLengthDist without "
                                  << "also enabling --noEffectiveLengthCorrection; exiting!\n";
                 std::exit(1);
+            }
+        }
+        if (sopt.useReadCompat) {
+            // maybe arbitrary, but if it's smaller than this, consider it
+            // equal to LOG_0
+            if (sopt.incompatPrior < 1e-320) {
+                sopt.incompatPrior = sailfish::math::LOG_0;
+            } else {
+                sopt.incompatPrior = std::log(sopt.incompatPrior);
             }
         }
         // END: option checking

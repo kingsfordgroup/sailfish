@@ -30,6 +30,10 @@ namespace utils {
                          AlnLibT& alnLib,
                          boost::filesystem::path& fname,
                          std::string headerComments="");
+
+    double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected, double incompatPrior);
+
+    std::ostream& operator<<(std::ostream& os, OrphanStatus s);
     /**
     *  Given the information about the position and strand from which a paired-end
     *  read originated, return the library format with which it is compatible.

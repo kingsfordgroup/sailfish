@@ -13,11 +13,47 @@ class AtomicMatrix {
 public:
     AtomicMatrix(size_t nRow, size_t nCol, T alpha, bool logSpace = true) :
         storage_(nRow * nCol, logSpace ? std::log(alpha) : alpha),
-        rowsums_(nRow, logSpace ? std::log(alpha) : alpha),
+        rowsums_(nRow, logSpace ? std::log(nCol * alpha) : nCol * alpha),
         nRow_(nRow),
         nCol_(nCol),
         alpha_(alpha),
         logSpace_(logSpace) {
+    }
+
+    void incrementUnnormalized(size_t rowInd, size_t colInd, T amt) {
+        using sailfish::math::logAdd;
+        size_t k = rowInd * nCol_ + colInd;
+        if (logSpace_) {
+            T oldVal = storage_[k];
+            T retVal = oldVal;
+            T newVal = logAdd(oldVal, amt);
+            do {
+                oldVal = retVal;
+                newVal = logAdd(oldVal, amt);
+                retVal = storage_[k].compare_and_swap(newVal, oldVal);
+            } while (retVal != oldVal);
+
+        } else {
+            T oldVal = storage_[k];
+            T retVal = oldVal;
+            T newVal = oldVal + amt;
+            do {
+                oldVal = retVal;
+                newVal = oldVal + amt;
+                retVal = storage_[k].compare_and_swap(newVal, oldVal);
+            } while (retVal != oldVal);
+        }
+    }
+
+    void computeRowSums() {
+        for (size_t rowInd = 0; rowInd < nRow_; ++rowInd) {
+            T rowSum = sailfish::math::LOG_0;
+            for (size_t colInd = 0; colInd < nCol_; ++colInd) {
+                size_t k = rowInd * nCol_ + colInd;
+                rowSum = logAdd(rowSum, storage_[k]);
+            }
+            rowsums_[rowInd] = rowSum;
+        }
     }
 
     void increment(size_t rowInd, size_t colInd, T amt) {
@@ -39,7 +75,7 @@ public:
             do {
                 oldVal = retVal;
                 newVal = logAdd(oldVal, amt);
-                retVal = storage_[k].compare_and_swap(newVal, oldVal);
+                retVal = rowsums_[rowInd].compare_and_swap(newVal, oldVal);
             } while (retVal != oldVal);
         } else {
             T oldVal = storage_[k];
@@ -57,7 +93,7 @@ public:
             do {
                 oldVal = retVal;
                 newVal = oldVal + amt;
-                retVal = storage_[k].compare_and_swap(newVal, oldVal);
+                retVal = rowsums_[rowInd].compare_and_swap(newVal, oldVal);
             } while (retVal != oldVal);
         }
     }

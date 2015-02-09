@@ -19,32 +19,37 @@ extern "C" {
 struct UnpairedRead {
    bam_seq_t* read = nullptr;
    double logProb;
+   LibraryFormat libFmt{ReadType::PAIRED_END, ReadOrientation::NONE, ReadStrandedness::U};
 
    UnpairedRead() : read(staden::utils::bam_init()), logProb(sailfish::math::LOG_0) {}
-   UnpairedRead(bam_seq_t* r, double lp) :
-       read(r), logProb(lp) {}
+
+   UnpairedRead(bam_seq_t* r, double lp, LibraryFormat lf) :
+       read(r), logProb(lp), libFmt(lf) {}
 
    UnpairedRead(UnpairedRead&& other) {
        logProb = other.logProb;
        std::swap(read, other.read);
+       libFmt = other.libFmt;
    }
 
    UnpairedRead& operator=(UnpairedRead&& other) {
        logProb = other.logProb;
        std::swap(read, other.read);
+       libFmt = other.libFmt;
        return *this;
    }
 
-   UnpairedRead(const UnpairedRead& other) = default;
+   UnpairedRead(UnpairedRead& other) = default;
 
-   UnpairedRead& operator=(const UnpairedRead& other) = default;
+   UnpairedRead& operator=(UnpairedRead& other) = default;
 
    UnpairedRead* clone() {
-       return new UnpairedRead(bam_dup(read), logProb);
+       return new UnpairedRead(bam_dup(read), logProb, libFmt);
    }
 
    ~UnpairedRead() { staden::utils::bam_destroy(read); }
 
+   inline LibraryFormat& libFormat() { return libFmt; }
    inline bool isPaired() const { return false; }
    inline bool isLeftOrphan() const { return false; }
    inline bool isRightOrphan() const { return false; }
@@ -71,10 +76,13 @@ struct UnpairedRead {
    inline int32_t transcriptID() { return bam_ref(read); }
 
     inline double logQualProb() {
+        return sailfish::math::LOG_1;
+        /*
         int q = bam_map_qual(read);
         //double logP = (q == 255) ? calcQuality(read) : std::log(std::pow(10.0, -q * 0.1));
         double logP = (q == 255) ? sailfish::math::LOG_1 : std::log(std::pow(10.0, -q * 0.1));
         return logP;
+        */
     }
 
 };

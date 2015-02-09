@@ -25,12 +25,6 @@
  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Disable useless MSVC warnings.
-#undef _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
-#undef _SCL_SECURE_NO_WARNINGS
-#define _SCL_SECURE_NO_WARNINGS
-
 #include "format.h"
 
 #include <string.h>
@@ -42,16 +36,12 @@
 #include <cstdarg>
 
 #ifdef _WIN32
-# define WIN32_LEAN_AND_MEAN
 # ifdef __MINGW32__
 #  include <cstring>
 # endif
 # include <windows.h>
-# undef ERROR
 #endif
 
-using fmt::LongLong;
-using fmt::ULongLong;
 using fmt::internal::Arg;
 
 // Check if exceptions are disabled.
@@ -144,7 +134,13 @@ int safe_strerror(
     int error_code, char *&buffer, std::size_t buffer_size) FMT_NOEXCEPT(true) {
   assert(buffer != 0 && buffer_size != 0);
   int result = 0;
-#ifdef _GNU_SOURCE
+#if ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE) || __ANDROID__
+  // XSI-compliant version of strerror_r.
+  result = strerror_r(error_code, buffer, buffer_size);
+  if (result != 0)
+    result = errno;
+#elif _GNU_SOURCE
+  // GNU-specific version of strerror_r.
   char *message = strerror_r(error_code, buffer, buffer_size);
   // If the buffer is full then the message is probably truncated.
   if (message == buffer && strlen(buffer) == buffer_size - 1)
@@ -175,14 +171,14 @@ void format_error_code(fmt::Writer &out, int error_code,
   // bad_alloc.
   out.clear();
   static const char SEP[] = ": ";
-  static const char ERROR[] = "error ";
+  static const char ERR[] = "error ";
   fmt::internal::IntTraits<int>::MainType ec_value = error_code;
-  // Subtract 2 to account for terminating null characters in SEP and ERROR.
+  // Subtract 2 to account for terminating null characters in SEP and ERR.
   std::size_t error_code_size =
-      sizeof(SEP) + sizeof(ERROR) + fmt::internal::count_digits(ec_value) - 2;
+      sizeof(SEP) + sizeof(ERR) + fmt::internal::count_digits(ec_value) - 2;
   if (message.size() <= fmt::internal::INLINE_BUFFER_SIZE - error_code_size)
     out << message << SEP;
-  out << ERROR << error_code;
+  out << ERR << error_code;
   assert(out.size() <= fmt::internal::INLINE_BUFFER_SIZE);
 }
 
@@ -426,10 +422,10 @@ template <typename T>
 const uint64_t fmt::internal::BasicData<T>::POWERS_OF_10_64[] = {
   0,
   FMT_POWERS_OF_10(1),
-  FMT_POWERS_OF_10(ULongLong(1000000000)),
+  FMT_POWERS_OF_10(fmt::ULongLong(1000000000)),
   // Multiply several constants instead of using a single long long constant
   // to avoid warnings about C++98 not supporting long long.
-  ULongLong(1000000000) * ULongLong(1000000000) * 10
+  fmt::ULongLong(1000000000) * fmt::ULongLong(1000000000) * 10
 };
 
 FMT_FUNC void fmt::internal::report_unknown_type(char code, const char *type) {
@@ -447,14 +443,14 @@ FMT_FUNC void fmt::internal::report_unknown_type(char code, const char *type) {
 FMT_FUNC fmt::internal::UTF8ToUTF16::UTF8ToUTF16(fmt::StringRef s) {
   int length = MultiByteToWideChar(
       CP_UTF8, MB_ERR_INVALID_CHARS, s.c_str(), -1, 0, 0);
-  static const char ERROR[] = "cannot convert string from UTF-8 to UTF-16";
+  static const char ERROR_MSG[] = "cannot convert string from UTF-8 to UTF-16";
   if (length == 0)
-    FMT_THROW(WindowsError(GetLastError(), ERROR));
+    FMT_THROW(WindowsError(GetLastError(), ERROR_MSG));
   buffer_.resize(length);
   length = MultiByteToWideChar(
     CP_UTF8, MB_ERR_INVALID_CHARS, s.c_str(), -1, &buffer_[0], length);
   if (length == 0)
-    FMT_THROW(WindowsError(GetLastError(), ERROR));
+    FMT_THROW(WindowsError(GetLastError(), ERROR_MSG));
 }
 
 FMT_FUNC fmt::internal::UTF16ToUTF8::UTF16ToUTF8(fmt::WStringRef s) {
@@ -571,9 +567,13 @@ class fmt::internal::ArgFormatter :
     if (spec_.align_ == ALIGN_NUMERIC || spec_.flags_ != 0)
       FMT_THROW(FormatError("invalid format specifier for char"));
     typedef typename fmt::BasicWriter<Char>::CharPtr CharPtr;
+    Char fill = static_cast<Char>(spec_.fill());
+    if (spec_.precision_ == 0) {
+      std::fill_n(writer_.grow_buffer(spec_.width_), spec_.width_, fill);
+      return;
+    }
     CharPtr out = CharPtr();
     if (spec_.width_ > 1) {
-      Char fill = static_cast<Char>(spec_.fill());
       out = writer_.grow_buffer(spec_.width_);
       if (spec_.align_ == fmt::ALIGN_RIGHT) {
         std::fill_n(out, spec_.width_ - 1, fill);
@@ -625,6 +625,8 @@ void fmt::BasicWriter<Char>::write_str(
     if (*str_value)
       str_size = std::char_traits<StrChar>::length(str_value);
   }
+  if (spec.precision_ >= 0 && spec.precision_ < str_size)
+    str_size = spec.precision_;
   write_str(str_value, str_size, spec);
 }
 
@@ -1021,9 +1023,10 @@ const Char *fmt::BasicFormatter<Char>::format(
       } else {
         FMT_THROW(FormatError("missing precision specifier"));
       }
-      if (arg.type != Arg::DOUBLE && arg.type != Arg::LONG_DOUBLE) {
+      if (arg.type < Arg::LAST_INTEGER_TYPE || arg.type == Arg::POINTER) {
         FMT_THROW(FormatError(
-            "precision specifier requires floating-point argument"));
+            fmt::format("precision not allowed in {} format specifier",
+            arg.type == Arg::POINTER ? "pointer" : "integer")));
       }
     }
 

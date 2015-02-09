@@ -30,6 +30,7 @@ FASTAParser.cpp
 #SailfishStringUtils.cpp 
 #LibraryFormat.cpp 
 ErrorModel.cpp 
+AlignmentModel.cpp
 FragmentLengthDistribution.cpp 
 SalmonQuantifyAlignments.cpp 
 )

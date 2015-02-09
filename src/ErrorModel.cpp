@@ -5,6 +5,7 @@
 
 #include "ErrorModel.hpp"
 #include "Transcript.hpp"
+#include "SailfishMath.hpp"
 #include "SailfishStringUtils.hpp"
 #include "UnpairedRead.hpp"
 #include "ReadPair.hpp"
@@ -25,7 +26,24 @@ double ErrorModel::logLikelihood(bam_seq_t* read, Transcript& ref,
     using namespace sailfish::stringtools;
     bool useQual{false};
     size_t readIdx{0};
-    size_t transcriptIdx = bam_pos(read);
+    auto transcriptIdx = bam_pos(read);
+    size_t transcriptLen = ref.RefLength;
+    // if the read starts before the beginning of the transcript,
+    // only consider the part overlapping the transcript
+    if (transcriptIdx < 0) {
+        readIdx = -transcriptIdx;
+        transcriptIdx = 0;
+    }
+
+    // unsigned version of transcriptIdx
+    size_t uTranscriptIdx = static_cast<size_t>(transcriptIdx);
+
+    if (uTranscriptIdx >= transcriptLen) {
+        std::lock_guard<std::mutex> l(outputMutex_);
+        std::cerr << "transcript index = " << uTranscriptIdx << ", transcript length = " << transcriptLen << "\n";
+        return sailfish::math::LOG_0;
+    }
+
     //sailfish::stringtools::strand readStrand = (BAM_FREVERSE & read->core.flag) ? sailfish::stringtools::strand::reverse :
     //                                            sailfish::stringtools::strand::forward;
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
@@ -33,16 +51,20 @@ double ErrorModel::logLikelihood(bam_seq_t* read, Transcript& ref,
 
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));//bam1_seq(read);
     auto qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));//bam1_qual(read);
-    while (readIdx < bam_seq_len(read)) {
+    size_t readLen = static_cast<size_t>(bam_seq_len(read));
+    size_t basesChecked = 0;
+    size_t numInc = std::min(transcriptLen - uTranscriptIdx, readLen - readIdx);
+    while (basesChecked < numInc) {
         size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
-        size_t prevReadBase = (readIdx) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;
-        size_t refBase = samToTwoBit[ref.baseAt(transcriptIdx, readStrand)];
+        size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;
+        size_t refBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
         size_t index = prevReadBase + refBase;
         int qval = qualStr[readIdx];
         double qual = (useQual) ? sailfish::stringtools::phredToLogProb[qval] : sailfish::math::LOG_1;
         logLike += mismatchProfile[readIdx](index, curReadBase) + qual;
         ++readIdx;
-        ++transcriptIdx;
+        ++uTranscriptIdx;
+        ++basesChecked;
     }
     return logLike;
 }
@@ -62,9 +84,12 @@ double ErrorModel::logLikelihood(const ReadPair& hit, Transcript& ref){
     bam_seq_t* leftRead = (bam_pos(hit.read1) < bam_pos(hit.read2)) ? hit.read1 : hit.read2;
     bam_seq_t* rightRead = (bam_pos(hit.read1) < bam_pos(hit.read2)) ? hit.read2 : hit.read1;
 
+    size_t leftLen = static_cast<size_t>(bam_seq_len(leftRead));
+    size_t rightLen = static_cast<size_t>(bam_seq_len(rightRead));
+
     // NOTE: Raise a warning in this case?
-    if (BOOST_UNLIKELY((bam_seq_len(leftRead) > maxExpectedLen_) or
-                       (bam_seq_len(rightRead) > maxExpectedLen_))) {
+    if (BOOST_UNLIKELY((leftLen > maxExpectedLen_) or
+                       (rightLen > maxExpectedLen_))) {
         return logLike;
     }
 
@@ -77,6 +102,7 @@ double ErrorModel::logLikelihood(const ReadPair& hit, Transcript& ref){
     }
     if (logLike == sailfish::math::LOG_0) {
             std::lock_guard<std::mutex> lock(outputMutex_);
+            std::cerr << "orphan status: " << hit.orphanStatus << "\n";
             std::cerr << "error likelihood: " << logLike << "\n";
     }
 
@@ -88,15 +114,16 @@ double ErrorModel::logLikelihood(const UnpairedRead& hit, Transcript& ref){
     if (BOOST_UNLIKELY(!isEnabled_)) { return logLike; }
 
     bam_seq_t* read = hit.read;
+    size_t readLen = static_cast<size_t>(bam_seq_len(read));
     // NOTE: Raise a warning in this case?
-    if (BOOST_UNLIKELY(bam_seq_len(read) > maxExpectedLen_)) {
+    if (BOOST_UNLIKELY(readLen > maxExpectedLen_)) {
         return logLike;
     }
     logLike += logLikelihood(read, ref, mismatchLeft_);
 
     if (logLike == sailfish::math::LOG_0) {
             std::lock_guard<std::mutex> lock(outputMutex_);
-            std::cerr << "error likelihood: " << logLike << "\n";
+            std::cerr << "error log likelihood: " << logLike << "\n";
     }
 
     return logLike;
@@ -114,30 +141,79 @@ void ErrorModel::update(bam_seq_t* read, Transcript& ref, double p, double mass,
     using namespace sailfish::stringtools;
     bool useQual{false};
     size_t readIdx{0};
-    size_t transcriptIdx = bam_pos(read);
-    //sailfish::stringtools::strand readStrand = (BAM_FREVERSE & read->core.flag) ? sailfish::stringtools::strand::reverse :
-    //                                            sailfish::stringtools::strand::forward;
-    sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
-
-    uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));//bam1_seq(read);
-    uint8_t* qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));//bam1_qual(read);
-    while (readIdx < bam_seq_len(read)) {
-        size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
-        size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;
-        size_t refBase = samToTwoBit[ref.baseAt(transcriptIdx, readStrand)];
-        size_t index = prevReadBase + refBase;
-        int qval = qualStr[readIdx];
-        double qual = (useQual) ? sailfish::stringtools::phredToLogProb[qval] : sailfish::math::LOG_1;
-        mismatchProfile[readIdx].increment(index, curReadBase, mass+p+qual);
-        ++readIdx;
-        ++transcriptIdx;
+    auto transcriptIdx = bam_pos(read);
+    size_t transcriptLen = ref.RefLength;
+    // if the read starts before the beginning of the transcript,
+    // only consider the part overlapping the transcript
+    if (transcriptIdx < 0) {
+        readIdx = -transcriptIdx;
+        transcriptIdx = 0;
     }
-    maxLen_ = std::max(maxLen_, static_cast<size_t>(bam_seq_len(read)));
-    if (BOOST_UNLIKELY(maxLen_ > 250)) {
-        std::lock_guard<std::mutex> lock(outputMutex_);
-        std::cerr << "Encountered read longer than maximum expected length of "
-                  << maxExpectedLen_ << ", not applying error model\n";
-        isEnabled_ = false;
+    // unsigned version of transcriptIdx
+    size_t uTranscriptIdx = static_cast<size_t>(transcriptIdx);
+
+    // Only attempt to update the model if the read overlaps the transcript.
+    if (uTranscriptIdx < transcriptLen) {
+        sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
+
+        uint32_t numMismatch{0};
+        uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
+        uint8_t* qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));
+        size_t readLen = static_cast<size_t>(bam_seq_len(read));
+        size_t basesChecked = 0;
+        size_t numInc = std::min(transcriptLen - uTranscriptIdx, readLen - readIdx);
+        while (basesChecked < numInc) {
+            size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
+            size_t prevReadBase = (readIdx > 0) ? samToTwoBit[bam_seqi(qseq, readIdx-1)] : 0;
+            size_t refBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+            size_t index = prevReadBase + refBase;
+            if (curReadBase != refBase) { ++numMismatch; }
+            int qval = qualStr[readIdx];
+            double qual = (useQual) ? sailfish::stringtools::phredToLogProb[qval] : sailfish::math::LOG_1;
+            mismatchProfile[readIdx].increment(index, curReadBase, mass+p+qual);
+            ++readIdx;
+            ++uTranscriptIdx;
+            ++basesChecked;
+        }
+
+        /*
+        // DEBUG: print number of mismatches
+        if (numMismatch > 26) {
+            std::lock_guard<std::mutex> lock(outputMutex_);
+            std::cerr << "read of length " << readLen << " had " << numMismatch
+                      << " mismatches; dir is " << ((readStrand == strand::forward) ? "forward" : "reverse") << "\n";
+           int32_t transcriptStartIdx = bam_pos(read);
+           size_t rstart = (transcriptStartIdx < 0) ? -transcriptStartIdx : 0;
+           if (transcriptStartIdx < 0) { transcriptStartIdx = 0; }
+           if (op == BAM_CSOFT_CLIP) {
+               rstart += opLen;
+           }
+           size_t numInc = std::min(transcriptLen - transcriptStartIdx, readLen - rstart);
+           int32_t rinc{1};
+            std::cerr << "read name is " << bam_name(read) << "\n";
+            std::cerr << "readStart = " << rstart << "\n";
+            std::cerr << "txp start = " << transcriptStartIdx << " (txp len = " << ref.RefLength << "), (txp name = " << ref.RefName << ")\n";
+            std::cerr << "read is: ";
+            int32_t rp = rstart;
+            for (int32_t ri = 0; ri < numInc; ri++, rp++) {
+                std::cerr << samCodeToChar[bam_seqi(qseq, rp)];
+            } std::cerr << "\n";
+            std::cerr << "ref is:  ";
+
+            int32_t tp = transcriptStartIdx;
+            for (int32_t ri = 0; ri < numInc; ri++, tp+=rinc) {
+                std::cerr << samCodeToChar[ref.baseAt(tp, readStrand)];
+            } std::cerr << "\n";
+        }
+        */
+
+        maxLen_ = std::max(maxLen_, readLen);
+        if (BOOST_UNLIKELY(maxLen_ > maxExpectedLen_)) {
+            std::lock_guard<std::mutex> lock(outputMutex_);
+            std::cerr << "Encountered read longer than maximum expected length of "
+                << maxExpectedLen_ << ", not applying error model\n";
+            isEnabled_ = false;
+        }
     }
 }
 

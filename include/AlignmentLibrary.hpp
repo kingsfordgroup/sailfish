@@ -18,6 +18,7 @@ extern "C" {
 #include "FragmentLengthDistribution.hpp"
 #include "AlignmentGroup.hpp"
 #include "ErrorModel.hpp"
+#include "AlignmentModel.hpp"
 #include "FASTAParser.hpp"
 
 // Boost includes
@@ -121,7 +122,8 @@ class AlignmentLibrary {
                     fragLenKernelP, 1)
                     );
 
-            errMod_.reset(new ErrorModel(1.0, salmonOpts.maxExpectedReadLen));
+            alnMod_.reset(new AlignmentModel(1.0, salmonOpts.maxExpectedReadLen,
+                                             salmonOpts.numErrorBins));
             // Start parsing the alignments
            NullFragmentFilter<FragT>* nff = nullptr;
            bq->start(nff);
@@ -139,8 +141,8 @@ class AlignmentLibrary {
         return *flDist_.get();
     }
 
-    inline ErrorModel& errorModel() {
-        return *errMod_.get();
+    inline AlignmentModel& alignmentModel() {
+        return *alnMod_.get();
     }
 
     inline tbb::concurrent_queue<FragT*>& fragmentQueue() {
@@ -177,6 +179,8 @@ class AlignmentLibrary {
         }
         return true;
     }
+
+    inline LibraryFormat format() { return libFmt_; }
 
     private:
     /**
@@ -221,7 +225,7 @@ class AlignmentLibrary {
     /**
       * The emperical error model
       */
-    std::unique_ptr<ErrorModel> errMod_;
+    std::unique_ptr<AlignmentModel> alnMod_;
 
     /** Keeps track of the number of passes that have been
      *  made through the alignment file.

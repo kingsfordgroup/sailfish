@@ -239,13 +239,30 @@ enum class AlignmentType : uint8_t {
 inline AlignmentType getPairedAlignmentType_(bam_seq_t* aln) {
     bool readIsMapped = !(bam_flag(aln) & BAM_FUNMAP);
     bool mateIsMapped = !(bam_flag(aln) & BAM_FMUNMAP);
+
     if (readIsMapped and mateIsMapped) {
-        if (bam_flag(aln) & BAM_FPROPER_PAIR) {
-            return AlignmentType::MappedConcordantPair;
+        if ( bam_flag(aln) & BAM_FPROPER_PAIR ) {
+            if (bam_ref(aln) == bam_mate_ref(aln)) {
+                return AlignmentType::MappedConcordantPair;
+            } else {
+                // NOTE: It seems like some aligners (e.g. SNAP), currently mark
+                // discordant reads as proper pairs in the alignment file.  Here,
+                // we check that both pairs map to the same target.
+                // If the aligner insists they are both mapped, but reports 
+                // alignments to different targets, we will treat them as 
+                // mapped orphans 
+                return AlignmentType::MappedOrphan;
+            }
         } else {
-            return AlignmentType::MappedDiscordantPair;
+            // FIXME
+            // NOTE: Since (currently) discordant pairs can cause us to
+            // drop alignments that should be sampled, treat these guys 
+            // as orphans for the time being.
+            // return AlignmentType::MappedDiscordantPair;
+            return AlignmentType::MappedOrphan;
         }
     }
+
     if (readIsMapped and !mateIsMapped) {
         return AlignmentType::MappedOrphan;
     }
@@ -258,6 +275,15 @@ inline AlignmentType getPairedAlignmentType_(bam_seq_t* aln) {
     std::cerr << "\n\n\nEncountered unknown alignemnt type; this should not happen!\n"
               << "Please file a bug report on GitHub. Exiting.\n";
     std::exit(1);
+}
+
+inline uint32_t getPairedNameLen(bam_seq_t* read) {
+        uint32_t l = bam_name_len(read);
+        char* r = bam_name(read);
+        if ( l > 2  and r[l-2] == '/') {
+            return l-2;
+        }
+        return l;
 }
 
 template <typename FragT>
@@ -279,6 +305,10 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
             // unmapped pair, then go get the other read.
             if ( (alnType == AlignmentType::MappedConcordantPair)
                     or (alnType == AlignmentType::UnmappedPair)) { break; }
+            
+            bool isFwd{false};
+            uint32_t startPos;
+
             switch (alnType) {
                 case AlignmentType::UnmappedOrphan:
                     ++numUnaligned_;
@@ -289,7 +319,10 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
                     break;
                     // === end of UnmappedOrphan case
                 case AlignmentType::MappedOrphan:
-                    rpair.orphanStatus = (bam_flag(rpair.read1) & BAM_FREVERSE) ?
+                    isFwd = !(bam_flag(rpair.read1) & BAM_FREVERSE);
+                    startPos = bam_pos(rpair.read1); 
+                    rpair.libFmt = salmon::utils::hitType(startPos, isFwd);
+                    rpair.orphanStatus = (!isFwd) ?
                         salmon::utils::OrphanStatus::LeftOrphan :
                         salmon::utils::OrphanStatus::RightOrphan;
                     rpair.logProb = sailfish::math::LOG_0;
@@ -341,7 +374,6 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
             continue;
         }
 
-        
         // If we expected a paired read, but didn't find one
         // then flip out and quit!
         if (BOOST_UNLIKELY((
@@ -361,11 +393,13 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
         // We've observed two, consecutive paired reads; now check if our reads
         // have the same name.
         // The names must first have the same length.
+        //bool sameName = getPairedNameLen(rpair.read1) == getPairedNameLen(rpair.read2);
         bool sameName = (bam_name_len(rpair.read1) == bam_name_len(rpair.read2));
         
         // If the lengths are the same, check the actual strings. Use
         // memcmp for efficiency since we know the length.
         if (BOOST_LIKELY(sameName)) {
+            //auto nameLen = getPairedNameLen(rpair.read1);
             auto nameLen = bam_name_len(rpair.read1);
             char* qname1 = bam_name(rpair.read1);
             char* qname2 = bam_name(rpair.read2);
@@ -397,12 +431,30 @@ inline bool BAMQueue<FragT>::getFrag_(ReadPair& rpair, FilterT filt) {
             }
             logger_->warn() << errmsg.str();
         }
+
+
+        bool isFwd1 = false;
+        uint32_t startPos1 = 0;
+        bool isFwd2 = false;
+        uint32_t startPos2 = 0;
+
         switch (alnType) {
             case AlignmentType::MappedConcordantPair:
                 haveValidPair = true;
                 if (bam_flag(rpair.read1) & BAM_FREAD2) {
                     std::swap(rpair.read1, rpair.read2);
                 }
+
+                // if the "fragment" is from the forward strand,
+                // the read will map to the reverse strand, and vice-versa
+                isFwd1 = !(bam_flag(rpair.read1) & BAM_FREVERSE);
+                startPos1 = bam_pos(rpair.read1); 
+                isFwd2 = !(bam_flag(rpair.read2) & BAM_FREVERSE);
+                startPos2 = bam_pos(rpair.read2); 
+ 
+                rpair.libFmt = salmon::utils::hitType(startPos1, isFwd1, 
+                                                      startPos2, isFwd2);
+
                 rpair.orphanStatus = salmon::utils::OrphanStatus::Paired;
                 break;
             case AlignmentType::UnmappedPair:
@@ -477,6 +529,7 @@ template <typename FragT>
 template <typename FilterT>
 void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     size_t n{0};
+    size_t numFragAlloc{0};
     AlignmentGroup<FragT*>* alngroup;
     alnGroupPool_.pop(alngroup);
 
@@ -501,6 +554,10 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
         if ( (currLen != prevLen) or
             !sameReadName_<UnpairedRead>(readName, prevReadName, currLen) ) {
 
+            if (currLen > 2 and readName[currLen - 2] == '/') {
+                std::cerr << "Name is " << readName << "\n";
+                std::exit(1);
+            }
             if (alngroup->size() > 0) {
                 // push the align group
                 while(!alnGroupQueue_.push(alngroup));
@@ -519,12 +576,17 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
 
        if (!fragmentQueue_.try_pop(f)) {
         f = new FragT;
+        ++numFragAlloc;
        }
-        /*
-        if (n % 100000 == 0) {
-            std::cerr << "fragmentQueue size = " << fragmentQueue_.size() << "\n\n\n";
-        }*/
-        ++n;
+
+       /*
+       if (n % 1000000 == 0) {
+           std::cerr << "allocated " << numFragAlloc << " fragments outside of the frag queue \n";
+           std::cerr << "fragmentQueue size = " << fragmentQueue_.unsafe_size() << "\n";
+           std::cerr << "alnGroupQueue size = " << alnGroupPool_.size() << "\n\n\n";
+       }
+       ++n;
+       */
     }
 
     // If we popped a fragment structure off the queue, but didn't add it 

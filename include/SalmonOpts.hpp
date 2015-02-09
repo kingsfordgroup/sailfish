@@ -37,8 +37,20 @@ struct SalmonOpts {
                         // between the manner in which it mapped and the expected read
                         // librarry format.
 
+    double incompatPrior; // The prior probability that an alignment that disagrees with
+                          // the provided library type could correspond to the true
+                          // fragment origin.
+
     bool useErrorModel; // Learn and apply the error model when computing the likelihood
                         // of a given alignment.
+
+    uint32_t numErrorBins; // Number of bins into which each read is divided
+                           // when learning and applying the error model.
+
+    double forgettingFactor; // The forgetting factor used to determine the
+                             // learning schedule in the online inference algorithm.
+
+    uint32_t numBurninFrags; // Number of mapped fragments required for burn-in
 
     uint32_t maxReadOccs; // Discard reads  mapping to more than this many places.
 

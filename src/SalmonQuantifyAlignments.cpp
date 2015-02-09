@@ -48,6 +48,8 @@ extern "C" {
 #include "Transcript.hpp"
 #include "ReadPair.hpp"
 #include "ErrorModel.hpp"
+#include "AlignmentModel.hpp"
+#include "ForgettingMassCalculator.hpp"
 #include "FragmentLengthDistribution.hpp"
 #include "TranscriptCluster.hpp"
 #include "SailfishUtils.hpp"
@@ -91,6 +93,7 @@ void scaleBy(std::vector<T>& vec, T scale) {
 
 template <typename FragT>
 void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
+                      ForgettingMassCalculator& fmCalc,
                       MiniBatchQueue<AlignmentGroup<FragT*>>& workQueue,
                       MiniBatchQueue<AlignmentGroup<FragT*>>* processedCache,
                       std::condition_variable& workAvailable,
@@ -120,7 +123,12 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
     auto& alignmentGroupQueue = alnLib.alignmentGroupQueue();
 
     auto& fragLengthDist = alnLib.fragmentLengthDistribution();
-    auto& errMod = alnLib.errorModel();
+    auto& alnMod = alnLib.alignmentModel();
+
+    const auto expectedLibraryFormat = alnLib.format();
+    uint32_t numBurninFrags{5000000};
+
+    bool useAuxParams = (processedReads > 1000000);
 
     std::chrono::microseconds sleepTime(1);
     MiniBatchInfo<AlignmentGroup<FragT*>>* miniBatch = nullptr;
@@ -128,6 +136,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
     size_t numTranscripts = refs.size();
 
     while (!doneParsing or !workQueue.empty()) {
+        uint32_t zeroProbFrags{0};
         bool foundWork = workQueue.try_pop(miniBatch);
         // If work wasn't immediately available, then wait for it.
         if (!foundWork) {
@@ -135,9 +144,13 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
             workAvailable.wait(l, [&miniBatch, &workQueue, &doneParsing]() { return workQueue.try_pop(miniBatch) or doneParsing; });
         }
         if (miniBatch != nullptr) {
+            useAuxParams = (processedReads > 1000000);
             ++activeBatches;
             size_t batchReads{0};
-            double logForgettingMass = miniBatch->logForgettingMass;
+
+            double logForgettingMass = fmCalc();
+            miniBatch->logForgettingMass = logForgettingMass;
+
             std::vector<AlignmentGroup<FragT*>*>& alignmentGroups = *(miniBatch->alignments);
 
             using TranscriptID = size_t;
@@ -177,7 +190,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
                         double logFragProb = sailfish::math::LOG_1;
 
-                        if (!salmonOpts.noFragLengthDist) {
+                        if (!salmonOpts.noFragLengthDist and useAuxParams) {
                             if(aln->fragLen() == 0) {
                                 if (aln->isLeft() and transcript.RefLength - aln->left() < fragLengthDist.maxVal()) {
                                     logFragProb = fragLengthDist.cmf(transcript.RefLength - aln->left());
@@ -198,6 +211,12 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         // term below which is P(Q_1) * P(Q_2) * P(F | T)
                         double logRefLength = std::log(refLength);
 
+                        // The probability that the fragments align to the given strands in the
+                        // given orientations.
+                        double logAlignCompatProb = (salmonOpts.useReadCompat) ?
+                                (salmon::utils::logAlignFormatProb(aln->libFormat(), expectedLibraryFormat, salmonOpts.incompatPrior)) :
+                                LOG_1;
+
                         // double adjustedTranscriptLength = std::max(refLength - aln.fragLen() + 1, 1.0);
                         // double logStartPosProb = std::log(1.0 / adjustedTranscriptLength);
 
@@ -206,18 +225,32 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                         //double logConditionalFragLengthProb = logFragProb  - fragLengthDist.cmf(refLength);
                         //double logProbStartPos = logStartPosProb + logConditionalFragLengthProb;
                         //double qualProb = logProbStartPos + aln.logQualProb();
-                        double qualProb = -logRefLength + logFragProb + aln->logQualProb();
+
+                        // Adjustment to the likelihood due to the
+                        // error model
+                        double errLike = sailfish::math::LOG_1;
+                        //if (burnedIn and salmonOpts.useErrorModel) {
+                        if (useAuxParams and salmonOpts.useErrorModel) {
+                            errLike = alnMod.logLikelihood(*aln, transcript);
+                        }
+
+                        double qualProb = -logRefLength + logFragProb +
+                                          aln->logQualProb() +
+                                          errLike + logAlignCompatProb;
+                        /*
+                        if (qualProb == LOG_0) {
+                            std::lock_guard<std::mutex> m(cvmutex);
+                            std::cerr << "logRefLength = " << logRefLength << "\n";
+                            std::cerr << "logFragProb = " << logFragProb << "\n";
+                            std::cerr << "logQualProb = " << aln->logQualProb() << "\n";
+                            std::cerr << "logAlignCompatProb = " << logAlignCompatProb << "\n";
+                        }
+                        */
                         double transcriptLogCount = transcript.mass(initialRound);
 
-                        if ( transcriptLogCount != LOG_0 ) {
-                            // Adjustment to the likelihood due to the
-                            // error model
-                            double errLike = sailfish::math::LOG_1;
-                            if (burnedIn and salmonOpts.useErrorModel) {
-                                errLike = errMod.logLikelihood(*aln, transcript);
-                            }
-
-                            aln->logProb = transcriptLogCount + qualProb + errLike;
+                        if ( transcriptLogCount != LOG_0 and
+                             qualProb != LOG_0) {
+                           aln->logProb = transcriptLogCount + qualProb;
 
                             sumOfAlignProbs = logAdd(sumOfAlignProbs, aln->logProb);
                             if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
@@ -226,15 +259,14 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             }
                         } else {
                             aln->logProb = LOG_0;
-                            log->warn("Reported alignment yielded 0 probability");
                         }
                     }
 
                     // If we have a 0-probability fragment
                     if (sumOfAlignProbs == LOG_0) {
                         auto aln = alnGroup->alignments().front();
-                        log->warn("0 probability fragment [{}];"
-                                  "length = [{}]; skipping\n", aln->getName(), aln->fragLen());
+                        log->warn("0 probability fragment [{}] "
+                                  "encountered \n", aln->getName());
                         continue;
                     }
 
@@ -251,9 +283,9 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                             auto transcriptID = aln->transcriptID();
                             auto& transcript = refs[transcriptID];
                             if (salmonOpts.useErrorModel) {
-                                errMod.update(*aln, transcript, aln->logProb, logForgettingMass);
+                                alnMod.update(*aln, transcript, LOG_1, logForgettingMass);
                             }
-                            if (aln->isPaired()) {
+                            if (aln->isPaired() and !salmonOpts.noFragLengthDist) {
                                 double fragLength = aln->fragLen();
                                 fragLengthDist.addVal(fragLength, logForgettingMass);
                             }
@@ -333,7 +365,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
             }
             --activeBatches;
             processedReads += batchReads;
-            if (processedReads >= 5000000 and !burnedIn) {
+            if (processedReads >= numBurninFrags and !burnedIn) {
                 burnedIn = true;
                 fragLengthDist.cacheCMF();
             }
@@ -359,7 +391,6 @@ bool quantifyLibrary(
 
     auto& refs = alnLib.transcripts();
     size_t numTranscripts = refs.size();
-    //size_t miniBatchSize{1000};
     size_t numObservedFragments{0};
 
     MiniBatchQueue<AlignmentGroup<FragT*>> workQueue;
@@ -367,8 +398,7 @@ bool quantifyLibrary(
     MiniBatchQueue<AlignmentGroup<FragT*>> processedCache;
     MiniBatchQueue<AlignmentGroup<FragT*>>* processedCachePtr{nullptr};
 
-    double logForgettingMass{std::log(1.0)};
-    double forgettingFactor{0.60};
+    ForgettingMassCalculator fmCalc(salmonOpts.forgettingFactor);
     size_t batchNum{0};
     std::atomic<size_t> totalProcessedReads{0};
     bool initialRound{true};
@@ -385,18 +415,7 @@ bool quantifyLibrary(
         if (!initialRound) {
 
             if (haveCache) {
-                MiniBatchInfo<AlignmentGroup<FragT*>>* mbi = nullptr;
-                while (!processedCache.empty()) {
-                    while (processedCache.try_pop(mbi)) {
-                        ++batchNum;
-                        if (batchNum > 1) {
-                            logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
-                                std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
-                        }
-                        mbi->logForgettingMass = logForgettingMass;
-                        workQueue.push(mbi);
-                    }
-                }
+                std::swap(workQueuePtr, processedCachePtr);
                 doReset = false;
                 fmt::print(stderr, "\n\n");
             } else if (alnLib.numMappedReads() <= maxCacheSize) {
@@ -432,6 +451,7 @@ bool quantifyLibrary(
         for (uint32_t i = 0; i < currentQuantThreads; ++i) {
             workers.emplace_back(processMiniBatch<FragT>,
                     std::ref(alnLib),
+                    std::ref(fmCalc),
                     std::ref(*workQueuePtr),
                     processedCachePtr,
                     std::ref(workAvailable), std::ref(cvmutex),
@@ -457,10 +477,7 @@ bool quantifyLibrary(
                 // left to fill it up with
                 if (alignments->size() >= miniBatchSize or !alignmentGroupsRemain) {
                     ++batchNum;
-                    if (batchNum > 1) {
-                        logForgettingMass += forgettingFactor * std::log(static_cast<double>(batchNum-1)) -
-                            std::log(std::pow(static_cast<double>(batchNum), forgettingFactor) - 1);
-                    }
+                    double logForgettingMass = 0.0;
                     MiniBatchInfo<AlignmentGroup<FragT*>>* mbi =
                         new MiniBatchInfo<AlignmentGroup<FragT*>>(batchNum, alignments, logForgettingMass);
                     workQueuePtr->push(mbi);
@@ -485,9 +502,9 @@ bool quantifyLibrary(
 
             // Free the alignments and the vector holding them
             if (processedCachePtr == nullptr) {
-                for (auto& aln : *alignments) {
-                    aln->alignments().clear();
-                    delete aln; aln = nullptr;
+                for (auto& alnGroup : *alignments) {
+                    alnGroup->alignments().clear();
+                    delete alnGroup; alnGroup = nullptr;
                 }
                 delete alignments;
             }
@@ -606,6 +623,12 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "Use the orientation in which fragments were \"mapped\"  to assign them a probability.  For "
                         "example, fragments with an incorrect relative oritenation with respect  to the provided library "
                         "format string will be assigned a 0 probability.")
+    ("incompatPrior", po::value<double>(&(sopt.incompatPrior))->default_value(1e-5), "This option can only be used in conjunction "
+                        "with --useReadCompat.  It sets the prior probability that an alignment that disagrees with the specified "
+                        "library type (--libType) results from the true fragment origin.  Setting this to 0 says that alignments "
+                        "that disagree with the library type should be \"impossible\", while setting it to 1 says that alignments "
+                        "that disagree with the library type are no less likely than those that do (in this case, though, there "
+                        "is no reason to even use --useReadCompat)")
     ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
                         "effective length correction when computing the probability that a fragment was generated "
                         "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
@@ -620,6 +643,15 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "Learn and apply an error model for the aligned reads.  This takes into account the "
                         "the observed frequency of different types of mismatches when computing the likelihood of "
                         "a given alignment.")
+    ("numErrorBins", po::value<uint32_t>(&(sopt.numErrorBins))->default_value(4), "The number of bins into which to divide "
+                        "each read when learning and applying the error model.  For example, a value of 10 would mean that "
+                        "effectively, a separate error model is leared and applied to each 10th of the read, while a value of "
+                        "3 would mean that a separate error model is applied to the read beginning (first third), middle (second third) "
+                        "and end (final third).")
+    ("forgettingFactor,f", po::value<double>(&(sopt.forgettingFactor))->default_value(0.65), "The forgetting factor used "
+                        "in the online learning schedule.  A smaller value results in quicker learning, but higher variance "
+                        "and may be unstable.  A larger value results in slower learning but may be more stable.  Value should "
+                        "be in the interval (0.5, 1.0].")
     ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(5000000), "If the file contained fewer than this "
                                         "many mapped reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
                                         "not be too large if you wish to keep a low memory usage, but setting it large enough to accommodate all of the mapped "
@@ -665,10 +697,17 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
 
         if (numThreads < 2) {
             fmt::print(stderr, "salmon requires at least 2 threads --- "
-                               "setting # of threads = 2");
+                               "setting # of threads = 2\n");
             numThreads = 2;
         }
         sopt.numThreads = numThreads;
+
+        if (sopt.forgettingFactor <= 0.5 or
+            sopt.forgettingFactor > 1.0) {
+            fmt::print(stderr, "The forgetting factor must be in (0.5, 1.0], "
+                               "but the value {} was provided\n", sopt.forgettingFactor);
+            std::exit(1);
+        }
 
         std::stringstream commentStream;
         commentStream << "# salmon (alignment-based) v" << salmon::version << "\n";
@@ -772,6 +811,16 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
             wstr << "WARNING: you passed in the (-u/--sampleUnaligned) flag, but did not request a sampled "
                  << "output file (-s/--sampleOut).  This flag will be ignored!\n";
             jointLog->warn() << wstr.str();
+        }
+
+        if (sopt.useReadCompat) {
+            // maybe arbitrary, but if it's smaller than this, consider it
+            // equal to LOG_0
+            if (sopt.incompatPrior < 1e-320) {
+                sopt.incompatPrior = sailfish::math::LOG_0;
+            } else {
+                sopt.incompatPrior = std::log(sopt.incompatPrior);
+            }
         }
 
         // If we made it this far, the output directory exists

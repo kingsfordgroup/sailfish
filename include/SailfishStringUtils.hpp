@@ -35,6 +35,8 @@ namespace sailfish{
         constexpr uint8_t samToTwoBit[] = {0, /*A*/0, /*C*/1, 0, /*G*/2, 0, 0, 0, /*T*/3,
                                            0, 0, 0, 0, 0, 0, 0};
 
+        constexpr char twoBitToChar[] = {'A','C','G','T'};
+
         constexpr uint8_t charToSamEncode[] = {
             15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
             15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,

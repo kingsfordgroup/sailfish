@@ -42,7 +42,6 @@ class ReadExperiment {
         readLibraries_(readLibraries),
         //transcriptFile_(transcriptFile),
         transcripts_(std::vector<Transcript>()),
-        batchNum_(0),
         totalAssignedFragments_(0) {
             namespace bfs = boost::filesystem;
 
@@ -150,7 +149,6 @@ class ReadExperiment {
 
 
     std::atomic<uint64_t>& numAssignedFragmentsAtomic() { return numAssignedFragments_; }
-    std::atomic<uint64_t>& batchNumAtomic() { return batchNum_; }
 
     void setNumObservedFragments(uint64_t numObserved) { numObservedFragments_ = numObserved; }
 
@@ -164,7 +162,7 @@ class ReadExperiment {
         for (auto& rl : readLibraries_) {
             processReadLibrary(rl, idx_, transcripts_, clusterForest(),
                                *(fragLengthDist_.get()), numAssignedFragments_,
-                               batchNum_, numThreads, burnedIn);
+                               numThreads, burnedIn);
         }
         return true;
     }
@@ -192,7 +190,6 @@ class ReadExperiment {
         numObservedFragments_ = 0;
         totalAssignedFragments_ += numAssignedFragments_;
         numAssignedFragments_ = 0;
-        // batchNum_ = 0; # don't reset batch num right now!
         quantificationPasses_++;
         return true;
     }
@@ -206,7 +203,6 @@ class ReadExperiment {
         numObservedFragments_ = 0;
         totalAssignedFragments_ += numAssignedFragments_;
         numAssignedFragments_ = 0;
-        // batchNum_ = 0; # don't reset batch num right now!
         quantificationPasses_++;
         return true;
     }
@@ -371,7 +367,6 @@ class ReadExperiment {
      */
     std::atomic<uint64_t> numObservedFragments_{0};
     std::atomic<uint64_t> numAssignedFragments_{0};
-    std::atomic<uint64_t> batchNum_{0};
     uint64_t totalAssignedFragments_;
     size_t quantificationPasses_;
     std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
