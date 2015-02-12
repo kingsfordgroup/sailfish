@@ -29,6 +29,7 @@
 #include <limits>
 #include <cmath>
 #include <cstdint>
+#include <numeric>
 
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>

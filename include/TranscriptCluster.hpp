@@ -1,6 +1,7 @@
 #ifndef __TRANSCRIPT_CLUSTER_HPP__
 #define __TRANSCRIPT_CLUSTER_HPP__
 
+#include <iostream>
 #include <atomic>
 #include <vector>
 #include <list>
