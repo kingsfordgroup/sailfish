@@ -128,7 +128,7 @@ target_link_libraries(sailfish
     ${LIBSAILFISH_LINKER_FLAGS} 
     ${NON_APPLECLANG_LIBS}
     ${TCMALLOC_LIB}
-    pthread
+    ${PTHREAD_LIB}
 )
 
 # Grumble grumble . . . OSX
@@ -156,6 +156,8 @@ if (APPLE)
     endif()
 
 else()
+    # related to complete static linking --- on hold	
+    #set (BOOST_THREAD_LIBRARY)
     set (CMPH_LIBRARY ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a) 
 endif()
 
@@ -176,7 +178,7 @@ target_link_libraries(salmon
     ${LIBSAILFISH_LINKER_FLAGS}
     ${NON_APPLECLANG_LIBS}
     ${TCMALLOC_LIB}
-    pthread
+    ${PTHREAD_LIB}
 )
 
 add_dependencies(salmon libbwa)

@@ -4,10 +4,10 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.6.3")
+set(CPACK_PACKAGE_VERSION "0.6.4")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
 set(CPACK_PACKAGE_VERSION_MINOR "6")
-set(CPACK_PACKAGE_VERSION_PATCH "3")
+set(CPACK_PACKAGE_VERSION_PATCH "4")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
@@ -26,7 +26,7 @@ SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
 # Nov 18th --- removed -DHAVE_CONFIG_H 
-set (CMAKE_CXX_FLAGS "-g -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+set (CMAKE_CXX_FLAGS "-funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -49,6 +49,7 @@ set( BOOST_EXTRA_FLAGS "--layout=tagged" )
 ## this get's set differently below if we 
 ## are on clang & apple
 set (NON_APPLECLANG_LIBS gomp rt)
+set (PTHREAD_LIB pthread)
 
 ##
 # Compiler-specific C++11 activation.
@@ -69,12 +70,21 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     endif ()
 
     set (GCC TRUE)
+    
+    # Put complete static linking on hold for the time-being
+    # If we're not on OSX, make an attempt to compile everything statically
+    #if (NOT APPLE)
+    #set (CMAKE_CXX_FLAGS "-static ${CMAKE_CXX_FLAGS}")
+    #set (CMAKE_EXE_LINK_FLAGS "-static")
+    #set (PTHREAD_LIB "-pthread")
+    #endif()
 
     set (WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_TOOLSET "gcc")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=gcc")
 	set (BCXX_FLAGS "-std=c++11")
     set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags=${BCXX_FLAGS})
+    set (NON_APPLECLANG_LIBS)
 
 # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
