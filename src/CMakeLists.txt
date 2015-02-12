@@ -125,7 +125,7 @@ target_link_libraries(sailfish
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     m
     ${TBB_LIBRARIES}
-    ${LIBSAILFISH_LINKER_FLAGS} shark
+    ${LIBSAILFISH_LINKER_FLAGS} 
     ${NON_APPLECLANG_LIBS}
     ${TCMALLOC_LIB}
     pthread
@@ -163,7 +163,7 @@ target_link_libraries(salmon
     lzma 
     bz2
     ${TBB_LIBRARIES}
-    ${LIBSAILFISH_LINKER_FLAGS} shark
+    ${LIBSAILFISH_LINKER_FLAGS}
     ${NON_APPLECLANG_LIBS}
     ${TCMALLOC_LIB}
     pthread
@@ -181,24 +181,6 @@ if (APPLE)
 		)
 endif()
 
-# Link the executable
-#target_link_libraries(salmon-read
-    #sailfish_core
-    #gff
-    #${Boost_LIBRARIES} 
-    #${ZLIB_LIBRARY} 
-    #cmph # perfect hashing library
-    #jellyfish-2.0 
-    #${CMAKE_SOURCE_DIR}/external/install/lib/libbam.a
-    #hts
-    #z
-    #pthread 
-    #gomp 
-    #m
-    #${TBB_LIBRARIES}
-    #${LIBSAILFISH_LINKER_FLAGS} shark
-#)
-
 ##### ======================================
 
 #add_executable(build_transcript_map ${BUILD_TRANSCRIPT_MAP_SRCS})
@@ -213,7 +195,7 @@ endif()
   #gomp
   #m
   #${TBB_LIBRARIES}
-  #${LIBSAILFISH_LINKER_FLAGS} shark
+  #${LIBSAILFISH_LINKER_FLAGS} 
 #)
    
 
@@ -230,7 +212,7 @@ endif()
     #gomp 
     #m
     #${TBB_LIBRARIES}
-    #${LIBSAILFISH_LINKER_FLAGS} shark
+    #${LIBSAILFISH_LINKER_FLAGS} 
 #)
 
 #add_executable(BuildKmerLocationIndex BuildKmerLocationIndex.cpp)
@@ -245,7 +227,7 @@ endif()
     #gomp 
     #m
     #${TBB_LIBRARIES}
-    #${LIBSAILFISH_LINKER_FLAGS} shark
+    #${LIBSAILFISH_LINKER_FLAGS} 
 #)
 
 
@@ -261,7 +243,6 @@ endif()
 #gomp
 #m
 #${TBB_LIBRARIES}
-#shark
 #)
 
 
@@ -276,7 +257,6 @@ endif()
     #gomp 
     #m
     #${TBB_LIBRARIES}
-    #shark
 #)
 
 # add_executable(compute_transcript_features ComputeBiasFeatures.cpp)
@@ -297,7 +277,6 @@ endif()
 # pthread
 # gomp
 # m
-# shark # The machine learning library
 # )
 
 IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
