@@ -137,14 +137,24 @@ if (APPLE)
     # the symbol _hash.  The OSX linker throws a fit when
     # we attempt to link statically, so we must link one
     # of them dynamically
+    set (CMPH_LIBRARY cmph)
+
+    #
     add_custom_command(TARGET salmon
         PRE_LINK
         COMMAND install_name_tool -id @rpath/libcmph.dylib ${GAT_SOURCE_DIR}/external/install/lib/libcmph.0.dylib
         COMMAND install_name_tool -id @rpath/libcmph.0.dylib ${GAT_SOURCE_DIR}/external/install/lib/libcmph.0.dylib
-        COMMAND install_name_tool -id @rpath/libtbb.dylib ${GAT_SOURCE_DIR}/external/install/lib/libtbb.dylib
-        COMMAND install_name_tool -id @rpath/libtbbmalloc.dylib ${GAT_SOURCE_DIR}/external/install/lib/libtbbmalloc.dylib
     )
-    set (CMPH_LIBRARY cmph)
+
+    # only attempt install_name_tool for tbb if we installed it
+    if (${TBB_LIBRARY_DIRS} MATCHES ${GAT_SOURCE_DIR}/external/install/lib)
+        add_custom_command(TARGET salmon
+            PRE_LINK
+            COMMAND install_name_tool -id @rpath/libtbb.dylib ${TBB_LIBRARY_DIRS}/libtbb.dylib
+            COMMAND install_name_tool -id @rpath/libtbbmalloc.dylib ${TBB_LIBRARY_DIRS}/libtbbmalloc.dylib
+        )
+    endif()
+
 else()
     set (CMPH_LIBRARY ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a) 
 endif()
