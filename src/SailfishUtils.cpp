@@ -682,7 +682,6 @@ void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
     /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
     if (haveBiasCorrectedFile) {
         bfs::path biasCorrectEstFilePath = estDir / "quant_bias_corrected.sf";
-        biasCorrectEstFilePath /= "quant_bias_corrected.sf";
         if (!bfs::exists(biasCorrectEstFilePath)) {
             std::stringstream errstr;
             errstr << "Attempting to compute gene-level esimtates, but could not \n"

@@ -62,6 +62,7 @@ format.cc
 
 include_directories( 
 ${GAT_SOURCE_DIR}/include
+${GAT_SOURCE_DIR}/include/eigen3
 ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include

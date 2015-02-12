@@ -374,32 +374,33 @@ message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 
 ###
 # Shark library
+# (Getting rid of SHARK dependency --- yay!)
 ####
-if (NOT Boost_FOUND)
-    # Shark depends on Boost.  If it wasn't already found, then 
-    # add a dependency between the Boost we fetch and this target.
-    add_dependencies(libshark libboost)
-endif()
+#if (NOT Boost_FOUND)
+    ## Shark depends on Boost.  If it wasn't already found, then 
+    ## add a dependency between the Boost we fetch and this target.
+    #add_dependencies(libshark libboost)
+#endif()
 
-message("Build system will fetch and build Shark machine learning library")
-message("==================================================================")
-# These are useful for the custom install step we'll do later
-set(SHARK_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark)
-set(SHARK_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-ExternalProject_Add(libshark
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.cmu.edu/~robp/files/Shark.tar.gz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CMAKE_ARGS -DOPT_DYNAMIC_LIBRARY=FALSE -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
-               -DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DOPT_MAKE_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${SHARK_INSTALL_DIR}
-               -DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-               -DCMAKE_CXX_FLAGS=${CMAKE_SHARK_CXX_FLAGS}
-    BUILD_COMMAND sh -c "make"
-    INSTALL_COMMAND sh -c "make install"
-    BUILD_IN_SOURCE 1
-    UPDATE_COMMAND ""
-)
+#message("Build system will fetch and build Shark machine learning library")
+#message("==================================================================")
+## These are useful for the custom install step we'll do later
+#set(SHARK_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark)
+#set(SHARK_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
+#ExternalProject_Add(libshark
+    #DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    #URL http://www.cs.cmu.edu/~robp/files/Shark.tar.gz
+    #SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark
+    #INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    #CMAKE_ARGS -DOPT_DYNAMIC_LIBRARY=FALSE -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
+               #-DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DOPT_MAKE_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${SHARK_INSTALL_DIR}
+               #-DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+               #-DCMAKE_CXX_FLAGS=${CMAKE_SHARK_CXX_FLAGS}
+    #BUILD_COMMAND sh -c "make"
+    #INSTALL_COMMAND sh -c "make install"
+    #BUILD_IN_SOURCE 1
+    #UPDATE_COMMAND ""
+#)
 
 message("Build system will compile libgff")
 message("==================================================================")

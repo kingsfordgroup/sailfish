@@ -393,6 +393,8 @@ bool quantifyLibrary(
     size_t numTranscripts = refs.size();
     size_t numObservedFragments{0};
 
+    auto fileLog = spdlog::get("fileLog");
+
     MiniBatchQueue<AlignmentGroup<FragT*>> workQueue;
     MiniBatchQueue<AlignmentGroup<FragT*>>* workQueuePtr{&workQueue};
     MiniBatchQueue<AlignmentGroup<FragT*>> processedCache;
@@ -493,6 +495,9 @@ bool quantifyLibrary(
                     fmt::print(stderr, "\r\r{}processed{} {} {}reads in current round{}",
                             ioutils::SET_GREEN, ioutils::SET_RED, numProc,
                             ioutils::SET_GREEN, ioutils::RESET_COLOR);
+                    fileLog->warn("quantification processed {} fragments so far "
+                                  "{} in the current round\n", totalProcessedReads,
+                                  numProc);
                 }
 
                 ++numProc;
