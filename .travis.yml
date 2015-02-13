@@ -33,7 +33,7 @@ script:
     - cmake -DFETCH_BOOST=TRUE -DNO_RTM=TRUE .. 
     - travis_wait 45 make 
     - travis_wait make install
-    - travis_wait make test
+    - travis_wait make test VERBOSE=1
 
 after_success: 
     - cd $TRAVIS_BUILD_DIR
