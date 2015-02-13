@@ -8,11 +8,12 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
                           uint32_t numParseThreads, uint32_t cacheSize):
     files_(std::vector<AlignmentFile>()),
     libFmt_(libFmt), totalReads_(0),
-    numUnaligned_(0), numMappedReads_(0), doneParsing_(false) {
+    numUnaligned_(0), numMappedReads_(0), doneParsing_(false),
+    exhaustedAlnGroupPool_(false) {
 
         logger_ = spdlog::get("jointLog");
 
-        uint32_t localCacheSize = std::max(uint32_t{5000000}, cacheSize);
+        uint32_t localCacheSize = std::max(uint32_t{2000000}, cacheSize);
         uint32_t capacity{localCacheSize};
         //fragmentQueue_.set_capacity(capacity);
         for (size_t i = 0; i < capacity; ++i) {
@@ -532,6 +533,7 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     size_t numFragAlloc{0};
     AlignmentGroup<FragT*>* alngroup;
     alnGroupPool_.pop(alngroup);
+    bool notified{false};
 
     currFile_ = files_.begin();
     fp_ = currFile_->fp;
@@ -554,15 +556,14 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
         if ( (currLen != prevLen) or
             !sameReadName_<UnpairedRead>(readName, prevReadName, currLen) ) {
 
-            if (currLen > 2 and readName[currLen - 2] == '/') {
-                std::cerr << "Name is " << readName << "\n";
-                std::exit(1);
-            }
             if (alngroup->size() > 0) {
                 // push the align group
                 while(!alnGroupQueue_.push(alngroup));
                 alngroup = nullptr;
-                alnGroupPool_.pop(alngroup);
+                if (!alnGroupPool_.try_pop(alngroup)) {  
+                   exhaustedAlnGroupPool_ = true;
+                    alnGroupPool_.pop(alngroup);
+                }
             }
             alngroup->addAlignment(f);
             f = nullptr;
@@ -574,19 +575,20 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
             f = nullptr;
        }
 
-       if (!fragmentQueue_.try_pop(f)) {
-        f = new FragT;
-        ++numFragAlloc;
-       }
+        while (!fragmentQueue_.try_pop(f) and f == nullptr) {
+            if (!exhaustedAlnGroupPool_) {
+               // if (extraFragAllocBudget_ > 0) {
+                f = new FragT;
+                ++numFragAlloc;
+            }
+        }
 
-       /*
-       if (n % 1000000 == 0) {
-           std::cerr << "allocated " << numFragAlloc << " fragments outside of the frag queue \n";
-           std::cerr << "fragmentQueue size = " << fragmentQueue_.unsafe_size() << "\n";
-           std::cerr << "alnGroupQueue size = " << alnGroupPool_.size() << "\n\n\n";
+       if (!notified and exhaustedAlnGroupPool_) { 
+          logger_->info("\n\nThe alignment group queue pool has been exhausted.  {} extra fragments were allocated "
+                        "on the heap to saturate the pool.  No new fragments will be allocated\n\n", numFragAlloc);
+          notified = true;
        }
        ++n;
-       */
     }
 
     // If we popped a fragment structure off the queue, but didn't add it 
@@ -603,7 +605,6 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     }
 
     delete [] prevReadName;
-    
     // We're at the end of the list of input files
     // and we're done parsing (for now).
     currFile_ = files_.end();

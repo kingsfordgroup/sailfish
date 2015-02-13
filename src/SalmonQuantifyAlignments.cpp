@@ -657,7 +657,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "in the online learning schedule.  A smaller value results in quicker learning, but higher variance "
                         "and may be unstable.  A larger value results in slower learning but may be more stable.  Value should "
                         "be in the interval (0.5, 1.0].")
-    ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(5000000), "If the file contained fewer than this "
+    ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(2000000), "If the file contained fewer than this "
                                         "many mapped reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
                                         "not be too large if you wish to keep a low memory usage, but setting it large enough to accommodate all of the mapped "
                                         "read can substantially speed up inference on \"small\" files that contain only a few million reads.")

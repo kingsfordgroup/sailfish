@@ -95,7 +95,7 @@ if (APPLE)
     ## DYLD_FALLBACK_LIBRARY_PATH for now
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 else()
-    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/")
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib:$ORIGIN/../../lib:$ORIGIN/:$ORIGIN/../../external/install/lib")
 endif()
 
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
@@ -118,6 +118,7 @@ add_executable(salmon ${SALMON_MAIN_SRCS} ${SALMON_ALIGN_SRCS})
 # Link the executable
 target_link_libraries(sailfish 
     sailfish_core 
+    ${PTHREAD_LIB}
     ${Boost_LIBRARIES} 
     gff
     ${ZLIB_LIBRARY} 
@@ -127,8 +128,7 @@ target_link_libraries(sailfish
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} 
     ${NON_APPLECLANG_LIBS}
-    ${TCMALLOC_LIB}
-    ${PTHREAD_LIB}
+    ${FAST_MALLOC_LIB}
 )
 
 # Grumble grumble . . . OSX
@@ -157,7 +157,7 @@ if (APPLE)
 
 else()
     # related to complete static linking --- on hold	
-    #set (BOOST_THREAD_LIBRARY)
+    set (BOOST_THREAD_LIBRARY)
     set (CMPH_LIBRARY ${GAT_SOURCE_DIR}/external/install/lib/libcmph.a) 
 endif()
 
@@ -165,6 +165,7 @@ endif()
 target_link_libraries(salmon
     sailfish_core 
     gff
+    ${PTHREAD_LIB}
     ${Boost_LIBRARIES} 
     ${GAT_SOURCE_DIR}/external/install/lib/libstaden-read.a
     ${ZLIB_LIBRARY} 
@@ -177,8 +178,7 @@ target_link_libraries(salmon
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS}
     ${NON_APPLECLANG_LIBS}
-    ${TCMALLOC_LIB}
-    ${PTHREAD_LIB}
+    ${FAST_MALLOC_LIB}
 )
 
 add_dependencies(salmon libbwa)

@@ -109,6 +109,7 @@ private:
   boost::lockfree::spsc_queue<AlignmentGroup<FragT*>*,
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
   volatile bool doneParsing_;
+  volatile bool exhaustedAlnGroupPool_;
   std::unique_ptr<std::thread> parsingThread_;
   std::shared_ptr<spdlog::logger> logger_;
 

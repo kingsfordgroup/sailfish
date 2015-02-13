@@ -201,12 +201,12 @@ elseif(FETCH_BOOST)
     message("==================================================================")
     ExternalProject_Add(libboost
         DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-        URL http://downloads.sourceforge.net/project/boost/boost/1.55.0/boost_1_55_0.tar.gz
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0
+        URL http://downloads.sourceforge.net/project/boost/boost/1.57.0/boost_1_57_0.tar.gz
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         #PATCH_COMMAND patch -p2 < ${CMAKE_CURRENT_SOURCE_DIR}/external/boost156.patch
-	CONFIGURE_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_55_0/b2 -d0 -j2 toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
+	CONFIGURE_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
+	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/b2 -d0 -j2 toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
@@ -455,12 +455,45 @@ ExternalProject_Add(libspdlog
     INSTALL_COMMAND cp -r <SOURCE_DIR>/include/spdlog <INSTALL_DIR>/include
 )
 
-# See if we have tcmalloc 
-find_package(Tcmalloc)
-set (TCMALLOC_LIB "")
-if (Tcmalloc_FOUND)
-    set (TCMALLOC_LIB ${Tcmalloc_LIBRARIES})
+set (FAST_MALLOC_LIB "")
+set (HAVE_FAST_MALLOC FALSE)
+
+# See if we have Jemalloc
+find_package(Jemalloc)
+if (Jemalloc_FOUND)
+    message("Found Jemalloc library --- using this memory allocator")
+    set (FAST_MALLOC_LIB ${JEMALLOC_LIBRARIES})
+    set (HAVE_FAST_MALLOC TRUE)
 endif()
+
+if (NOT HAVE_FAST_MALLOC)
+    # See if we have Tcmalloc
+    find_package(Tcmalloc)
+    if (Tcmalloc_FOUND)
+        message("Fount TCMalloc library --- using this memory allocator")
+        set (TCMALLOC_LIB ${Tcmalloc_LIBRARIES})
+        set (FAST_MALLOC_LIB ${TCMALLOC_LIB})
+        set (HAVE_FAST_MALLOC TRUE)
+    endif()
+endif()
+
+if (NOT HAVE_FAST_MALLOC)
+    message("Build system will fetch and use JEMalloc")
+    message("==================================================================")
+    ExternalProject_Add(libjemalloc
+        DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+        DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/jemalloc/archive/3.6.0.tar.gz -o jemalloc-3.6.0.tar.gz &&
+        tar -xzf jemalloc-3.6.0.tar.gz 
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jemalloc-3.6.0
+        BUILD_IN_SOURCE TRUE
+        INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+        CONFIGURE_COMMAND sh -c "CC=${CMAKE_C_COMPILER} ./autogen.sh --prefix=<INSTALL_DIR>"
+        INSTALL_COMMAND cp -r lib <INSTALL_DIR>/ && cp -r include <INSTALL_DIR>/
+        )
+
+    set (FAST_MALLOC_LIB jemalloc)
+    set (HAVE_FAST_MALLOC TRUE)
+endif ()
 
 #message("Build system will compile htslib")
 #message("==================================================================")
