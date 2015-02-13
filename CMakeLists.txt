@@ -26,7 +26,7 @@ SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
 # Nov 18th --- removed -DHAVE_CONFIG_H 
-set (CMAKE_CXX_FLAGS "-funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+set (CMAKE_CXX_FLAGS "-pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -49,7 +49,7 @@ set( BOOST_EXTRA_FLAGS "--layout=tagged" )
 ## this get's set differently below if we 
 ## are on clang & apple
 set (NON_APPLECLANG_LIBS gomp rt)
-set (PTHREAD_LIB pthread)
+set (PTHREAD_LIB)
 
 ##
 # Compiler-specific C++11 activation.
@@ -76,7 +76,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     #if (NOT APPLE)
     #set (CMAKE_CXX_FLAGS "-static ${CMAKE_CXX_FLAGS}")
     #set (CMAKE_EXE_LINK_FLAGS "-static")
-    #set (PTHREAD_LIB "-pthread")
+    set (PTHREAD_LIB "pthread")
     #endif()
 
     set (WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
@@ -104,6 +104,8 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
 
     if (APPLE)
         set (NON_APPLECLANG_LIBS "")
+    else()
+        set (PTHREAD_LIB "pthread")
     endif()
 else ()
     message(FATAL_ERROR "Your C++ compiler does not support C++11.")
