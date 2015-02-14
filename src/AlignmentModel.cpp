@@ -10,12 +10,10 @@
 #include "UnpairedRead.hpp"
 #include "ReadPair.hpp"
 
-AlignmentModel::AlignmentModel(double alpha, uint32_t maxExpectedReadLen, uint32_t readBins ) :
-    maxExpectedLen_(maxExpectedReadLen),
+AlignmentModel::AlignmentModel(double alpha, uint32_t readBins ) :
     transitionProbsLeft_(readBins, AtomicMatrix<double>(numAlignmentStates(), numAlignmentStates(), alpha)),
     transitionProbsRight_(readBins, AtomicMatrix<double>(numAlignmentStates(), numAlignmentStates(), alpha)),
     isEnabled_(true),
-    maxLen_(0),
     readBins_(readBins),
     burnedIn_(false) {}
 
@@ -56,6 +54,43 @@ bool AlignmentModel::hasIndel(bam_seq_t* read) {
     return false;
 }
 
+inline void AlignmentModel::setBasesFromCIGAROp_(enum cigar_op op, size_t& curRefBase, size_t& curReadBase) {
+    switch (op) {
+        case BAM_UNKNOWN:
+            std::cerr << "ENCOUNTERED UNKNOWN SYMBOL IN CIGAR STRING!\n";
+            break;
+        case BAM_CMATCH:
+           // do nothing
+            break;
+        case BAM_CBASE_MATCH:
+            // do nothing
+            break;
+        case BAM_CBASE_MISMATCH:
+            // do nothing
+            break;
+        case BAM_CINS:
+            curRefBase = ALN_DASH;
+            break;
+        case BAM_CDEL:
+            curReadBase = ALN_DASH;
+            break;
+        case BAM_CREF_SKIP:
+            curReadBase = ALN_REF_SKIP;
+            break;
+        case BAM_CSOFT_CLIP:
+            curRefBase = ALN_SOFT_CLIP;
+            break;
+        case BAM_CHARD_CLIP:
+            curRefBase = ALN_HARD_CLIP;
+            curReadBase = ALN_HARD_CLIP;
+            break;
+        case BAM_CPAD:
+            curRefBase = ALN_PAD;
+            curReadBase = ALN_PAD;
+            break;
+    }
+}
+
 double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
                                  std::vector<AtomicMatrix<double>>& transitionProbs){
     using namespace sailfish::stringtools;
@@ -89,13 +124,6 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
     double logLike = sailfish::math::LOG_1;
 
-    /*
-    std::stringstream readStr;
-    std::stringstream matchStr;
-    std::stringstream refStr;
-    std::stringstream stateStr;
-    */
-
     uint32_t readPosBin{0};
     uint32_t cigarIdx{0};
     uint32_t prevStateIdx{startStateIdx};
@@ -108,90 +136,9 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
         size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
         size_t curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
 
-        //stateStr << prevStateIdx << ", ";
         for (size_t i = 0; i < opLen; ++i) {
-           switch (op) {
-                    case BAM_UNKNOWN:
-                        std::cerr << "ENCOUNTERED UNKNOWN SYMBOL IN CIGAR STRING!\n";
-                        break;
-                    case BAM_CMATCH:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ((curReadBase == curRefBase) ? ' ' : 'X');
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        // do nothing
-                        break;
-                    case BAM_CBASE_MATCH:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ' ';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        // do nothing
-                        break;
-                    case BAM_CBASE_MISMATCH:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << 'X';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        // do nothing
-                        break;
-                    case BAM_CINS:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ' ';
-                        refStr << '-';
-                        */
-                        curRefBase = ALN_DASH;
-                        break;
-                    case BAM_CDEL:
-                        /*
-                        readStr << '-';
-                        matchStr << ' ';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        curReadBase = ALN_DASH;
-                        break;
-                    case BAM_CREF_SKIP:
-                        /*
-                        readStr << 'N';
-                        matchStr << ' ';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        curReadBase = ALN_REF_SKIP;
-                        break;
-                    case BAM_CSOFT_CLIP:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ' ';
-                        refStr << 'S';
-                        */
-                        curRefBase = ALN_SOFT_CLIP;
-                        break;
-                    case BAM_CHARD_CLIP:
-                        /*
-                        readStr << 'H';
-                        matchStr << ' ';
-                        refStr << 'H';
-                        */
-                        curRefBase = ALN_HARD_CLIP;
-                        curReadBase = ALN_HARD_CLIP;
-                        break;
-                    case BAM_CPAD:
-                        /*
-                        readStr << 'P';
-                        matchStr << ' ';
-                        refStr << 'P';
-                        */
-                        curRefBase = ALN_PAD;
-                        curReadBase = ALN_PAD;
-                        break;
-                }
-
+            setBasesFromCIGAROp_(op, curRefBase, curReadBase);
             curStateIdx = curRefBase * numStates + curReadBase;
-            //stateStr << curStateIdx << ", ";
             double tp = transitionProbs[readPosBin](prevStateIdx, curStateIdx);
             logLike += tp;
             prevStateIdx = curStateIdx;
@@ -207,17 +154,6 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
             }
 
         }
-
-        /*
-        {
-            std::lock_guard<std::mutex> l(outputMutex_);
-            std::cerr << "\n\nread:   " << readStr.str() << "\n";
-            std::cerr << "        " << matchStr.str() << "\n";
-            std::cerr << "ref:    " << refStr.str() << "\n";
-            std::cerr << "states: " << stateStr.str() << "\n";
-            std::cerr << "prob:   " << std::exp(logLike) << "\n";
-        }
-        */
     }
     return logLike;
 }
@@ -241,10 +177,12 @@ double AlignmentModel::logLikelihood(const ReadPair& hit, Transcript& ref){
     size_t rightLen = static_cast<size_t>(bam_seq_len(rightRead));
 
     // NOTE: Raise a warning in this case?
+    /*
     if (BOOST_UNLIKELY((leftLen > maxExpectedLen_) or
                        (rightLen > maxExpectedLen_))) {
         return logLike;
     }
+    */
 
     if (leftRead) {
         logLike += logLikelihood(leftRead, ref, transitionProbsLeft_);
@@ -269,9 +207,12 @@ double AlignmentModel::logLikelihood(const UnpairedRead& hit, Transcript& ref){
     bam_seq_t* read = hit.read;
     size_t readLen = static_cast<size_t>(bam_seq_len(read));
     // NOTE: Raise a warning in this case?
+    /*
     if (BOOST_UNLIKELY(readLen > maxExpectedLen_)) {
         return logLike;
     }
+    */
+
     logLike += logLikelihood(read, ref, transitionProbsLeft_);
 
     if (logLike == sailfish::math::LOG_0) {
@@ -310,13 +251,6 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
     uint8_t* qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));
 
-    /*
-    std::stringstream readStr;
-    std::stringstream matchStr;
-    std::stringstream refStr;
-    std::stringstream stateStr;
-    */
-
     if (cigarLen > 0 and cigar) {
 
         sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
@@ -327,96 +261,15 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
         uint32_t curStateIdx{0};
         double invLen = static_cast<double>(readBins_) / bam_seq_len(read);
 
-        //stateStr << prevStateIdx << ", ";
         for (uint32_t cigarIdx = 0; cigarIdx < cigarLen; ++cigarIdx) {
             uint32_t opLen = cigar[cigarIdx] >> BAM_CIGAR_SHIFT;
             enum cigar_op op = static_cast<enum cigar_op>(cigar[cigarIdx] & BAM_CIGAR_MASK);
             size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
             size_t curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
             for (size_t i = 0; i < opLen; ++i) {
-                switch (op) {
-                    case BAM_UNKNOWN:
-                        std::cerr << "ENCOUNTERED UNKNOWN SYMBOL IN CIGAR STRING!\n";
-                        break;
-                    case BAM_CMATCH:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ((curReadBase == curRefBase) ? ' ' : 'X');
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        // do nothing
-                        break;
-                    case BAM_CBASE_MATCH:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ' ';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        // do nothing
-                        break;
-                    case BAM_CBASE_MISMATCH:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << 'X';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        // do nothing
-                        break;
-                    case BAM_CINS:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ' ';
-                        refStr << '-';
-                        */
-                        curRefBase = ALN_DASH;
-                        break;
-                    case BAM_CDEL:
-                        /*
-                        readStr << '-';
-                        matchStr << ' ';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        curReadBase = ALN_DASH;
-                        break;
-                    case BAM_CREF_SKIP:
-                        /*
-                        readStr << 'N';
-                        matchStr << ' ';
-                        refStr << twoBitToChar[curRefBase];
-                        */
-                        curReadBase = ALN_REF_SKIP;
-                        break;
-                    case BAM_CSOFT_CLIP:
-                        /*
-                        readStr << twoBitToChar[curReadBase];
-                        matchStr << ' ';
-                        refStr << 'S';
-                        */
-                        curRefBase = ALN_SOFT_CLIP;
-                        break;
-                    case BAM_CHARD_CLIP:
-                        /*
-                        readStr << 'H';
-                        matchStr << ' ';
-                        refStr << 'H';
-                        */
-                        curRefBase = ALN_HARD_CLIP;
-                        curReadBase = ALN_HARD_CLIP;
-                        break;
-                    case BAM_CPAD:
-                        /*
-                        readStr << 'P';
-                        matchStr << ' ';
-                        refStr << 'P';
-                        */
-                        curRefBase = ALN_PAD;
-                        curReadBase = ALN_PAD;
-                        break;
-                }
-
+                setBasesFromCIGAROp_(op, curRefBase, curReadBase);
                 curStateIdx = curRefBase * numStates + curReadBase;
 
-                //stateStr << curStateIdx << ", ";
                 transitionProbs[readPosBin].increment(prevStateIdx, curStateIdx, mass+p);
                 prevStateIdx = curStateIdx;
                 if (BAM_CONSUME_SEQ(op)) {
@@ -430,16 +283,6 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
                 }
            }
         }
-
-        /*
-        {
-            std::lock_guard<std::mutex> l(outputMutex_);
-            std::cerr << "\n\nread:   " << readStr.str() << "\n";
-            std::cerr << "        " << matchStr.str() << "\n";
-            std::cerr << "ref:    " << refStr.str() << "\n";
-            std::cerr << "states: " << stateStr.str() << "\n";
-        }
-        */
     } // if we had a cigar string
 }
 
@@ -459,3 +302,84 @@ void AlignmentModel::update(const ReadPair& hit, Transcript& ref, double p, doub
     }
 }
 
+// CIGAR string with printing
+/*
+    std::stringstream readStr;
+    std::stringstream matchStr;
+    std::stringstream refStr;
+    std::stringstream stateStr;
+
+switch (op) {
+                    case BAM_UNKNOWN:
+                        std::cerr << "ENCOUNTERED UNKNOWN SYMBOL IN CIGAR STRING!\n";
+                        break;
+                    case BAM_CMATCH:
+                        readStr << twoBitToChar[curReadBase];
+                        matchStr << ((curReadBase == curRefBase) ? ' ' : 'X');
+                        refStr << twoBitToChar[curRefBase];
+                        // do nothing
+                        break;
+                    case BAM_CBASE_MATCH:
+                        readStr << twoBitToChar[curReadBase];
+                        matchStr << ' ';
+                        refStr << twoBitToChar[curRefBase];
+                        // do nothing
+                        break;
+                    case BAM_CBASE_MISMATCH:
+                        readStr << twoBitToChar[curReadBase];
+                        matchStr << 'X';
+                        refStr << twoBitToChar[curRefBase];
+                        // do nothing
+                        break;
+                    case BAM_CINS:
+                        readStr << twoBitToChar[curReadBase];
+                        matchStr << ' ';
+                        refStr << '-';
+                        curRefBase = ALN_DASH;
+                        break;
+                    case BAM_CDEL:
+                        readStr << '-';
+                        matchStr << ' ';
+                        refStr << twoBitToChar[curRefBase];
+                        curReadBase = ALN_DASH;
+                        break;
+                    case BAM_CREF_SKIP:
+                        readStr << 'N';
+                        matchStr << ' ';
+                        refStr << twoBitToChar[curRefBase];
+                        curReadBase = ALN_REF_SKIP;
+                        break;
+                    case BAM_CSOFT_CLIP:
+                        readStr << twoBitToChar[curReadBase];
+                        matchStr << ' ';
+                        refStr << 'S';
+                        curRefBase = ALN_SOFT_CLIP;
+                        break;
+                    case BAM_CHARD_CLIP:
+                        readStr << 'H';
+                        matchStr << ' ';
+                        refStr << 'H';
+                        curRefBase = ALN_HARD_CLIP;
+                        curReadBase = ALN_HARD_CLIP;
+                        break;
+                    case BAM_CPAD:
+                        readStr << 'P';
+                        matchStr << ' ';
+                        refStr << 'P';
+                        curRefBase = ALN_PAD;
+                        curReadBase = ALN_PAD;
+                        break;
+                }
+
+                curStateIdx = curRefBase * numStates + curReadBase;
+
+
+               stateStr << curStateIdx << ", ";
+        {
+            std::lock_guard<std::mutex> l(outputMutex_);
+            std::cerr << "\n\nread:   " << readStr.str() << "\n";
+            std::cerr << "        " << matchStr.str() << "\n";
+            std::cerr << "ref:    " << refStr.str() << "\n";
+            std::cerr << "states: " << stateStr.str() << "\n";
+        }
+*/

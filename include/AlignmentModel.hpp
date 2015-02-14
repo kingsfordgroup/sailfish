@@ -19,7 +19,7 @@ class Transcript;
 
 class AlignmentModel{
 public:
-    AlignmentModel(double alpha, uint32_t maxExpectedLen, uint32_t readBins = 4);
+    AlignmentModel(double alpha, uint32_t readBins = 4);
     bool burnedIn();
     void burnedIn(bool burnedIn);
 
@@ -67,6 +67,8 @@ private:
         ALN_REF_SKIP = 8
     };
 
+    void setBasesFromCIGAROp_(enum cigar_op op, size_t& curRefBase, size_t& curReadBase);
+
     // 11 states --- the 9 listed in "AlignmentModelChar" plus START (9) i
     // and END (10)
     constexpr static uint32_t numAlignmentStates() { return 82; }
@@ -87,8 +89,7 @@ private:
     std::vector<AtomicMatrix<double>> transitionProbsRight_;
 
     bool isEnabled_;
-    size_t maxExpectedLen_;
-    size_t maxLen_;
+    //size_t maxLen_;
     size_t readBins_;
     std::atomic<bool> burnedIn_;
     // Maintain a mutex in case the error model wants to talk to the

@@ -122,8 +122,7 @@ class AlignmentLibrary {
                     fragLenKernelP, 1)
                     );
 
-            alnMod_.reset(new AlignmentModel(1.0, salmonOpts.maxExpectedReadLen,
-                                             salmonOpts.numErrorBins));
+            alnMod_.reset(new AlignmentModel(1.0, salmonOpts.numErrorBins));
             // Start parsing the alignments
            NullFragmentFilter<FragT>* nff = nullptr;
            bq->start(nff);

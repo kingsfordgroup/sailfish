@@ -107,7 +107,7 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
     // Seed with a real random value, if available
     std::random_device rd;
-    auto log = spdlog::get("jointLog");
+    auto& log = salmonOpts.jointLog;
 
     // Create a random uniform distribution
     std::default_random_engine eng(rd());
@@ -393,7 +393,7 @@ bool quantifyLibrary(
     size_t numTranscripts = refs.size();
     size_t numObservedFragments{0};
 
-    auto fileLog = spdlog::get("fileLog");
+    auto& fileLog = salmonOpts.fileLog;
 
     MiniBatchQueue<AlignmentGroup<FragT*>> workQueue;
     MiniBatchQueue<AlignmentGroup<FragT*>>* workQueuePtr{&workQueue};
@@ -495,9 +495,8 @@ bool quantifyLibrary(
                     fmt::print(stderr, "\r\r{}processed{} {} {}reads in current round{}",
                             ioutils::SET_GREEN, ioutils::SET_RED, numProc,
                             ioutils::SET_GREEN, ioutils::RESET_COLOR);
-                    fileLog->warn("quantification processed {} fragments so far "
-                                  "{} in the current round\n", totalProcessedReads,
-                                  numProc);
+                    fileLog->warn("quantification processed {} fragments so far\n",
+                                   numProc);
                 }
 
                 ++numProc;
@@ -648,7 +647,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                         "Learn and apply an error model for the aligned reads.  This takes into account the "
                         "the observed frequency of different types of mismatches when computing the likelihood of "
                         "a given alignment.")
-    ("numErrorBins", po::value<uint32_t>(&(sopt.numErrorBins))->default_value(4), "The number of bins into which to divide "
+    ("numErrorBins", po::value<uint32_t>(&(sopt.numErrorBins))->default_value(6), "The number of bins into which to divide "
                         "each read when learning and applying the error model.  For example, a value of 10 would mean that "
                         "effectively, a separate error model is leared and applied to each 10th of the read, while a value of "
                         "3 would mean that a separate error model is applied to the read beginning (first third), middle (second third) "
@@ -661,9 +660,9 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
                                         "many mapped reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
                                         "not be too large if you wish to keep a low memory usage, but setting it large enough to accommodate all of the mapped "
                                         "read can substantially speed up inference on \"small\" files that contain only a few million reads.")
-    ("maxReadLen,r", po::value<uint32_t>(&(sopt.maxExpectedReadLen))->default_value(250), "The maximum expected length of an observed read.  "
+    /*("maxReadLen,r", po::value<uint32_t>(&(sopt.maxExpectedReadLen))->default_value(250), "The maximum expected length of an observed read.  "
                         "This is used to determine the size of the error model.  If a read longer than this is "
-                        "encountered, then the error model will be disabled")
+                        "encountered, then the error model will be disabled")*/
     ("output,o", po::value<std::string>()->required(), "Output quantification directory.")
     ("sampleOut,s", po::bool_switch(&sampleOutput)->default_value(false), "Write a \"postSample.bam\" file in the output directory "
                         "that will sample the input alignments according to the estimated transcript abundances. If you're "
@@ -807,9 +806,8 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         auto fileLog = spdlog::create("fileLog", {fileSink});
         auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
 
-        //g2LogWorker logger(argv[0], logDirectory.string());
-        //g2::initializeLogging(&logger);
-
+        sopt.jointLog = jointLog;
+        sopt.fileLog = fileLog;
 
         if (!sampleOutput and sampleUnaligned) {
             fmt::MemoryWriter wstr;

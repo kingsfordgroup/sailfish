@@ -1491,7 +1491,7 @@ void processCachedAlignmentsHelper(
         validHits += locValidHits;
         locRead += numConsumed;
 
-        uint32_t updateRate = 200000;
+        uint32_t updateRate = 500000;
         uint64_t prevMod = numObservedFragments % updateRate;
         numObservedFragments += numConsumed;
         uint64_t newMod = numObservedFragments % updateRate;
@@ -1504,6 +1504,7 @@ void processCachedAlignmentsHelper(
             red[3] = '0' + static_cast<char>(fmt::RED);
             fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
             fmt::print(stderr, "hits per frag:  {} / {} = {}", locValidHits, locRead, locValidHits / static_cast<float>(locRead));
+            salmonOpts.fileLog->info("processed {} fragments\n", numObservedFragments);
             iomutex.unlock();
         }
 
@@ -2073,6 +2074,12 @@ void quantifyLibrary(
         fmt::print(stderr, "# assigned = {} / # observed (this round) = {}\033[A\033[A",
                    experiment.numAssignedFragments(),
                    numObservedFragments - numPrevObservedFragments);
+        salmonOpts.fileLog->info("\nAt end of round {}\n"
+                                   "==================\n"
+                                   "Observed {} total fragments ({} in most recent round)\n",
+                                   roundNum - 1,
+                                   numObservedFragments,
+                                   numObservedFragments - numPrevObservedFragments);
     }
     fmt::print(stderr, "\n\n\n\n");
 
@@ -2281,6 +2288,9 @@ transcript abundance from RNA-seq reads
         auto consoleLog = spdlog::create("consoleLog", {consoleSink});
         auto fileLog = spdlog::create("fileLog", {fileSink});
         auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+
+        sopt.jointLog = jointLog;
+        sopt.fileLog = fileLog;
 
         // Verify that no inconsistent options were provided
         {

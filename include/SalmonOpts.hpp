@@ -3,6 +3,12 @@
 
 #include <boost/filesystem.hpp>
 
+// Logger includes
+#include "spdlog/spdlog.h"
+
+#include <memory> // for shared_ptr
+
+
 /**
   * A structure to hold some common options used
   * by Salmon so that we don't have to pass them
@@ -63,6 +69,9 @@ struct SalmonOpts {
     boost::filesystem::path outputDirectory; // Quant output directory
 
     boost::filesystem::path indexDirectory; // Index directory
+
+    std::shared_ptr<spdlog::logger> jointLog{nullptr};
+    std::shared_ptr<spdlog::logger> fileLog{nullptr};
 
     uint32_t mappingCacheMemoryLimit;
     uint32_t numThreads;
