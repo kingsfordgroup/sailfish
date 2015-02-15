@@ -8,14 +8,17 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
                           uint32_t numParseThreads, uint32_t cacheSize):
     files_(std::vector<AlignmentFile>()),
     libFmt_(libFmt), totalReads_(0),
-    numUnaligned_(0), numMappedReads_(0), doneParsing_(false),
+    numUnaligned_(0), numMappedReads_(0), 
+    //fragmentQueue_(2000000),
+    alnGroupPool_(2000000),
+    alnGroupQueue_(1000000),
+    doneParsing_(false),
     exhaustedAlnGroupPool_(false) {
 
         logger_ = spdlog::get("jointLog");
 
         uint32_t localCacheSize = std::max(uint32_t{2000000}, cacheSize);
         uint32_t capacity{localCacheSize};
-        //fragmentQueue_.set_capacity(capacity);
         for (size_t i = 0; i < capacity; ++i) {
             // avoid r-value ref until we figure out what's
             // up with TBB 4.3
@@ -24,12 +27,12 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
         }
 
         size_t groupCapacity = localCacheSize;
-        alnGroupPool_.set_capacity(groupCapacity);
+        //alnGroupPool_.set_capacity(groupCapacity);
         for (size_t i = 0; i < groupCapacity; ++i) {
             // avoid r-value ref until we figure out what's
             // up with TBB 4.3
             auto* agrpPtr = new AlignmentGroup<FragT*>; 
-            alnGroupPool_.push(agrpPtr);
+            alnGroupPool_.enqueue(agrpPtr);
         }
 
         bool firstFile = true;
@@ -127,37 +130,68 @@ BAMQueue<FragT>::~BAMQueue() {
     fmt::print(stderr, "\nClosed all files . . . ");
     // Free the structure holding all of the reads
     FragT* frag;
-    while (!fragmentQueue_.empty()) { 
-        while (fragmentQueue_.try_pop(frag)) { 
-            delete frag;
-            frag = nullptr;
-        }
+    //while (!fragmentQueue_.empty()) { 
+    while (fragmentQueue_.try_pop(frag)) { 
+        delete frag;
+        frag = nullptr;
     }
+    //}
     fmt::print(stderr, "\nEmptied frag queue. . . ");
 
     AlignmentGroup<FragT*>* grp;
-    while(!alnGroupPool_.empty()) { alnGroupPool_.pop(grp); delete grp; grp = nullptr; }
+    //while(!alnGroupPool_.empty()) { alnGroupPool_.pop(grp); delete grp; grp = nullptr; }
+    while(alnGroupPool_.try_dequeue(grp)) { delete grp; grp = nullptr; }
     fmt::print(stderr, "\nEmptied Alignemnt Group Pool. . ");
-    while(!alnGroupQueue_.empty()) { alnGroupQueue_.pop(grp); delete grp; grp = nullptr; }
+    while(alnGroupQueue_.try_dequeue(grp)) { delete grp; grp = nullptr; }
     fmt::print(stderr, "\nEmptied Alignment Group Queue. . . ");
     fmt::print(stderr, "done\n");
 }
 
+/*
+ * Tries _numTries_ times to get work from _workQueue_.  It returns
+ * true immediately if it was able to find work, and false otherwise.
+ */
+template <typename FragT>
+inline bool tryToGetWork(moodycamel::ReaderWriterQueue<AlignmentGroup<FragT*>*>& workQueue,
+                         AlignmentGroup<FragT*>*& group,
+                         uint32_t numTries) {
+    uint32_t attempts{1};
+    bool foundWork = workQueue.try_dequeue(group);
+    while (!foundWork and attempts < numTries) {
+        foundWork = workQueue.try_dequeue(group);
+        ++attempts;
+    }
+    return foundWork;
+}
+
+
+
+
 template <typename FragT>
 inline bool BAMQueue<FragT>::getAlignmentGroup(AlignmentGroup<FragT*>*& group) {
-    volatile bool isEmpty{alnGroupQueue_.empty()};
     while (!doneParsing_) {
-        while (alnGroupQueue_.pop(group)) {
+        while (alnGroupQueue_.try_dequeue(group)) {
             return true;
         }
-        //std::this_thread::yield();
+/*
+#if not defined(__APPLE__)
+{
+            std::unique_lock<std::mutex> l(agMutex_);
+            workAvailable_.wait(l, [&group, this]() { 
+                                    return this->alnGroupQueue_.try_dequeue(group) or this->doneParsing_; 
+                                });
+            return !doneParsing_;
+}
+#endif
     }
-    while (alnGroupQueue_.pop(group)) {
+*/
+    }
+
+    while (alnGroupQueue_.try_dequeue(group)) {
         return true;
     }
     return false;
 }
-
 
 template <typename FragT>
 void BAMQueue<FragT>::forceEndParsing() { doneParsing_ = true; }
@@ -185,11 +219,13 @@ void BAMQueue<FragT>::start(FilterT filt) {
 
 template <typename FragT>
 tbb::concurrent_queue<FragT*>& BAMQueue<FragT>::getFragmentQueue() {
+//moodycamel::ConcurrentQueue<FragT*>& BAMQueue<FragT>::getFragmentQueue() {
     return fragmentQueue_;
 }
 
 template <typename FragT>
-tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& BAMQueue<FragT>::getAlignmentGroupQueue() {
+//tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& BAMQueue<FragT>::getAlignmentGroupQueue() {
+moodycamel::ConcurrentQueue<AlignmentGroup<FragT*>*>& BAMQueue<FragT>::getAlignmentGroupQueue() {
     return alnGroupPool_;
 }
 
@@ -532,7 +568,8 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     size_t n{0};
     size_t numFragAlloc{0};
     AlignmentGroup<FragT*>* alngroup;
-    alnGroupPool_.pop(alngroup);
+    //alnGroupPool_.pop(alngroup);
+    while (!alnGroupPool_.try_dequeue(alngroup));
     bool notified{false};
 
     currFile_ = files_.begin();
@@ -551,18 +588,30 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
 
         char* readName = f->getName();
         uint32_t currLen = f->getNameLength();
-        std::string readStr(readName);
         // if this is a new read
         if ( (currLen != prevLen) or
             !sameReadName_<UnpairedRead>(readName, prevReadName, currLen) ) {
 
             if (alngroup->size() > 0) {
                 // push the align group
-                while(!alnGroupQueue_.push(alngroup));
+                while(!alnGroupQueue_.try_enqueue(alngroup));
+                /*
+#if not defined(__APPLE__)
+                {
+                std::lock_guard<std::mutex> l(agMutex_);
+#endif
+                while(!alnGroupQueue_.try_enqueue(alngroup));
+
+#if not defined(__APPLE__)
+                workAvailable_.notify_one();
+                }
+#endif
+*/
                 alngroup = nullptr;
-                if (!alnGroupPool_.try_pop(alngroup)) {  
+                if (!alnGroupPool_.try_dequeue(alngroup)) {  
                    exhaustedAlnGroupPool_ = true;
-                    alnGroupPool_.pop(alngroup);
+                    //alnGroupPool_.pop(alngroup);
+                    while(!alnGroupPool_.try_dequeue(alngroup));
                 }
             }
             alngroup->addAlignment(f);
@@ -575,11 +624,11 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
             f = nullptr;
        }
 
-        while (!fragmentQueue_.try_pop(f) and f == nullptr) {
+        while (!fragmentQueue_.try_pop(f)) {
             if (!exhaustedAlnGroupPool_) {
-               // if (extraFragAllocBudget_ > 0) {
                 f = new FragT;
                 ++numFragAlloc;
+                break;
             }
         }
 
@@ -598,10 +647,11 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     // If the last alignment group is non-empty, then send 
     // it off to be processed.
     if (alngroup->size() > 0) { 
-        while(!alnGroupQueue_.push(alngroup));
+        while(!alnGroupQueue_.try_enqueue(alngroup));
         alngroup = nullptr;
     } else { // otherwise, reclaim the alignment group structure here
-        alnGroupPool_.push(alngroup);
+        //alnGroupPool_.push(alngroup);
+        alnGroupPool_.try_enqueue(alngroup);
     }
 
     delete [] prevReadName;

@@ -1,5 +1,7 @@
 #include <iostream>
 #include <cstdio>
+#include <tuple>
+#include <map>
 
 #include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
 
@@ -251,6 +253,10 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
     uint8_t* qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));
 
+    std::vector<std::map<std::tuple<size_t, size_t>, double>> locTP(
+            readBins_,
+            std::map<std::tuple<size_t, size_t>, double>());
+
     if (cigarLen > 0 and cigar) {
 
         sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
@@ -270,7 +276,9 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
                 setBasesFromCIGAROp_(op, curRefBase, curReadBase);
                 curStateIdx = curRefBase * numStates + curReadBase;
 
+                // update the state in the actual model
                 transitionProbs[readPosBin].increment(prevStateIdx, curStateIdx, mass+p);
+
                 prevStateIdx = curStateIdx;
                 if (BAM_CONSUME_SEQ(op)) {
                     ++readIdx;

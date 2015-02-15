@@ -6,6 +6,7 @@
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 #include "AlignmentGroup.hpp"
+#include "concurrentqueue.h"
 
 template <typename AlnGroupT>
 class MiniBatchInfo {
@@ -21,19 +22,24 @@ class MiniBatchInfo {
 
         template <typename FragT>
         void release(tbb::concurrent_queue<FragT*>& fragmentQueue,
-                     tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue){
+                     moodycamel::ConcurrentQueue<AlnGroupT*>& alignmentGroupQueue){
+                    // tbb::concurrent_bounded_queue<AlnGroupT*>& alignmentGroupQueue){
             size_t ng{0};
             for (auto& alnGroup : *alignments) {
+                //fragmentQueue.enqueue_bulk(alnGroup->alignments().begin(), alnGroup->alignments().size());
+
                 for (auto aln : alnGroup->alignments()) {
-                    fragmentQueue.push(aln);
+                   fragmentQueue.push(aln);
                     aln = nullptr;
                 }
-                alnGroup->alignments().clear();
-                alignmentGroupQueue.push(alnGroup);
 
-                alnGroup = nullptr;
+                alnGroup->alignments().clear();
+                //alignmentGroupQueue.push(alnGroup);
+                //alnGroup = nullptr;
                 ++ng;
             }
+
+            alignmentGroupQueue.enqueue_bulk(std::make_move_iterator(alignments->begin()), alignments->size());
             delete alignments;
             alignments = nullptr;
         }

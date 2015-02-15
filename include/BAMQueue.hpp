@@ -1,8 +1,8 @@
 #ifndef __BAMQUEUE_HPP__
 #define __BAMQUEUE_HPP__
 
-#include <boost/lockfree/spsc_queue.hpp>
-#include <boost/lockfree/queue.hpp>
+//#include <boost/lockfree/spsc_queue.hpp>
+//#include <boost/lockfree/queue.hpp>
 #include <tbb/atomic.h>
 #include <iostream>
 #include <fstream>
@@ -11,6 +11,9 @@
 #include <memory>
 #include <exception>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
+
 #include <boost/timer/timer.hpp>
 #include <boost/filesystem.hpp>
 #include <tbb/concurrent_queue.h>
@@ -20,6 +23,8 @@
 #include "ReadPair.hpp"
 #include "UnpairedRead.hpp"
 #include "spdlog/spdlog.h"
+#include "concurrentqueue.h"
+#include "readerwriterqueue.h"
 
 extern "C" {
 #include "io_lib/scram.h"
@@ -71,7 +76,10 @@ public:
   void reset();
 
   tbb::concurrent_queue<FragT*>& getFragmentQueue();
-  tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& getAlignmentGroupQueue();
+  //moodycamel::ConcurrentQueue<FragT*>& getFragmentQueue();
+
+  //tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& getAlignmentGroupQueue();
+  moodycamel::ConcurrentQueue<AlignmentGroup<FragT*>*>& getAlignmentGroupQueue();
 
 private:
   size_t popNum{0};
@@ -104,10 +112,18 @@ private:
   size_t numUnaligned_;
   size_t numMappedReads_;
   tbb::concurrent_queue<FragT*> fragmentQueue_;
-  tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*> alnGroupPool_;
-  //tbb::concurrent_bounded_queue<AlignmentGroup<FragT>*> alnGroupQueue_;
+  //moodycamel::ConcurrentQueue<FragT*> fragmentQueue_;
+
+  //tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*> alnGroupPool_;
+  moodycamel::ConcurrentQueue<AlignmentGroup<FragT*>*> alnGroupPool_;
+
+  //tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*> alnGroupQueue_;
+  moodycamel::ReaderWriterQueue<AlignmentGroup<FragT*>*> alnGroupQueue_;
+
+  /*
   boost::lockfree::spsc_queue<AlignmentGroup<FragT*>*,
                               boost::lockfree::capacity<65535>> alnGroupQueue_;
+                              */
   volatile bool doneParsing_;
   volatile bool exhaustedAlnGroupPool_;
   std::unique_ptr<std::thread> parsingThread_;
@@ -115,6 +131,12 @@ private:
 
   size_t batchNum_;
   std::string readMode_;
+/*
+#if not defined(__APPLE__)
+   std::mutex agMutex_;
+    std::condition_variable workAvailable_;
+#endif
+*/
 };
 
 #include "BAMQueue.tpp"

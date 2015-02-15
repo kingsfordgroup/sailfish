@@ -20,6 +20,7 @@ extern "C" {
 #include "ErrorModel.hpp"
 #include "AlignmentModel.hpp"
 #include "FASTAParser.hpp"
+#include "concurrentqueue.h"
 
 // Boost includes
 #include <boost/filesystem.hpp>
@@ -144,11 +145,13 @@ class AlignmentLibrary {
         return *alnMod_.get();
     }
 
+//    inline tbb::concurrent_queue<FragT*>& fragmentQueue() {
     inline tbb::concurrent_queue<FragT*>& fragmentQueue() {
         return bq->getFragmentQueue();
     }
 
-    inline tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& alignmentGroupQueue() {
+//    inline tbb::concurrent_bounded_queue<AlignmentGroup<FragT*>*>& alignmentGroupQueue() {
+    inline moodycamel::ConcurrentQueue<AlignmentGroup<FragT*>*>& alignmentGroupQueue() {
         return bq->getAlignmentGroupQueue();
     }
 

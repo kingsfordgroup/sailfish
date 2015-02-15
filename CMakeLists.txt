@@ -26,7 +26,7 @@ SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
 # Nov 18th --- removed -DHAVE_CONFIG_H 
-set (CMAKE_CXX_FLAGS "-pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+set (CMAKE_CXX_FLAGS "-g -pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -429,10 +429,10 @@ message("Build system will compile Staden IOLib")
 message("==================================================================")
 ExternalProject_Add(libstadenio 
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/staden-io_lib/archive/v1.13.8.tar.gz -o staden-io_lib-v1.13.8.tar.gz &&
-                     tar -xzf staden-io_lib-v1.13.8.tar.gz &&
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/staden-io_lib/releases/download/v1.13.9/staden-io_lib-1.13.9.tar.gz -o staden-io_lib-v1.13.9.tar.gz &&
+                     tar -xzf staden-io_lib-v1.13.9.tar.gz &&
                      rm -fr staden-io_lib &&
-                     mv -f staden-io_lib-1.13.8 staden-io_lib
+                     mv -f staden-io_lib-1.13.9 staden-io_lib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/staden-io_lib
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ./configure --enable-shared=no --without-libcurl --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}

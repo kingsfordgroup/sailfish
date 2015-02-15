@@ -91,6 +91,26 @@ void scaleBy(std::vector<T>& vec, T scale) {
     std::for_each(vec.begin(), vec.end(), [scale](T& ele)->void { ele *= scale; });
 }
 
+/*
+ * Tries _numTries_ times to get work from _workQueue_.  It returns
+ * true immediately if it was able to find work, and false otherwise.
+ */
+template <typename FragT>
+inline bool tryToGetWork(MiniBatchQueue<AlignmentGroup<FragT*>>& workQueue,
+                  MiniBatchInfo<AlignmentGroup<FragT*>>*& miniBatch,
+                  uint32_t numTries) {
+
+    uint32_t attempts{1};
+    bool foundWork = workQueue.try_pop(miniBatch);
+    while (!foundWork and attempts < numTries) {
+        foundWork = workQueue.try_pop(miniBatch);
+        ++attempts;
+    }
+    return foundWork;
+}
+
+
+
 template <typename FragT>
 void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
                       ForgettingMassCalculator& fmCalc,
@@ -137,7 +157,10 @@ void processMiniBatch(AlignmentLibrary<FragT>& alnLib,
 
     while (!doneParsing or !workQueue.empty()) {
         uint32_t zeroProbFrags{0};
-        bool foundWork = workQueue.try_pop(miniBatch);
+        //bool foundWork = workQueue.try_pop(miniBatch);
+        // Try up to 10 times to get work from the queue before
+        // giving up and waiting on the condition variable
+        bool foundWork = tryToGetWork(workQueue, miniBatch, 100);
         // If work wasn't immediately available, then wait for it.
         if (!foundWork) {
             std::unique_lock<std::mutex> l(cvmutex);
@@ -848,7 +871,7 @@ int salmonAlignmentQuantify(int argc, char* argv[]) {
         // BAM/SAM parsing, as this is the current bottleneck.  For the time
         // being, however, the number of quantification threads is the
         // total number of threads - 1.
-        uint32_t numParseThreads = std::min(uint32_t(4),
+        uint32_t numParseThreads = std::min(uint32_t(6),
                                             std::max(uint32_t(2), uint32_t(std::ceil(numThreads/2.0))));
         numThreads = std::max(numThreads, numParseThreads);
         uint32_t numQuantThreads = std::max(uint32_t(2), uint32_t(numThreads - numParseThreads));
