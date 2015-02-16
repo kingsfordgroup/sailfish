@@ -265,7 +265,8 @@ class SMEMAlignment {
 };
 
 
-using AlnGroupQueue = moodycamel::ConcurrentQueue<AlignmentGroup<SMEMAlignment>*>;
+// using AlnGroupQueue = moodycamel::ConcurrentQueue<AlignmentGroup<SMEMAlignment>*>;
+using AlnGroupQueue = tbb::concurrent_queue<AlignmentGroup<SMEMAlignment>*>;
 
 void processMiniBatch(
         double logForgettingMass,
@@ -1157,17 +1158,19 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
     //---------- End 1 ----------------------//
     {
         std::string readStr   = frag.first.seq;
-        uint32_t readLen      = frag.first.seq.size();
+        uint32_t readLen      = readStr.size();
 
         leftReadLength = readLen;
 
         for (int p = 0; p < readLen; ++p) {
+            //strBuf[p] = nst_nt4_table[static_cast<int>(frag.first.seq[p])];
             readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
         }
 
         collectHitsForRead(idx, a, auxHits,
                             memOptions,
                             salmonOpts,
+                            //strBuf,
                             reinterpret_cast<const uint8_t*>(readStr.c_str()),
                             readLen,
                             leftHits);
@@ -1176,17 +1179,19 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
     //---------- End 2 ----------------------//
     {
         std::string readStr   = frag.second.seq;
-        uint32_t readLen      = frag.second.seq.size();
+        uint32_t readLen      = readStr.size();
 
         rightReadLength = readLen;
 
         for (int p = 0; p < readLen; ++p) {
+            //strBuf[p] = nst_nt4_table[static_cast<int>(frag.second.seq[p])];
             readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
         }
 
         collectHitsForRead(idx, a, auxHits,
                             memOptions,
                             salmonOpts,
+                            //strBuf,
                             reinterpret_cast<const uint8_t*>(readStr.c_str()),
                             readLen,
                             rightHits);
@@ -1375,7 +1380,10 @@ void processReadsMEM(ParserT* parser,
 
         //hitLists[i].setRead(&j->data[i]);
 
-        while (!structureCache.try_dequeue(hitLists[i])) {}
+        // Moody camel
+        //while (!structureCache.try_dequeue(hitLists[i])) {}
+        // TBB
+        while (!structureCache.try_pop(hitLists[i])) {}
         auto& hitList = *(hitLists[i]);
 
         getHitsForFragment<CoverageCalculator>(j->data[i], idx, itr, a,
@@ -1412,9 +1420,15 @@ void processReadsMEM(ParserT* parser,
     processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
                      fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
     if (writeToCache) {
-        outputGroups.enqueue_bulk(hitLists.begin(), hitLists.size());
+        // Moody camel
+        //outputGroups.enqueue_bulk(hitLists.begin(), hitLists.size());
+        // TBB
+        for (auto hl : hitLists) { outputGroups.push(hl); }
     } else {
-        structureCache.enqueue_bulk(hitLists.begin(), hitLists.size());
+        // Moody camel
+        //structureCache.enqueue_bulk(hitLists.begin(), hitLists.size());
+        // TBB
+        for (auto hl : hitLists) { structureCache.push(hl); }
     }
     // At this point, the parser can re-claim the strings
   }
@@ -1457,15 +1471,20 @@ void processCachedAlignmentsHelper(
     uint64_t locRead{0};
     uint64_t locValidHits{0};
     uint32_t numConsumed{0};
-    uint32_t obtained{0};
+    // uint32_t obtained{0};
+    bool obtained{false};
 
     hitLists.resize(batchCount);
     auto it = hitLists.begin();
 
     while(!cacheExhausted or
-          (obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed)) > 0) {
-        numConsumed += obtained;
-        it += obtained;
+    // Moody camel
+    //      (obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed)) > 0) {
+    //  numConsumed += obtained;
+    // TBB
+            (obtained = alignmentCache.try_pop(*it))) {
+        numConsumed += obtained ? 1 : 0;
+
         /** Get alignment groups from the queue while they still exist
          * once the cacheExhausted variable is true, there will be
          * no more alignment groups written in this round.  If cacheExhausted
@@ -1474,10 +1493,16 @@ void processCachedAlignmentsHelper(
          * crazy multi-threaded land?).
          */
         while (numConsumed < batchCount) {
-            obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed);
-            numConsumed += obtained;
-            it += obtained;
-            if (cacheExhausted and obtained == 0) {
+            // Moody camel
+            //it += obtained;
+            //obtained = alignmentCache.try_dequeue_bulk(it, batchCount - numConsumed);
+            //numConsumed += obtained;
+            // TBB
+            it += obtained ? 1 : 0;
+            obtained = alignmentCache.try_pop(*it);
+            numConsumed += obtained ? 1 : 0;
+            //if (cacheExhausted and obtained == 0) {
+            if (cacheExhausted and !obtained) {
                 break;
             }
         }
@@ -1513,12 +1538,17 @@ void processCachedAlignmentsHelper(
         processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
                 fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
 
-        if (!structureCache.enqueue_bulk(hitLists.begin() , hitLists.size())) {
+        /* Moody camel
+        if (!structureCache.enqueue_bulk(std::make_move_iterator(hitLists.begin()), hitLists.size())) {
             std::cerr << "Could not enqueue structures!!!!!!!; exiting\n\n";
             std::exit(1);
         }
+        */
+        // TBB
+        for (auto& hl : hitLists) { structureCache.push(hl); }
         numConsumed = 0;
         obtained = 0;
+        hitLists.clear();
         hitLists.resize(batchCount);
         it = hitLists.begin();
         // At this point, the parser can re-claim the strings
@@ -1605,23 +1635,39 @@ void processReadLibrary(
 
             std::atomic<uint64_t> numValidHits{0};
             rl.checkValid();
+
+            std::unique_ptr<paired_parser> pairedParserPtr{nullptr};
+            std::unique_ptr<single_parser> singleParserPtr{nullptr};
             // If the read library is paired-end
             // ------ Paired-end --------
             if (rl.format().type == ReadType::PAIRED_END) {
 
+                /*
+                auto len1 = rl.mates1().front().length();
+                auto len2 = rl.mates2().front().length();
+                char* r1 = new char[len1 + 1]; r1[len1] = '\0';
+                char* r2 = new char[len2 + 1]; r2[len2] = '\0';
+                rl.mates1().front().copy(r1, len1);
+                rl.mates2().front().copy(r1, len2);
+                char* readFiles[] = {r1, r2};
+                */
+
                 char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
                     const_cast<char*>(rl.mates2().front().c_str()) };
 
+
                 size_t maxReadGroup{miniBatchSize}; // Number of reads in each "job"
                 size_t concurrentFile{2}; // Number of files to read simultaneously
-                paired_parser parser(4 * numThreads, maxReadGroup, concurrentFile,
-                        readFiles, readFiles + 2);
+                pairedParserPtr.reset(new
+                        paired_parser(4 * numThreads, maxReadGroup,
+                                      concurrentFile, readFiles, readFiles + 2));
+
 
                 for(int i = 0; i < numThreads; ++i)  {
                     if (greedyChain) {
                         auto threadFun = [&]() -> void {
                                     processReadsMEM<paired_parser, TranscriptHitList>(
-                                    &parser,
+                                    pairedParserPtr.get(),
                                     rl,
                                     structureCache,
                                     outputGroups,
@@ -1681,13 +1727,16 @@ void processReadLibrary(
                 stream_manager streams( rl.unmated().begin(),
                         rl.unmated().end(), concurrentFile);
 
-                single_parser parser(4 * numThreads, maxReadGroup, concurrentFile,
-                        streams);
+                singleParserPtr.reset(new single_parser(4 * numThreads,
+                                      maxReadGroup,
+                                      concurrentFile,
+                                      streams));
 
                 for(int i = 0; i < numThreads; ++i)  {
                     if (greedyChain) {
                         auto threadFun = [&]() -> void {
-                                    processReadsMEM<single_parser, TranscriptHitList>( &parser,
+                                    processReadsMEM<single_parser, TranscriptHitList>(
+                                    singleParserPtr.get(),
                                     rl,
                                     structureCache,
                                     outputGroups,
@@ -1747,9 +1796,13 @@ bool writeAlignmentCacheToFile(
 
         size_t blockSize{miniBatchSize};
         size_t numDequed{0};
-        AlignmentGroup<SMEMAlignment>* alnGroups[blockSize];
+        // Mooody camel
+        // AlignmentGroup<SMEMAlignment>* alnGroups[blockSize];
+        // TBB
+        AlignmentGroup<SMEMAlignment>* alnGroups[1];
 
         while (writeToCache) {
+            /* MOODY CAMEL QUEUE
             while ( (numDequed = outputGroups.try_dequeue_bulk(alnGroups, blockSize)) > 0) {
                 for (size_t i = 0; i < numDequed; ++i) {
                     outputStream((*alnGroups[i]));
@@ -1757,17 +1810,42 @@ bool writeAlignmentCacheToFile(
                 }
 
                 structureCache.enqueue_bulk(alnGroups, numDequed);
+
                 // If, at any point, we've seen the required number of
                 // fragments, then we don't need the cache any longer.
                 if (numObservedFragments > numRequiredFragments) {
                     writeToCache = false;
                 }
             }
+            */
+            // TBB QUEUE
+            while (outputGroups.try_pop(alnGroups[0])) {
+                outputStream(*alnGroups[0]);
+                ++numWritten;
+
+                structureCache.push(alnGroups[0]);
+
+                // If, at any point, we've seen the required number of
+                // fragments, then we don't need the cache any longer.
+                if (numObservedFragments > numRequiredFragments) {
+                    writeToCache = false;
+                }
+            }
+
         }
+        // Moody camel
+        /*
         while (outputGroups.try_dequeue(alnGroups[0])) {
             outputStream((*alnGroups[0]));
             ++numWritten;
             structureCache.enqueue(alnGroups[0]);
+        }
+        */
+        // TBB
+        while (outputGroups.try_pop(alnGroups[0])) {
+            outputStream((*alnGroups[0]));
+            ++numWritten;
+            structureCache.push(alnGroups[0]);
         }
 
         return true;
@@ -1786,9 +1864,16 @@ bool readAlignmentCache(
         uint64_t numRead{0};
         AlignmentGroup<SMEMAlignment>* alnGroup;
         while (numRead < numWritten) {
-            while (!structureCache.try_dequeue(alnGroup)) {}
+            // Moody camel
+            //while (!structureCache.try_dequeue(alnGroup)) {}
+            // TBB
+            while (!structureCache.try_pop(alnGroup)) {}
+
             alnCacheArchive((*alnGroup));
-            alnGroupQueue.enqueue(alnGroup);
+            // Moody camel
+            //alnGroupQueue.enqueue(alnGroup);
+            // TBB
+            alnGroupQueue.push(alnGroup);
             ++numRead;
         }
         finishedParsing = true;
@@ -1816,10 +1901,18 @@ struct CacheFile {
                 // otherwise, create the queues and fill them as we
                 // normally would (i.e. if we weren't holding every thing
                 // in memory).
-                toProcess.reset(new AlnGroupQueue(numWritten));
-                initCache.reset(new AlnGroupQueue(numWritten));
+                 // Moody camel
+                //toProcess.reset(new AlnGroupQueue(numWritten));
+                //initCache.reset(new AlnGroupQueue(numWritten));
+                 // TBB
+                toProcess.reset(new AlnGroupQueue);
+                initCache.reset(new AlnGroupQueue);
+
                 for (size_t i = 0; i < numWritten; ++i) {
-                    initCache->enqueue( new AlignmentGroup<SMEMAlignment>() );
+                    // Moody camel
+                    //initCache->enqueue( new AlignmentGroup<SMEMAlignment>() );
+                    // TBB
+                    initCache->push( new AlignmentGroup<SMEMAlignment>() );
                 }
                 processed.reset(new AlnGroupQueue);
              }
@@ -1828,10 +1921,17 @@ struct CacheFile {
             // determine whether or not we need to create "working space"
             // queues (this is only necessary the first time).
             if (!toProcess) {
-                toProcess.reset(new AlnGroupQueue(buffQueueSize));
-                processed.reset(new AlnGroupQueue(buffQueueSize));
+                // Moody camel
+                //toProcess.reset(new AlnGroupQueue(buffQueueSize));
+                //processed.reset(new AlnGroupQueue(buffQueueSize));
+                // TBB
+                toProcess.reset(new AlnGroupQueue);
+                processed.reset(new AlnGroupQueue);
                 for (size_t i = 0; i < buffQueueSize; ++i) {
-                    processed->enqueue( new AlignmentGroup<SMEMAlignment>() );
+                    // Moody camel
+                    //processed->enqueue( new AlignmentGroup<SMEMAlignment>() );
+                    // TBB
+                    processed->push( new AlignmentGroup<SMEMAlignment>() );
                 }
             }
         }
@@ -1870,13 +1970,22 @@ struct CacheFile {
         AlignmentGroup<SMEMAlignment>* ag;
 
         if (toProcess) {
-            while (toProcess->try_dequeue(ag)) { delete ag; }
+            // Moody camel
+            //while (toProcess->try_dequeue(ag)) { delete ag; }
+            // TBB
+            while (toProcess->try_pop(ag)) { delete ag; }
         }
         if (processed) {
-            while (processed->try_dequeue(ag)) { delete ag; }
+            // Moody camel
+            //while (processed->try_dequeue(ag)) { delete ag; }
+            // TBB
+            while (processed->try_pop(ag)) { delete ag; }
         }
         if (initCache) {
-            while (initCache->try_dequeue(ag)) { delete ag; }
+            // Moody camel
+            //while (initCache->try_dequeue(ag)) { delete ag; }
+            // TBB
+            while (initCache->try_pop(ag)) { delete ag; }
         }
     }
 
@@ -1974,10 +2083,18 @@ void quantifyLibrary(
         }
 
         if (initialRound or salmonOpts.disableMappingCache) {
-            AlnGroupQueue outputGroups(structCacheSize);
-            AlnGroupQueue groupCache(structCacheSize);
+            // Moody camel
+            // AlnGroupQueue outputGroups(structCacheSize);
+            // AlnGroupQueue groupCache(structCacheSize);
+            // TBB
+            AlnGroupQueue outputGroups;
+            AlnGroupQueue groupCache;
+
             for (size_t i = 0; i < structCacheSize; ++i) {
-                groupCache.enqueue( new AlignmentGroup<SMEMAlignment>() );
+                // Moody camel
+                //groupCache.enqueue( new AlignmentGroup<SMEMAlignment>() );
+                // TBB
+                groupCache.push( new AlignmentGroup<SMEMAlignment>() );
             }
 
             volatile bool writeToCache = !salmonOpts.disableMappingCache;
@@ -2030,7 +2147,10 @@ void quantifyLibrary(
 
             // Empty the structure cache here
             AlignmentGroup<SMEMAlignment>* ag;
-            while (groupCache.try_dequeue(ag)) { delete ag; }
+            // Moody camel
+            //while (groupCache.try_dequeue(ag)) { delete ag; }
+            // TBB
+            while (groupCache.try_pop(ag)) { delete ag; }
         } else {
             uint32_t libNum{0};
             auto processReadLibraryCallback =  [&](

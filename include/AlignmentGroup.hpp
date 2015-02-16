@@ -18,6 +18,10 @@ template <typename FragT>
 class AlignmentGroup {
     public:
         AlignmentGroup() : read_(nullptr) { alignments_.reserve(10); }
+        AlignmentGroup(AlignmentGroup& other) = delete;
+        AlignmentGroup(AlignmentGroup&& other) = delete;
+        AlignmentGroup& operator=(AlignmentGroup& other) = delete;
+        AlignmentGroup& operator=(AlignmentGroup&& other) = delete;
 
         void setRead(std::string* r) { read_ = r; }
         std::string* read() { return read_; }
