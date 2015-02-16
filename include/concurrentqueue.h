@@ -114,6 +114,9 @@ namespace moodycamel { namespace details {
 #endif
 #endif
 
+// rob-p test
+#undef MOODYCAMEL_CPP11_THREAD_LOCAL_SUPPORTED
+
 // Compiler-specific likely/unlikely hints
 namespace moodycamel { namespace details {
 #if defined(__GNUC__)
