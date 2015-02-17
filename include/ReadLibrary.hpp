@@ -86,14 +86,21 @@ public:
         for (auto& fn : filenames) {
             auto fpath = bfs::path(fn);
             auto ext = fpath.extension().string();
-            if (bfs::is_regular_file(fpath) and acceptableExensions.find(ext) == acceptableExensions.end()) {
-                errorStream << "ERROR: file " << fn << " has extension " << ext << ", "
-                            << "which suggests it is neither a fasta nor a fastq file.\n"
-                            << "Is this a compressed file?  If so, consider replacing: \n\n"
-                            << fn << "\n\nwith\n\n"
-                            << "<(decompressor " << fn << ")\n\n"
-                            << "which will decompress the reads \"on-the-fly\"\n\n";
-                extensionsOK = false;
+            if (bfs::is_regular_file(fpath)) {
+                if (acceptableExensions.find(ext) == acceptableExensions.end()) {
+                    errorStream << "ERROR: file [" << fn << "] has extension " << ext << ", "
+                        << "which suggests it is neither a fasta nor a fastq file.\n"
+                        << "Is this a compressed file?  If so, consider replacing: \n\n"
+                        << fn << "\n\nwith\n\n"
+                        << "<(decompressor " << fn << ")\n\n"
+                        << "which will decompress the reads \"on-the-fly\"\n\n";
+                    extensionsOK = false;
+                } else if (bfs::is_empty(fpath)) {
+                    errorStream << "ERROR: file [" << fn << "] appears to be empty "
+                        "(i.e. it has size 0).  This is likely an error. "
+                        "Please re-run salmon with a corrected input file.\n\n";
+                        extensionsOK = false;
+                }
             }
         }
         return extensionsOK;

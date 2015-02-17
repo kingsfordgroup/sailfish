@@ -14,6 +14,7 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
     alnGroupQueue_(1000000),
     doneParsing_(false),
     exhaustedAlnGroupPool_(false) {
+        namespace bfs = boost::filesystem;
 
         logger_ = spdlog::get("jointLog");
 
@@ -37,6 +38,15 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
 
         bool firstFile = true;
         for (auto& fname : fnames) {
+            if (bfs::is_regular_file(fname)) {
+               if (bfs::is_empty(fname)) {
+                    logger_->error("file [{}] appears to be empty "
+                        "(i.e. it has size 0).  This is likely an error. "
+                        "Please re-run salmon with a corrected input file.\n\n", 
+                        fname);
+                    std::exit(1);
+               }
+            }
             readMode_ = "r";
             if (fname.extension() == ".bam") {
                 readMode_ = "rb";
