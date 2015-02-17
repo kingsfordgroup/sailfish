@@ -493,7 +493,7 @@ if (NOT HAVE_FAST_MALLOC)
         INSTALL_COMMAND cp -r lib <INSTALL_DIR>/ && cp -r include <INSTALL_DIR>/
         )
 
-    set (FAST_MALLOC_LIB jemalloc)
+    set (FAST_MALLOC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libjemalloc.a)
     set (HAVE_FAST_MALLOC TRUE)
 endif ()
 
