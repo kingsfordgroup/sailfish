@@ -41,6 +41,7 @@ if (APPLE)
     set(SHARED_LIB_EXTENSION "dylib")
 else()
     # We're in sane linux world
+   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
    set (SHARED_LIB_EXTENSION "so")
    set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
