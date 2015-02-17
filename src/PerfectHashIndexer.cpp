@@ -44,8 +44,8 @@
 #include "jellyfish/misc.hpp"
 #include "jellyfish/jellyfish.hpp"
 
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
+#include "cereal/archives/binary.hpp"
+
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/algorithm/string.hpp>
@@ -443,7 +443,7 @@ the Jellyfish database [thash] of the transcripts.
                 bfs::path tgmOutPath(outputPath); tgmOutPath /= "transcriptome.tgm";
                 std::cerr << "Saving transcritpt to gene map to [" << tgmOutPath << "]\n";
                 std::ofstream ofs(tgmOutPath.string(), std::ios::binary);
-                boost::archive::binary_oarchive oa(ofs);
+                cereal::BinaryOutputArchive oa(ofs);
                 // write class instance to archive
                 oa << tgmap;
             } // archive and stream closed when destructors are called

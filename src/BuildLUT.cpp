@@ -47,6 +47,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/program_options/parsers.hpp>
 
+#include "cereal/archives/binary.hpp"
+
 #include "tbb/concurrent_vector.h"
 #include "tbb/concurrent_unordered_set.h"
 #include "tbb/concurrent_queue.h"
@@ -517,7 +519,7 @@ int mainBuildLUT(int argc, char* argv[] ) {
       string tgmOutFile = sfIndexBase+".tgm";
       std::cerr << "Saving transcritpt to gene map to [" << tgmOutFile << "] . . . ";
       std::ofstream ofs(tgmOutFile, std::ios::binary);
-      boost::archive::binary_oarchive oa(ofs);
+      cereal::BinaryOutputArchive oa(ofs);
       // write class instance to archive
       oa << tgmap;
       std::cerr << "done\n";

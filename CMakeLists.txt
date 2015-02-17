@@ -197,8 +197,12 @@ if ((NOT Boost_FOUND) AND (NOT FETCH_BOOST))
     )
 elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
-    set(BOOST_WILL_RECONFIGURE TRUE)
-    set(FETCH_BOOST FALSE)
+    set (BOOST_LIB_SUBSET --with-atomic --with-chrono --with-container --with-date_time --with-exception 
+                          --with-filesystem --with-graph --with-graph_parallel --with-math 
+                          --with-program_options --with-system --with-thread
+                          --with-timer)
+    set (BOOST_WILL_RECONFIGURE TRUE)
+    set (FETCH_BOOST FALSE)
     message("Build system will fetch and build Boost")
     message("==================================================================")
     ExternalProject_Add(libboost
@@ -208,7 +212,7 @@ elseif(FETCH_BOOST)
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         #PATCH_COMMAND patch -p2 < ${CMAKE_CURRENT_SOURCE_DIR}/external/boost156.patch
 	CONFIGURE_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/b2 -d0 -j2 toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
+	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_57_0/b2 -d0 -j2 ${BOOST_LIB_SUBSET} toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )

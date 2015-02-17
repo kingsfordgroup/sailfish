@@ -7,7 +7,7 @@ if (TAR_RESULT)
     message(FATAL_ERROR "Error untarring sample_data.tgz")
 endif()
 
-set(INDEX_CMD ${TOPLEVEL_DIR}/build/src/sailfish index -t transcripts.fasta -k 20 -o sample_index)
+set(INDEX_CMD ${TOPLEVEL_DIR}/build/src/sailfish index -t transcripts.fasta -k 20 -o sample_index --force)
 execute_process(COMMAND ${INDEX_CMD}
                 WORKING_DIRECTORY ${TOPLEVEL_DIR}/sample_data
                 RESULT_VARIABLE INDEX_RESULT

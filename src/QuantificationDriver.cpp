@@ -181,7 +181,8 @@ int runIterativeOptimizer(int argc, char* argv[] ) {
       jointLog->info() << "Reading the transcript <-> gene map from [" <<
                            tgmFile << "]\n";
       std::ifstream ifs(tgmFile, std::ios::binary);
-      boost::archive::binary_iarchive ia(ifs);
+
+      cereal::BinaryInputArchive ia(ifs);
       ia >> tgm;
       std::cerr << "done\n";
     }

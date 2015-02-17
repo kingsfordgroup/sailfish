@@ -39,8 +39,7 @@
 #include <chrono>
 #include <iomanip>
 
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
+#include "cereal/archives/binary.hpp"
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/range/irange.hpp>

@@ -29,8 +29,6 @@
 #include "jellyfish/whole_sequence_parser.hpp"
 
 
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/algorithm/string.hpp>

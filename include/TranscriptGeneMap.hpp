@@ -24,10 +24,9 @@
 #define TRANSCRIPT_GENE_MAP_HPP
 
 // Allows for the serialization of this class
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/string.hpp>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/vector.hpp>
+#include <cereal/types/string.hpp>
 
 #include <algorithm>
 #include <unordered_map>
@@ -64,16 +63,13 @@ private:
         std::cerr << "max # of transcripts in a gene was " << maxNumTrans << " in gene " << _geneNames[maxGene] << "\n";
     }
 
-    friend class boost::serialization::access;
+    friend class cereal::access;
 
     template<class Archive>
     void serialize(Archive & ar, const unsigned int version)
     {
-        ar & _transcriptNames;
-        ar & _geneNames;
-        ar & _transcriptsToGenes;
-        ar & _genesToTranscripts;
-        ar & _haveReverseMap;
+        ar(_transcriptNames, _geneNames, _transcriptsToGenes,
+           _genesToTranscripts, _haveReverseMap);
     }
 
 public:
