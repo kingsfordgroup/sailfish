@@ -532,15 +532,24 @@ int performBiasCorrectionSalmon(
 
         size_t retainedCnt = 0;
         vector<mpdec> tpms(features.size());
+        double tpmSum{0.0};
         for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
           auto& name = features[i].name;
           auto& r = salmonRes.expressions[name];
           if (i == retainedRows[retainedCnt]) {
-            tpms[i] = std::exp(pred[retainedCnt]);
+            double v = std::exp(pred[retainedCnt]);
+            tpms[i] = v;
+            tpmSum += v;
             ++retainedCnt;
           } else {
               tpms[i] = r.tpm;
+              tpmSum += r.tpm;
           }
+        }
+
+        double tpmNorm = 1000000.0 / tpmSum;
+        for (auto i : boost::irange(size_t{0}, size_t{features.size()})) {
+            tpms[i] *= tpmNorm;
         }
 
         vector<mpdec> fpkms(features.size());
