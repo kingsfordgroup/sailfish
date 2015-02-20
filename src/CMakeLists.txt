@@ -173,8 +173,8 @@ target_link_libraries(salmon
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     ${GAT_SOURCE_DIR}/external/install/lib/libbwa.a
     m
-    lzma 
-    bz2
+    ${LIBLZMA_LIBRARIES}
+    ${BZIP2_LIBRARIES}
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS}
     ${NON_APPLECLANG_LIBS}

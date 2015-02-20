@@ -41,7 +41,6 @@ if (APPLE)
     set(SHARED_LIB_EXTENSION "dylib")
 else()
     # We're in sane linux world
-   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
    set (SHARED_LIB_EXTENSION "so")
    set (LIBSAILFISH_LINKER_FLAGS "")
 endif()
@@ -80,28 +79,39 @@ if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
     set (PTHREAD_LIB "pthread")
     #endif()
 
+    # If we're on Linux (i.e. not OSX) and we're using 
+    # gcc, then set the -static-libstdc++ flag
+    if (NOT APPLE) 
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
+    endif()
+
     set (WARNING_IGNORE_FLAGS "${WARNING_IGNORE_FLAGS} -Wno-unused-local-typedefs")
     set (BOOST_TOOLSET "gcc")
     set (BOOST_CONFIGURE_TOOLSET "--with-toolset=gcc")
 	set (BCXX_FLAGS "-std=c++11")
     set (BOOST_EXTRA_FLAGS toolset=gcc cxxflags=${BCXX_FLAGS})
-
 # Tentatively, we support clang now
 elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     set(CLANG TRUE)
-    # If we're on OSX using clang, try to use libc++ instead of libstdc++
-    if (APPLE)
+    # If we have libc++, then try and use it 
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-stdlib=libc++ HAVE_LIBCPP)
+    if (HAVE_LIBCPP)
+        message ("It appears that you're compiling with clang and that libc++ is available, so I'll use that")
         set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-	set (BOOST_TOOLSET "clang")
+	    set (BOOST_TOOLSET "clang")
         set (BOOST_CONFIGURE_TOOLSET "--with-toolset=clang")
-	set (BCXX_FLAGS "-stdlib=libc++ -DBOOST_HAS_INT128")
-	set (BOOST_EXTRA_FLAGS toolset=clang cxxflags=${BCXX_FLAGS} linkflags="-stdlib=libc++")
+	    set (BCXX_FLAGS "-stdlib=libc++ -DBOOST_HAS_INT128")
+	    set (BOOST_EXTRA_FLAGS toolset=clang cxxflags=${BCXX_FLAGS} linkflags="-stdlib=libc++")
+        set (JELLYFISH_CXX_FLAGS "-stdlib=libc++")
+    # Otherwise, use libstdc++ (and make it static) 
+    else()
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libstdc++")
     endif()
     # There's currently a bug with clang-3.4 & Boost 1.55 -- this hack fixes it
     # but we should do something better (does this break things if CPU doesn't
     # have 128-bit support)?
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_HAS_INT128") 
-    set(CMAKE_SHARK_CXX_FLAGS "-DBOOST_HAS_INT128") 
 
     if (APPLE)
         set (NON_APPLECLANG_LIBS "")
@@ -119,6 +129,7 @@ if (NO_RTM)
     set (TBB_CXXFLAGS "-mno-rtm")
 endif()
 
+include(ExternalProject)
 
 ##
 #  Update the CXX flags according to the system and compiler
@@ -150,7 +161,55 @@ set (Boost_USE_MULTITHREADED ON)
 
 find_package (ZLIB)
 if (NOT ZLIB_FOUND)
-	message(FATAL_ERROR "zlib must be installed before configuration & building can proceed")
+	message (FATAL_ERROR "zlib must be installed before configuration & building can proceed")
+endif()
+
+find_package (LibLZMA)
+if (NOT LIBLZMA_FOUND)
+    message ("Will attempt to fetch and build liblzma")
+    message ("=======================================")
+ExternalProject_Add(liblzma
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://tukaani.org/xz/xz-5.2.0.tar.gz 
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/xz-5.2.0
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    BUILD_IN_SOURCE TRUE
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/xz-5.2.0/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+    BUILD_COMMAND make
+    INSTALL_COMMAND make install
+)
+# Tell cmake that the external project generated a library so we can
+# add dependencies here instead of later
+set (LIBLZMA_LIBRARIES ${GAT_SOURCE_DIR}/external/install/lib/liblzma.a)
+set (LIBSTADEN_LDFLAGS "-L${GAT_SOURCE_DIR}/external/install/lib")
+set (LIBSTADEN_CFLAGS "-I${GAT_SOURCE_DIR}/external/install/include")
+else()
+    message("Found liblzma library: ${LIBLZMA_LIBRARIES}")
+    message("===========================================")
+endif()
+
+find_package (BZip2)
+if (NOT BZIP2_FOUND)
+    message ("Will attempt to fetch and build libbz2")
+    message ("=======================================")
+ExternalProject_Add(libbz2
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2-1.0.6
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    BUILD_IN_SOURCE TRUE
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+    INSTALL_COMMAND make install PREFIX=<INSTALL_DIR>
+)
+# Tell cmake that the external project generated a library so we can
+# add dependencies here instead of later
+set (BZIP2_LIBRARIES ${GAT_SOURCE_DIR}/external/install/lib/libbz2.a)
+set (LIBSTADEN_LDFLAGS "-L${GAT_SOURCE_DIR}/external/install/lib -I${GAT_SOURCE_DIR}/external/install/include")
+set (LIBSTADEN_CFLAGS "-I${GAT_SOURCE_DIR}/external/install/include")
+else()
+    message("Found libbz2 library: ${BZIP2_LIBRARIES}")
+    message("===========================================")
 endif()
 
 ##
@@ -301,8 +360,8 @@ ExternalProject_Add(libjellyfish
     URL ftp://ftp.genome.umd.edu/pub/jellyfish/jellyfish-2.1.3.tar.gz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_COMMAND ${MAKE} CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} 
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.1.3/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${JELLYFISH_CXX_FLAGS}
+    BUILD_COMMAND ${MAKE} CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${JELLYFISH_CXX_FLAGS}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install && 
                     cp config.h <INSTALL_DIR>/include/jellyfish-2.1.3/jellyfish/ &&
@@ -442,7 +501,7 @@ ExternalProject_Add(libstadenio
                      mv -f staden-io_lib-1.13.9 staden-io_lib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/staden-io_lib
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ./configure --enable-shared=no --without-libcurl --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+    CONFIGURE_COMMAND ./configure --enable-shared=no --without-libcurl --prefix=<INSTALL_DIR> LDFLAGS=${LIBSTADEN_LDFLAGS} CFLAGS=${LIBSTADEN_CFLAGS} CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
     BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
     BUILD_IN_SOURCE 1
     INSTALL_COMMAND make install
