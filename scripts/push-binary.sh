@@ -34,9 +34,9 @@ ASSETID=`curl -s -X GET https://api.github.com/repos/kingsfordgroup/sailfish/rel
 
 # Delete the previous tarball
 echo -e "Deleting previous asset\n"
-curl -X DELETE -H "Authorization: token 943741747a9facf1e0d59a7d8334946e657a5ba5" https://api.github.com/repos/kingsfordgroup/sailfish/releases/assets/$ASSETID
+curl -X DELETE -H "Authorization: token ${SAILFISH_PUSH_KEY}" https://api.github.com/repos/kingsfordgroup/sailfish/releases/assets/$ASSETID
 
 # Upload the new tarball
 echo -e "Uploading new asset\n"
-curl -X POST --data-binary "@SalmonBeta-latest_ubuntu-12.04.tar.gz" https://uploads.github.com/repos/kingsfordgroup/sailfish/releases/749947/assets?name=SalmonBeta-latest_ubuntu-12.04.tar.gz --header "Content-Type:application/gzip" -H "Authorization: token 943741747a9facf1e0d59a7d8334946e657a5ba5"
+curl -X POST --data-binary "@SalmonBeta-latest_ubuntu-12.04.tar.gz" https://uploads.github.com/repos/kingsfordgroup/sailfish/releases/749947/assets?name=SalmonBeta-latest_ubuntu-12.04.tar.gz --header "Content-Type:application/gzip" -H "Authorization: token ${SAILFISH_PUSH_KEY}"
 echo -e "Done!\n"
