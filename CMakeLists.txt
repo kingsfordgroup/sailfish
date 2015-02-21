@@ -26,7 +26,7 @@ SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
 # Nov 18th --- removed -DHAVE_CONFIG_H 
-set (CMAKE_CXX_FLAGS "-g -pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+set (CMAKE_CXX_FLAGS "-pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -135,6 +135,16 @@ include(ExternalProject)
 #  Update the CXX flags according to the system and compiler
 ##
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${WARNING_IGNORE_FLAGS}")
+
+if (CMAKE_BUILD_TYPE MATCHES Debug)
+    message ("Making Debug build")
+    set (CMAKE_CXX_FLAGS_DEBUG "-g ${CMAKE_CXX_FLAGS}")
+elseif (CMAKE_BUILD_TYPE MATCHES Release)
+    message ("Making Release build")
+    set (CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS}")
+else ()
+    message ("Making Default build type")
+endif ()
 
 ##
 # Record this top-level path

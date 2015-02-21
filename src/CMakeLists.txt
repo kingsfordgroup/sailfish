@@ -2,11 +2,6 @@ set ( SAILFISH_MAIN_SRCS
 Sailfish.cpp
 )
 
-#add_custom_command ( OUTPUT QSufSort.c COMMAND touch QSufSort.c)
-#add_custom_command ( OUTPUT is.c COMMAND touch is.c)
-#add_custom_command ( OUTPUT bwt_gen.c COMMAND touch bwt_gen.c)
-#add_custom_command ( OUTPUT bwtindex.c COMMAND touch bwtindex.c)
-
 set ( SALMON_MAIN_SRCS
 QSufSort.c
 is.c

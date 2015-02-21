@@ -17,6 +17,7 @@ echo -e "Removing dangerous dependencies\n"
 rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/libc.so.6
 rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/ld-linux-x86-64.so.2
 rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/libdl.so.2
+rm $HOME/SalmonBeta-latest_ubuntu-12.04/lib/libpthread*.so.*
 
 # now make the tarball
 echo -e "Making the tarball\n"
