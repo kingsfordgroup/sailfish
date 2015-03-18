@@ -229,24 +229,29 @@ line gives the names of each of the data columns. The columns appear in the foll
 Each subsequent row described a single quantification record.  The columns have
 the following interpretation.
 
-* **Name** -- This is the name of the target transcript provided in the input transcript database (FASTA file). 
+* **Name** --- 
+  This is the name of the target transcript provided in the input transcript database (FASTA file). 
 
-* **Length** -- This is the length of the target transcript in nucleotides.
+* **Length** ---
+  This is the length of the target transcript in nucleotides.
 
-* **TPM** -- This is salmon's estimate of the relative abundance of this transcript in units of Transcripts Per Million (TPM).
-             TPM is the recommended relative abundance measure to use for downstream analysis. 
+* **TPM** ---
+  This is salmon's estimate of the relative abundance of this transcript in units of Transcripts Per Million (TPM).
+  TPM is the recommended relative abundance measure to use for downstream analysis. 
 
-* **FPKM** -- This is salmon's estimate of the relative abundance of this transcript in units of Fragments Per Kilobase per Million
-              mapped reads (FPKM).  This relative abundance measure is proportional, within-sample, to the TPM measure.  However, 
-              the TPM should generally be preferred to FPKM.  This column is provided mostly for compatibility with tools that expect
-              FPKM as input.
+* **FPKM** ---
+  This is salmon's estimate of the relative abundance of this transcript in units of Fragments Per Kilobase per Million
+  mapped reads (FPKM).  This relative abundance measure is proportional, within-sample, to the TPM measure.  However, 
+  the TPM should generally be preferred to FPKM.  This column is provided mostly for compatibility with tools that expect
+  FPKM as input.
 
-* **NumReads** -- This is salmon's estimate of the number of reads mapping to each transcript that was quantified.  It is an "estimate" 
-                  insofar as it is the expected number of reads that have originated from each transcript given the structure of the uniquely 
-                  mapping and multi-mapping reads and the relative abundance estimates for each transcript.  You can round these values 
-                  to the nearest integer and use them directly as input to count-based methods like 
-                  `Deseq2 <http://www.bioconductor.org/packages/release/bioc/html/DESeq2.html>`_ and 
-                  `EdgeR <http://master.bioconductor.org/packages/release/bioc/html/edgeR.html>`_, among others.
+* **NumReads** --- 
+  This is salmon's estimate of the number of reads mapping to each transcript that was quantified.  It is an "estimate" 
+  insofar as it is the expected number of reads that have originated from each transcript given the structure of the uniquely 
+  mapping and multi-mapping reads and the relative abundance estimates for each transcript.  You can round these values 
+  to the nearest integer and use them directly as input to count-based methods like 
+  `Deseq2 <http://www.bioconductor.org/packages/release/bioc/html/DESeq2.html>`_ and 
+  `EdgeR <http://master.bioconductor.org/packages/release/bioc/html/edgeR.html>`_, among others.
 
 Misc
 ----
