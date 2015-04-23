@@ -5,12 +5,12 @@
 
 #include <boost/config.hpp> // for BOOST_LIKELY/BOOST_UNLIKELY
 
-#include "AlignmentModel.hpp"
 #include "Transcript.hpp"
 #include "SailfishMath.hpp"
 #include "SailfishStringUtils.hpp"
 #include "UnpairedRead.hpp"
 #include "ReadPair.hpp"
+#include "AlignmentModel.hpp"
 
 AlignmentModel::AlignmentModel(double alpha, uint32_t readBins ) :
     transitionProbsLeft_(readBins, AtomicMatrix<double>(numAlignmentStates(), numAlignmentStates(), alpha)),
@@ -22,6 +22,13 @@ AlignmentModel::AlignmentModel(double alpha, uint32_t readBins ) :
 bool AlignmentModel::burnedIn() { return burnedIn_; }
 void AlignmentModel::burnedIn(bool burnedIn) { burnedIn_ = burnedIn; }
 
+void AlignmentModel::setLogger(std::shared_ptr<spdlog::logger> logger){
+    logger_ = logger;
+}
+
+bool AlignmentModel::hasLogger(){
+    return (logger_) ? true : false;
+}
 
 bool AlignmentModel::hasIndel(ReadPair& hit) {
     if (!hit.isPaired()) {
@@ -93,6 +100,46 @@ inline void AlignmentModel::setBasesFromCIGAROp_(enum cigar_op op, size_t& curRe
     }
 }
 
+char opToChr(enum cigar_op op){
+    switch (op) {
+        case BAM_UNKNOWN:
+            std::cerr << "ENCOUNTERED UNKNOWN SYMBOL IN CIGAR STRING!\n";
+            break;
+        case BAM_CMATCH:
+           // do nothing
+	    return 'M';
+            break;
+        case BAM_CBASE_MATCH:
+            // do nothing
+	    return 'M';
+            break;
+        case BAM_CBASE_MISMATCH:
+            // do nothing
+	    return 'M';
+            break;
+        case BAM_CINS:
+	    return 'I';
+            break;
+        case BAM_CDEL:
+	    return 'D';
+            break;
+        case BAM_CREF_SKIP:
+	    return 'S';
+            break;
+        case BAM_CSOFT_CLIP:
+	    return 'c';
+            break;
+        case BAM_CHARD_CLIP:
+	    return 'C';
+            break;
+        case BAM_CPAD:
+	    return 'P';
+            break;
+    }
+    return 'X';
+}
+
+
 double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
                                  std::vector<AtomicMatrix<double>>& transitionProbs){
     using namespace sailfish::stringtools;
@@ -120,12 +167,15 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
     uint32_t cigarLen = bam_cigar_len(read);
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
     uint8_t* qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));
+    int32_t readLen = bam_seq_len(read);
 
     if (cigarLen == 0 or !cigar) { return sailfish::math::LOG_EPSILON; }
 
     sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
     double logLike = sailfish::math::LOG_1;
 
+    bool advanceInRead{false};
+    bool advanceInReference{false};
     uint32_t readPosBin{0};
     uint32_t cigarIdx{0};
     uint32_t prevStateIdx{startStateIdx};
@@ -139,6 +189,42 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
         size_t curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
 
         for (size_t i = 0; i < opLen; ++i) {
+            if (advanceInRead) {
+                // Shouldn't happen!
+                if (readIdx >= readLen) {
+                    if (logger_) {
+                        logger_->warn("WARNING: CIGAR string for read [{}] "
+                            "seems inconsistent. It refers to non-existant "
+                            "positions in the read!", bam_name(read));
+                        std::stringstream cigarStream;
+                        for (size_t j = 0; j < cigarLen; ++j) {
+                            uint32_t opLen = cigar[j] >> BAM_CIGAR_SHIFT;
+                            enum cigar_op op = static_cast<enum cigar_op>(cigar[j] & BAM_CIGAR_MASK);
+                            cigarStream << opLen << opToChr(op);
+                        }
+                        logger_->warn("CIGAR = {}", cigarStream.str());
+                    }
+                    return logLike;
+                }
+                curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
+                readPosBin = static_cast<uint32_t>((readIdx * invLen));
+                advanceInRead = false;
+            }
+            if (advanceInReference) {
+                // Shouldn't happen!
+                if (uTranscriptIdx >= transcriptLen) {
+                    if (logger_) {
+                        logger_->warn("WARNING: CIGAR string for read [{}] "
+                            "seems inconsistent. It refers to non-existant "
+                            "positions in the reference!", bam_name(read));
+                    }
+                    return logLike;
+                }
+                curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+                advanceInReference = false;
+            }
+
+
             setBasesFromCIGAROp_(op, curRefBase, curReadBase);
             curStateIdx = curRefBase * numStates + curReadBase;
             double tp = transitionProbs[readPosBin](prevStateIdx, curStateIdx);
@@ -146,13 +232,11 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
             prevStateIdx = curStateIdx;
             if (BAM_CONSUME_SEQ(op)) {
                 ++readIdx;
-                curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
-                auto prev = readPosBin;
-                readPosBin = static_cast<uint32_t>((readIdx * invLen));
+                advanceInRead = true;
             }
             if (BAM_CONSUME_REF(op)) {
                 ++uTranscriptIdx;
-                curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+                advanceInReference = true;
             }
 
         }
@@ -252,20 +336,20 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
     uint32_t cigarLen = bam_cigar_len(read);
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
     uint8_t* qualStr = reinterpret_cast<uint8_t*>(bam_qual(read));
-
-    std::vector<std::map<std::tuple<size_t, size_t>, double>> locTP(
-            readBins_,
-            std::map<std::tuple<size_t, size_t>, double>());
+    int32_t readLen = bam_seq_len(read);
 
     if (cigarLen > 0 and cigar) {
 
         sailfish::stringtools::strand readStrand = sailfish::stringtools::strand::forward;
 
+        bool advanceInRead{false};
+        bool advanceInReference{false};
         uint32_t readPosBin{0};
         uint32_t cigarIdx{0};
         uint32_t prevStateIdx{startStateIdx};
         uint32_t curStateIdx{0};
-        double invLen = static_cast<double>(readBins_) / bam_seq_len(read);
+        double invLen = static_cast<double>(readBins_) / readLen;
+
 
         for (uint32_t cigarIdx = 0; cigarIdx < cigarLen; ++cigarIdx) {
             uint32_t opLen = cigar[cigarIdx] >> BAM_CIGAR_SHIFT;
@@ -273,6 +357,41 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
             size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
             size_t curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
             for (size_t i = 0; i < opLen; ++i) {
+                if (advanceInRead) {
+                    // Shouldn't happen!
+                    if (readIdx >= readLen) {
+                        if (logger_) {
+                            logger_->warn("WARNING: CIGAR string for read [{}] "
+                                "seems inconsistent. It refers to non-existant "
+                                "positions in the read!", bam_name(read));
+                            std::stringstream cigarStream;
+                            for (size_t j = 0; j < cigarLen; ++j) {
+                                uint32_t opLen = cigar[j] >> BAM_CIGAR_SHIFT;
+                                enum cigar_op op = static_cast<enum cigar_op>(cigar[j] & BAM_CIGAR_MASK);
+                                cigarStream << opLen << opToChr(op);
+                            }
+                            logger_->warn("CIGAR = {}", cigarStream.str());
+                        }
+                        return;
+                    }
+                    curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
+                    readPosBin = static_cast<uint32_t>((readIdx * invLen));
+                    advanceInRead = false;
+                }
+                if (advanceInReference) {
+                    // Shouldn't happen!
+                    if (uTranscriptIdx >= transcriptLen) {
+                        if (logger_) {
+                            logger_->warn("WARNING: CIGAR string for read [{}] "
+                                "seems inconsistent. It refers to non-existant "
+                                "positions in the reference!", bam_name(read));
+                        }
+                        return;
+                    }
+                    curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+                    advanceInReference = false;
+                }
+
                 setBasesFromCIGAROp_(op, curRefBase, curReadBase);
                 curStateIdx = curRefBase * numStates + curReadBase;
 
@@ -282,12 +401,33 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
                 prevStateIdx = curStateIdx;
                 if (BAM_CONSUME_SEQ(op)) {
                     ++readIdx;
-                    curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
-                    readPosBin = static_cast<uint32_t>((readIdx * invLen));
+                    advanceInRead = true;
+                    /* DEBUG -- print what happened
+                       std::cerr << "read name = " << bam_name(read) << "\n";
+                       std::cerr << "curReadBase = " << readIdx << "\n";
+                       std::cerr << "readLen = " << bam_seq_len(read) << "\n";
+                       std::cerr << "ref = ";
+                       for (size_t j = 0; j < std::min(static_cast<size_t>(bam_seq_len(read)),
+                       static_cast<size_t>(transcriptLen - transcriptIdx)); ++j) {
+                       std::cerr << sailfish::stringtools::samCodeToChar[ref.baseAt(j, readStrand)];
+                       }
+                       std::cerr << "\n";
+                       std::cerr << "read = ";
+                       for (size_t j = 0; j < bam_seq_len(read); ++j) {
+                       std::cerr << sailfish::stringtools::samCodeToChar[bam_seqi(qseq, j)];
+                       }
+                       std::cerr << "\nCIGAR = ";
+                       for (size_t j = 0; j < cigarLen; ++j) {
+                       uint32_t opLen = cigar[j] >> BAM_CIGAR_SHIFT;
+                       enum cigar_op op = static_cast<enum cigar_op>(cigar[j] & BAM_CIGAR_MASK);
+                       std::cerr << opLen << opToChr(op);
+                       }
+                       std::cerr << "\n";
+                       */
                 }
                 if (BAM_CONSUME_REF(op)) {
                     ++uTranscriptIdx;
-                    curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+                    advanceInReference = true;
                 }
            }
         }

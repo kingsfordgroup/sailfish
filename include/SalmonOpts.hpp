@@ -58,6 +58,9 @@ struct SalmonOpts {
 
     uint32_t numBurninFrags; // Number of mapped fragments required for burn-in
 
+    uint32_t numPreBurninFrags; // Number of mapped fragments that are evaluated before
+    				// applying the auxiliary models.
+
     uint32_t maxReadOccs; // Discard reads  mapping to more than this many places.
 
     uint32_t maxExpectedReadLen; // Maximum expected length of an observed read.
@@ -69,6 +72,8 @@ struct SalmonOpts {
     boost::filesystem::path outputDirectory; // Quant output directory
 
     boost::filesystem::path indexDirectory; // Index directory
+
+    bool useMassBanking; // Bank unique mass in subsequent epochs of inference
 
     std::shared_ptr<spdlog::logger> jointLog{nullptr};
     std::shared_ptr<spdlog::logger> fileLog{nullptr};

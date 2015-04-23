@@ -17,7 +17,7 @@ extern "C" {
 template <typename FragT>
 class AlignmentGroup {
     public:
-        AlignmentGroup() : read_(nullptr) { alignments_.reserve(10); }
+        AlignmentGroup() : read_(nullptr), isUniquelyMapped_(true) { alignments_.reserve(10); }
         AlignmentGroup(AlignmentGroup& other) = delete;
         AlignmentGroup(AlignmentGroup&& other) = delete;
         AlignmentGroup& operator=(AlignmentGroup& other) = delete;
@@ -27,7 +27,15 @@ class AlignmentGroup {
         std::string* read() { return read_; }
 
         inline std::vector<FragT>& alignments() { return alignments_; }
-        void addAlignment(FragT p) { alignments_.push_back(p); }
+        void emplaceAlignment(FragT&& p) { alignments_.emplace_back(p); }
+        void addAlignment(FragT& p) { alignments_.push_back(p); }
+
+        void clearAlignments() {
+            alignments_.clear();
+            isUniquelyMapped_ = true;
+        }
+
+        inline bool& isUniquelyMapped() { return isUniquelyMapped_; }
         inline size_t numAlignments() { return alignments_.size(); }
         inline size_t size() { return numAlignments(); }
 
@@ -39,5 +47,6 @@ class AlignmentGroup {
     private:
         std::vector<FragT> alignments_;
         std::string* read_;
+        bool isUniquelyMapped_;
 };
 #endif // ALIGNMENT_GROUP

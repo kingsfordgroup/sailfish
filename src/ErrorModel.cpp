@@ -178,7 +178,7 @@ void ErrorModel::update(bam_seq_t* read, Transcript& ref, double p, double mass,
 
         /*
         // DEBUG: print number of mismatches
-        if (numMismatch > 26) {
+        if (numMismatch > 3) {
             std::lock_guard<std::mutex> lock(outputMutex_);
             std::cerr << "read of length " << readLen << " had " << numMismatch
                       << " mismatches; dir is " << ((readStrand == strand::forward) ? "forward" : "reverse") << "\n";

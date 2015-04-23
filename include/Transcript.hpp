@@ -18,6 +18,7 @@ public:
         mass_(sailfish::math::LOG_0), sharedCount_(0.0) {
             uniqueCount_.store(0);
             lastUpdate_.store(0);
+            lastTimestepUpdated_.store(0);
             cachedEffectiveLength_.store(std::log(static_cast<double>(RefLength)));
         }
 
@@ -29,6 +30,7 @@ public:
         Sequence = other.Sequence;
         uniqueCount_.store(other.uniqueCount_);
         totalCount_.store(other.totalCount_.load());
+        lastTimestepUpdated_.store(other.lastTimestepUpdated_.load());
         sharedCount_.store(other.sharedCount_.load());
         mass_.store(other.mass_.load());
         lastUpdate_.store(other.lastUpdate_.load());
@@ -45,6 +47,7 @@ public:
         Sequence = other.Sequence;
         uniqueCount_.store(other.uniqueCount_);
         totalCount_.store(other.totalCount_.load());
+        lastTimestepUpdated_.store(other.lastTimestepUpdated_.load());
         sharedCount_.store(other.sharedCount_.load());
         mass_.store(other.mass_.load());
         lastUpdate_.store(other.lastUpdate_.load());
@@ -61,6 +64,11 @@ public:
 
     inline void addUniqueCount(size_t newCount) { uniqueCount_ += newCount; }
     inline void addTotalCount(size_t newCount) { totalCount_ += newCount; }
+
+    inline double uniqueUpdateFraction() {
+        double ambigCount = static_cast<double>(totalCount_ - uniqueCount_);
+        return uniqueCount_ / ambigCount;
+    }
 
     inline char charBaseAt(size_t idx,
                               sailfish::stringtools::strand dir = sailfish::stringtools::strand::forward) {
@@ -103,6 +111,13 @@ public:
             newMass = oldMass + sc;
             returnedMass = sharedCount_.compare_and_swap(newMass, oldMass);
         } while (returnedMass != oldMass);
+    }
+
+    inline void setLastTimestepUpdated(uint64_t currentTimestep) {
+        uint64_t oldTimestep = lastTimestepUpdated_;
+        if (currentTimestep > oldTimestep) {
+            lastTimestepUpdated_ = currentTimestep;
+        }
     }
 
     inline void addMass(double mass) {
@@ -169,6 +184,7 @@ public:
     }
 
     double perBasePrior() { return std::exp(logPerBasePrior_); }
+    inline size_t lastTimestepUpdated() { return lastTimestepUpdated_.load(); }
 
     std::string RefName;
     uint32_t RefLength;
@@ -184,6 +200,8 @@ public:
 private:
     std::atomic<size_t> uniqueCount_;
     std::atomic<size_t> totalCount_;
+    // The most recent timestep at which this transcript's mass was updated.
+    std::atomic<size_t> lastTimestepUpdated_;
     double priorMass_;
     tbb::atomic<double> mass_;
     tbb::atomic<double> sharedCount_;

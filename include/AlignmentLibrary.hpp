@@ -124,9 +124,12 @@ class AlignmentLibrary {
                     );
 
             alnMod_.reset(new AlignmentModel(1.0, salmonOpts.numErrorBins));
+            alnMod_->setLogger(salmonOpts.jointLog);
+
             // Start parsing the alignments
            NullFragmentFilter<FragT>* nff = nullptr;
-           bq->start(nff);
+           bool onlyProcessAmbiguousAlignments = false;
+           bq->start(nff, onlyProcessAmbiguousAlignments);
         }
 
     std::vector<Transcript>& transcripts() { return transcripts_; }
@@ -158,13 +161,14 @@ class AlignmentLibrary {
     inline BAMQueue<FragT>& getAlignmentGroupQueue() { return *bq.get(); }
 
     inline size_t numMappedReads() { return bq->numMappedReads(); }
+    inline size_t numUniquelyMappedReads() { return bq->numUniquelyMappedReads(); }
 
     //const boost::filesystem::path& alignmentFile() { return alignmentFile_; }
 
     ClusterForest& clusterForest() { return *clusters_.get(); }
 
     template <typename FilterT>
-    bool reset(bool incPasses=true, FilterT filter=nullptr) {
+    bool reset(bool incPasses=true, FilterT filter=nullptr, bool onlyProcessAmbiguousAlignments=false) {
         namespace bfs = boost::filesystem;
 
         for (auto& alignmentFile : alignmentFiles_) {
@@ -174,7 +178,7 @@ class AlignmentLibrary {
         }
 
         bq->reset();
-        bq->start(filter);
+        bq->start(filter, onlyProcessAmbiguousAlignments);
         if (incPasses) {
             quantificationPasses_++;
             fmt::print(stderr, "Current iteration = {}\n", quantificationPasses_);

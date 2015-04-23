@@ -153,7 +153,11 @@ class ReadExperiment {
     void setNumObservedFragments(uint64_t numObserved) { numObservedFragments_ = numObserved; }
 
     double mappingRate() {
-        return static_cast<double>(numAssignedFragments_) / numObservedFragments_;
+        if (quantificationPasses_ > 0) {
+            return static_cast<double>(numAssignedFragsInFirstPass_) / numObservedFragsInFirstPass_;
+        } else {
+            return static_cast<double>(numAssignedFragments_) / numObservedFragments_;
+        }
     }
 
     template <typename CallbackT>
@@ -186,7 +190,20 @@ class ReadExperiment {
         return sstr.str();
     }
 
+    uint64_t numAssignedFragsInFirstPass() {
+        return numAssignedFragsInFirstPass_;
+    }
+
+    uint64_t numObservedFragsInFirstPass() {
+        return numObservedFragsInFirstPass_;
+    }
+
+
     bool softReset() {
+        if (quantificationPasses_ == 0) {
+            numAssignedFragsInFirstPass_ = numAssignedFragments_;
+            numObservedFragsInFirstPass_ = numObservedFragments_;
+        }
         numObservedFragments_ = 0;
         totalAssignedFragments_ += numAssignedFragments_;
         numAssignedFragments_ = 0;
@@ -198,6 +215,11 @@ class ReadExperiment {
         namespace bfs = boost::filesystem;
         for (auto& rl : readLibraries_) {
             if (!rl.isRegularFile()) { return false; }
+        }
+
+        if (quantificationPasses_ == 0) {
+            numAssignedFragsInFirstPass_ = numAssignedFragments_;
+            numObservedFragsInFirstPass_ = numObservedFragments_;
         }
 
         numObservedFragments_ = 0;
@@ -367,8 +389,10 @@ class ReadExperiment {
      */
     std::atomic<uint64_t> numObservedFragments_{0};
     std::atomic<uint64_t> numAssignedFragments_{0};
-    uint64_t totalAssignedFragments_;
-    size_t quantificationPasses_;
+    uint64_t totalAssignedFragments_{0};
+    size_t quantificationPasses_{0};
+    uint64_t numAssignedFragsInFirstPass_{0};
+    uint64_t numObservedFragsInFirstPass_{0};
     std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
 };
 

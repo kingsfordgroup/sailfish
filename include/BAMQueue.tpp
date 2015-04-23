@@ -9,6 +9,7 @@ BAMQueue<FragT>::BAMQueue(std::vector<boost::filesystem::path>& fnames, LibraryF
     files_(std::vector<AlignmentFile>()),
     libFmt_(libFmt), totalReads_(0),
     numUnaligned_(0), numMappedReads_(0), 
+    numUniquelyMappedReads_(0),
     //fragmentQueue_(2000000),
     alnGroupPool_(2000000),
     alnGroupQueue_(1000000),
@@ -107,6 +108,7 @@ void BAMQueue<FragT>::reset() {
   totalReads_ = 0;
   numUnaligned_ = 0;
   numMappedReads_ = 0;
+  numUniquelyMappedReads_ = 0;
   doneParsing_ = false;
   batchNum_ = 0;
 }
@@ -220,10 +222,10 @@ std::vector<SAM_hdr*> BAMQueue<FragT>::headers() {
 
 template <typename FragT>
 template <typename FilterT>
-void BAMQueue<FragT>::start(FilterT filt) {
+void BAMQueue<FragT>::start(FilterT filt, bool onlyProcessAmbiguousAlignments) {
     // Start the parsing thread that will fill the queue
-    parsingThread_.reset(new std::thread([this, filt]()-> void {
-            this->fillQueue_(filt);
+    parsingThread_.reset(new std::thread([this, filt, onlyProcessAmbiguousAlignments]()-> void {
+            this->fillQueue_(filt, onlyProcessAmbiguousAlignments);
     }));
 }
 
@@ -573,8 +575,14 @@ size_t BAMQueue<FragT>::numMappedReads(){
 }
 
 template <typename FragT>
+size_t BAMQueue<FragT>::numUniquelyMappedReads(){ 
+    return numUniquelyMappedReads_;
+}
+
+
+template <typename FragT>
 template <typename FilterT>
-void BAMQueue<FragT>::fillQueue_(FilterT filt) {
+void BAMQueue<FragT>::fillQueue_(FilterT filt, bool onlyProcessAmbiguousAlignments) {
     size_t n{0};
     size_t numFragAlloc{0};
     AlignmentGroup<FragT*>* alngroup;
@@ -593,6 +601,8 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
 
     uint32_t prevLen{1};
     char* prevReadName = new char[255];
+    bool readAlignsUniquely{false};
+    int32_t prevTranscriptId{std::numeric_limits<int32_t>::min()};
 
     while(getFrag_(*f, filt)) {
 
@@ -603,33 +613,49 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
             !sameReadName_<UnpairedRead>(readName, prevReadName, currLen) ) {
 
             if (alngroup->size() > 0) {
-                // push the align group
-                while(!alnGroupQueue_.try_enqueue(alngroup));
-                /*
-#if not defined(__APPLE__)
-                {
-                std::lock_guard<std::mutex> l(agMutex_);
-#endif
-                while(!alnGroupQueue_.try_enqueue(alngroup));
 
-#if not defined(__APPLE__)
-                workAvailable_.notify_one();
-                }
-#endif
-*/
-                alngroup = nullptr;
-                if (!alnGroupPool_.try_dequeue(alngroup)) {  
-                   exhaustedAlnGroupPool_ = true;
-                    //alnGroupPool_.pop(alngroup);
-                    while(!alnGroupPool_.try_dequeue(alngroup));
+                // If we only wish to process ambiguous alignments,
+                // and the current read aligns uniquely, then return 
+                // what we parsed to the appropriate queue and continue
+                if (onlyProcessAmbiguousAlignments and 
+                        readAlignsUniquely) {
+                   // return the fragments
+                   for (auto aln : alngroup->alignments()) {
+                       fragmentQueue_.push(aln); aln = nullptr;
+                   }
+                   // clear the alignments vector
+                   alngroup->alignments().clear();
+                   // continue to use this alignment group
+                   numUniquelyMappedReads_++;
+                } else {
+                    // push the align group
+                    while(!alnGroupQueue_.try_enqueue(alngroup));
+                    alngroup = nullptr;
+                    if (!alnGroupPool_.try_dequeue(alngroup)) {  
+                        exhaustedAlnGroupPool_ = true;
+                        //alnGroupPool_.pop(alngroup);
+                        while(!alnGroupPool_.try_dequeue(alngroup));
+                    }
                 }
             }
+            
+            if (readAlignsUniquely) { numUniquelyMappedReads_++; }
+            readAlignsUniquely = true;
+
             alngroup->addAlignment(f);
-            f = nullptr;
             memcpy(prevReadName, readName, currLen);
             prevLen = currLen;
+            prevTranscriptId = f->transcriptID();
+            f = nullptr;
             numMappedReads_++;
         } else { // otherwise, this is another alignment for the same read
+
+            // If the new alignment for the read is to a 
+            // different transcript, then it's not a unique mapper
+            if (readAlignsUniquely and f->transcriptID() != prevTranscriptId) {
+                readAlignsUniquely = false;
+            }
+
             alngroup->addAlignment(f);
             f = nullptr;
        }
@@ -657,11 +683,28 @@ void BAMQueue<FragT>::fillQueue_(FilterT filt) {
     // If the last alignment group is non-empty, then send 
     // it off to be processed.
     if (alngroup->size() > 0) { 
-        while(!alnGroupQueue_.try_enqueue(alngroup));
-        alngroup = nullptr;
+
+        // If we only wish to process ambiguous alignments,
+        // and the current read aligns uniquely, then return 
+        // what we parsed to the appropriate queue and continue
+        if (onlyProcessAmbiguousAlignments and 
+                readAlignsUniquely) {
+            // return the fragments
+            for (auto aln : alngroup->alignments()) {
+                fragmentQueue_.push(aln); aln = nullptr;
+            }
+            // clear the alignments vector
+            alngroup->alignments().clear();
+            // return the alignment group itself 
+            alnGroupPool_.enqueue(alngroup);
+            numUniquelyMappedReads_++;
+        } else {
+            while(!alnGroupQueue_.try_enqueue(alngroup));
+            alngroup = nullptr;
+        }
     } else { // otherwise, reclaim the alignment group structure here
         //alnGroupPool_.push(alngroup);
-        alnGroupPool_.try_enqueue(alngroup);
+        alnGroupPool_.enqueue(alngroup);
     }
 
     delete [] prevReadName;

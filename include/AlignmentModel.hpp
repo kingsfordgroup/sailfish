@@ -3,6 +3,11 @@
 
 #include <mutex>
 #include <atomic>
+#include <memory>
+
+// logger includes
+#include "spdlog/spdlog.h"
+
 #include "tbb/concurrent_vector.h"
 #include "AtomicMatrix.hpp"
 
@@ -51,6 +56,9 @@ public:
     bool hasIndel(UnpairedRead& r);
     bool hasIndel(ReadPair & r);
 
+    void setLogger(std::shared_ptr<spdlog::logger> logger);
+    bool hasLogger();
+
     void normalize();
 
 private:
@@ -92,6 +100,7 @@ private:
     //size_t maxLen_;
     size_t readBins_;
     std::atomic<bool> burnedIn_;
+    std::shared_ptr<spdlog::logger> logger_;
     // Maintain a mutex in case the error model wants to talk to the
     // console / log.
     std::mutex outputMutex_;

@@ -65,13 +65,14 @@ public:
   std::vector<SAM_hdr*> headers();
 
   template <typename FilterT>
-  void start(FilterT filt);
+  void start(FilterT filt, bool onlyProcessAmbiguousAlignments = false);
 
   inline bool getAlignmentGroup(AlignmentGroup<FragT*>*& group);
 
   // Return the number of reads processed so far by the queue
   size_t numObservedReads();
   size_t numMappedReads();
+  size_t numUniquelyMappedReads();
 
   void reset();
 
@@ -87,7 +88,7 @@ private:
    * depending on the template paramater T
    */
   template <typename FilterT>
-  void fillQueue_(FilterT);
+  void fillQueue_(FilterT, bool);
 
   /** Overload of getFrag_ for paired-end reads */
   template <typename FilterT>
@@ -111,6 +112,7 @@ private:
   size_t totalReads_;
   size_t numUnaligned_;
   size_t numMappedReads_;
+  size_t numUniquelyMappedReads_;
   tbb::concurrent_queue<FragT*> fragmentQueue_;
   //moodycamel::ConcurrentQueue<FragT*> fragmentQueue_;
 

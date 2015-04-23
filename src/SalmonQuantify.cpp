@@ -1,21 +1,21 @@
 /**
 >HEADER
-    Copyright (c) 2013, 2014 Rob Patro rob.patro@cs.stonybrook.edu
+    Copyright (c) 2013, 2014, 2015 Rob Patro rob.patro@cs.stonybrook.edu
 
-    This file is part of Sailfish.
+    This file is part of Salmon.
 
-    Sailfish is free software: you can redistribute it and/or modify
+    Salmon is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Sailfish is distributed in the hope that it will be useful,
+    Salmon is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Sailfish.  If not, see <http://www.gnu.org/licenses/>.
+    along with Salmon.  If not, see <http://www.gnu.org/licenses/>.
 <HEADER
 **/
 
@@ -83,7 +83,7 @@ extern "C" {
 #include "tbb/task_scheduler_init.h"
 #include "tbb/partitioner.h"
 
-// Logger includes
+// logger includes
 #include "spdlog/spdlog.h"
 
 // Cereal includes
@@ -272,7 +272,8 @@ class SMEMAlignment {
 #endif
 
 void processMiniBatch(
-        double logForgettingMass,
+        ForgettingMassCalculator& fmCalc,
+        uint64_t firstTimestepOfRound,
         ReadLibrary& readLib,
         const SalmonOpts& salmonOpts,
         std::vector<AlignmentGroup<SMEMAlignment>*>& batchHits,
@@ -291,7 +292,8 @@ void processMiniBatch(
     using sailfish::math::logAdd;
     using sailfish::math::logSub;
 
-    constexpr uint64_t numBurninFrags = 5000000;
+    const uint64_t numBurninFrags = salmonOpts.numBurninFrags;
+    bool useMassBanking = (!initialRound and salmonOpts.useMassBanking);
 
     auto log = spdlog::get("jointLog");
     size_t numTranscripts{transcripts.size()};
@@ -306,6 +308,7 @@ void processMiniBatch(
 
     // Build reverse map from transcriptID => hit id
     using HitID = uint32_t;
+    /* This isn't used anymore!!!
     btree::btree_map<TranscriptID, std::vector<SMEMAlignment*>> hitsForTranscript;
     size_t hitID{0};
     for (auto& hv : batchHits) {
@@ -314,20 +317,71 @@ void processMiniBatch(
         }
         ++hitID;
     }
-
     double clustTotal = std::log(batchHits.size()) + logForgettingMass;
+    */
+
+    double logForgettingMass{0.0};
+    uint64_t currentMinibatchTimestep{0};
+    fmCalc.getLogMassAndTimestep(logForgettingMass, currentMinibatchTimestep);
+
+    double startingCumulativeMass = fmCalc.cumulativeLogMassAt(firstTimestepOfRound);
+    // BEGIN: DOUBLY-COLLAPSED TESTING
+    struct HitInfo {
+        uint32_t numHits = 0;
+        bool observed = false;
+        double newUniqueMass = LOG_0;
+    };
+
+    std::unordered_map<TranscriptID, HitInfo> hitInfo;
+    // We only need to fill this in if it's not the first round
+    if (useMassBanking) {
+        for (auto& alnGroup : batchHits) {
+            for (auto a : alnGroup->alignments()) {
+                auto transcriptID = a.transcriptID();
+                if (transcriptID < 0 or transcriptID >= transcripts.size()) {
+                    salmonOpts.jointLog->warn("Invalid Transcript ID [{}] encountered", transcriptID);
+                }
+                auto& info = hitInfo[transcriptID];
+                auto& txp = transcripts[transcriptID];
+                if(!info.observed) {
+                    info.observed = true;
+
+                    if (txp.uniqueCount() > 0) {
+                        double dormantInterval = static_cast<double>(currentMinibatchTimestep -
+                                    firstTimestepOfRound + 1);
+                        // The cumulative mass last time this was updated
+                        double prevUpdateMass = startingCumulativeMass;//fmCalc.cumulativeLogMassAt(startTime);
+                        double currentUpdateMass = fmCalc.cumulativeLogMassAt(currentMinibatchTimestep);
+                        double updateFraction = std::log(txp.uniqueUpdateFraction());
+
+                        // The new unique mass to be added to this transcript
+                        double newUniqueMass = sailfish::math::logSub(currentUpdateMass, prevUpdateMass) +
+                            updateFraction - std::log(dormantInterval);
+                        info.newUniqueMass = newUniqueMass;
+                    }
+                }
+                info.numHits++;
+            } // end alignments in group
+        } // end batch hits
+    } // end initial round
+    // END: DOUBLY-COLLAPSED TESTING
+
+
     {
         // Iterate over each group of alignments (a group consists of all alignments reported
-        // for a single read).  Distribute the read's mass proportionally dependent on the
-        // current hits
+        // for a single read).  Distribute the read's mass to the transcripts
+        // where it potentially aligns.
         for (auto& alnGroup : batchHits) {
             if (alnGroup->size() == 0) { continue; }
+
+            // We start out with probability 0
             double sumOfAlignProbs{LOG_0};
-            // update the cluster-level properties
+            // Record whether or not this read is unique to a single transcript.
             bool transcriptUnique{true};
 
             auto firstTranscriptID = alnGroup->alignments().front().transcriptID();
             std::unordered_set<size_t> observedTranscripts;
+            // For each alignment of this read
             for (auto& aln : alnGroup->alignments()) {
                 auto transcriptID = aln.transcriptID();
                 auto& transcript = transcripts[transcriptID];
@@ -337,36 +391,45 @@ void processMiniBatch(
                 double coverage = aln.score();
                 double logFragProb = (coverage > 0) ? std::log(coverage) : LOG_0;
 
-                // The alignment probability is the product of a transcript-level term (based on abundance and) an alignment-level
-                // term below which is P(Q_1) * P(Q_2) * P(F | T)
+                // The alignment probability is the product of a
+                // transcript-level term (based on abundance and) an
+                // alignment-level term.
                 double logRefLength;
                 if (salmonOpts.noEffectiveLengthCorrection or !burnedIn) {
                     logRefLength = std::log(transcript.RefLength);
                 } else {
                     logRefLength = transcript.getCachedEffectiveLength();
                 }
-                /*
-                double logRefLength = (salmonOpts.noEffectiveLengthCorrection) ?
-                                      std::log(transcript.RefLength) :
-                                      transcript.getEffectiveLength(
-                                              fragLengthDist,
-                                              priorNumAssignedFragments,
-                                              numBurninFrags);
 
-                if (!burnedIn) { logRefLength = std::log(transcript.RefLength); }
-                */
+                double transcriptLogCount = transcript.mass(initialRound);
 
-                double transcriptLogCount = transcript.mass();
+                // BEGIN: DOUBLY-COLLAPSED TESTING
+                // If this is not the initial round, then add the
+                // appropriate proportion of unique read mass for
+                // every ambiguous alignment we encounter. We do
+                // this before the line (below) where we
+                // retrieve this transcript's mass.
+                if (useMassBanking and transcript.uniqueCount() > 0) {
+                    auto txpHitInfo = hitInfo[transcriptID];
+                    transcriptLogCount = sailfish::math::logAdd(
+                            transcriptLogCount,
+                            txpHitInfo.newUniqueMass);
+                }
+                // END: DOUBLY-COLLAPSED TESTING
+
+
                 if ( transcriptLogCount != LOG_0 ) {
                     double errLike = sailfish::math::LOG_1;
                     if (burnedIn) {
-                        // TODO: Error model for smem-based quantification
+                        // TODO: Make error model for smem-based quantification
                         //errLike = errMod.logLikelihood(aln, transcript);
                     }
 
                     double logFragProb = (salmonOpts.noFragLengthDist) ?
                         LOG_1 :
-                        ((aln.fragLength() > 0) ? fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) : LOG_1);
+                        ((aln.fragLength() > 0) ?
+                         fragLengthDist.pmf(static_cast<size_t>(aln.fragLength())) :
+                         LOG_1);
                     // TODO: Take the fragment length distribution into account
                     // for single-end fragments as in the alignment-based code below
                     /*
@@ -392,12 +455,14 @@ void processMiniBatch(
                     // Increment the count of this type of read that we've seen
                     ++libTypeCounts[aln.libFormat().formatID()];
 
-                    aln.logProb = (transcriptLogCount - logRefLength) + logFragProb + logAlignCompatProb;// + qualProb + errLike;
+                    aln.logProb = (transcriptLogCount - logRefLength) +
+                                  logFragProb + logAlignCompatProb;// + qualProb + errLike;
 
                     sumOfAlignProbs = logAdd(sumOfAlignProbs, aln.logProb);
 
-                    if (observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
-                        if (updateCounts) { transcripts[transcriptID].addTotalCount(1); }
+                    if (updateCounts and
+                        observedTranscripts.find(transcriptID) == observedTranscripts.end()) {
+                        transcripts[transcriptID].addTotalCount(1);
                         observedTranscripts.insert(transcriptID);
                     }
                 } else {
@@ -417,11 +482,21 @@ void processMiniBatch(
 
             // normalize the hits
             for (auto& aln : alnGroup->alignments()) {
+                // Normalize the log-probability of this alignment
                 aln.logProb -= sumOfAlignProbs;
+                // Get the transcript referenced in this alignment
                 auto transcriptID = aln.transcriptID();
                 auto& transcript = transcripts[transcriptID];
 
-                transcript.addMass( logForgettingMass + aln.logProb );
+                // Add the new mass to this transcript
+                double newMass = logForgettingMass + aln.logProb;
+
+                // If this is not the initial round, and we need to
+                // add "banked" mass for this hit, do it now.
+                if (useMassBanking and transcript.uniqueCount() > 0) {
+                    newMass = sailfish::math::logAdd(newMass, hitInfo[transcriptID].newUniqueMass);
+                }
+                transcript.addMass( newMass );
 
                 double r = uni(randEng);
                 if (!burnedIn and r < std::exp(aln.logProb)) {
@@ -432,8 +507,6 @@ void processMiniBatch(
                         fragLengthDist.addVal(fragLength, logForgettingMass);
                     }
                 }
-
-
             } // end normalize
 
             // update the single target transcript
@@ -484,7 +557,9 @@ void processMiniBatch(
             burnedIn = true;
             for (auto& t : transcripts) {  t.updateEffectiveLength(fragLengthDist); }
         }
-        readLib.updateLibTypeCounts(libTypeCounts);
+        if (initialRound) {
+            readLib.updateLibTypeCounts(libTypeCounts);
+        }
 }
 
 uint32_t basesCovered(std::vector<uint32_t>& kmerHits) {
@@ -1166,14 +1241,12 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         leftReadLength = readLen;
 
         for (int p = 0; p < readLen; ++p) {
-            //strBuf[p] = nst_nt4_table[static_cast<int>(frag.first.seq[p])];
             readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
         }
 
         collectHitsForRead(idx, a, auxHits,
                             memOptions,
                             salmonOpts,
-                            //strBuf,
                             reinterpret_cast<const uint8_t*>(readStr.c_str()),
                             readLen,
                             leftHits);
@@ -1187,14 +1260,12 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         rightReadLength = readLen;
 
         for (int p = 0; p < readLen; ++p) {
-            //strBuf[p] = nst_nt4_table[static_cast<int>(frag.second.seq[p])];
             readStr[p] = nst_nt4_table[static_cast<int>(readStr[p])];
         }
 
         collectHitsForRead(idx, a, auxHits,
                             memOptions,
                             salmonOpts,
-                            //strBuf,
                             reinterpret_cast<const uint8_t*>(readStr.c_str()),
                             readLen,
                             rightHits);
@@ -1202,6 +1273,7 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
 
     size_t readHits{0};
     auto& alnList = hitList.alignments();
+    hitList.isUniquelyMapped() = true;
     alnList.clear();
 
     //std::cerr << "leftHits.size() = " << leftHits.size() << ", leftHitsOld.size() = " << leftHitsOld.size() <<
@@ -1220,6 +1292,8 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
         tHitList.second.computeBestChain(t, frag.first.seq);
         ++leftHitCount;
     }
+
+    uint32_t firstTranscriptID = std::numeric_limits<uint32_t>::max();
 
     for (auto& tHitList : rightHits) {
 
@@ -1243,6 +1317,12 @@ void getHitsForFragment(std::pair<header_sequence_qual, header_sequence_qual>& f
             uint32_t end1Pos = (end1IsForward) ? it->second.bestHitPos : it->second.bestHitPos + leftReadLength;
             uint32_t end2Pos = (end2IsForward) ? tHitList.second.bestHitPos : tHitList.second.bestHitPos + rightReadLength;
             auto fmt = salmon::utils::hitType(end1Pos, end1IsForward, end2Pos, end2IsForward);
+
+            if (readHits == 0) {
+                firstTranscriptID = tHitList.first;
+            } else if (hitList.isUniquelyMapped() and tHitList.first != firstTranscriptID) {
+                hitList.isUniquelyMapped() = false;
+            }
 
             alnList.emplace_back(tHitList.first, fmt, score, fragLength);
             ++readHits;
@@ -1300,8 +1380,10 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
 
     size_t readHits{0};
     auto& alnList = hitList.alignments();
+    hitList.isUniquelyMapped() = true;
     alnList.clear();
 
+    uint32_t firstTranscriptID = std::numeric_limits<uint32_t>::max();
     double cutoff{ coverageThresh };//* readLength};
     for (auto& tHitList : hits) {
         // Coverage score
@@ -1315,6 +1397,12 @@ void getHitsForFragment(jellyfish::header_sequence_qual& frag,
             bool isForward = tHitList.second.isForward();
 
             auto fmt = salmon::utils::hitType(tHitList.second.bestHitPos, isForward);
+
+            if (leftHitCount == 0) {
+                firstTranscriptID = tHitList.first;
+            } else if (hitList.isUniquelyMapped() and tHitList.first != firstTranscriptID) {
+                hitList.isUniquelyMapped() = false;
+            }
 
             alnList.emplace_back(tHitList.first, fmt, score);
             readHits += score;
@@ -1371,6 +1459,8 @@ void processReadsMEM(ParserT* parser,
 
   auto expectedLibType = rl.format();
 
+  uint64_t firstTimestepOfRound = fmCalc.getCurrentTimestep();
+
   size_t locRead{0};
   while(true) {
     typename ParserT::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
@@ -1412,18 +1502,31 @@ void processReadsMEM(ParserT* parser,
             green[3] = '0' + static_cast<char>(fmt::GREEN);
             char red[] = "\x1b[30m";
             red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
-            fmt::print(stderr, "hits per frag:  {}", validHits / static_cast<float>(prevObservedFrags));
+            if (initialRound) {
+                fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+                fmt::print(stderr, "hits per frag:  {}", validHits / static_cast<float>(prevObservedFrags));
+            } else {
+                fmt::print(stderr, "\r\r{}processed{} {} {}fragments{}", green, red, numObservedFragments, green, RESET_COLOR);
+            }
     	    iomutex.unlock();
         }
 
 
     } // end for i < j->nb_filled
 
-    double logForgettingMass = fmCalc();
+
+    // NOT DOUBLY-COLLAPSED
+    // double logForgettingMass = fmCalc();
+
+    // BEGIN: DOUBLY-COLLAPSED TESTING
+   // double logForgettingMass{0.0};
+   // uint64_t currentMinibatchTimestep{0};
+   // fmCalc.getLogMassAndTimestep(logForgettingMass, currentMinibatchTimestep);
+    // END: DOUBLE-COLLAPSED TESTING
 
     prevObservedFrags = numObservedFragments;
-    processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
+
+   processMiniBatch(fmCalc,firstTimestepOfRound, rl, salmonOpts, hitLists, transcripts, clusterForest,
                      fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
     if (writeToCache) {
 
@@ -1499,6 +1602,7 @@ void processCachedAlignmentsHelper(
     bool obtained{false};
 #endif
 
+    uint64_t firstTimestepOfRound = fmCalc.getCurrentTimestep();
     hitLists.resize(batchCount);
     auto it = hitLists.begin();
 
@@ -1558,15 +1662,20 @@ void processCachedAlignmentsHelper(
             green[3] = '0' + static_cast<char>(fmt::GREEN);
             char red[] = "\x1b[30m";
             red[3] = '0' + static_cast<char>(fmt::RED);
-            fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
-            fmt::print(stderr, "hits per frag:  {} / {} = {}", locValidHits, locRead, locValidHits / static_cast<float>(locRead));
+            if (initialRound) {
+                fmt::print(stderr, "\033[A\r\r{}processed{} {} {}fragments{}\n", green, red, numObservedFragments, green, RESET_COLOR);
+                fmt::print(stderr, "hits per frag:  {}", validHits / static_cast<float>(prevObservedFrags));
+            } else {
+                fmt::print(stderr, "\r\r{}processed{} {} {}fragments{}", green, red, numObservedFragments, green, RESET_COLOR);
+            }
             salmonOpts.fileLog->info("processed {} fragments\n", numObservedFragments);
             iomutex.unlock();
         }
 
-        double logForgettingMass = fmCalc();
+        // NOT DOUBLY-COLLAPSED
+        // double logForgettingMass = fmCalc();
 
-        processMiniBatch(logForgettingMass, rl, salmonOpts, hitLists, transcripts, clusterForest,
+        processMiniBatch(fmCalc,firstTimestepOfRound, rl, salmonOpts, hitLists, transcripts, clusterForest,
                 fragLengthDist, numAssignedFragments, eng, initialRound, burnedIn);
 #if defined(__MOODYCAMEL__)
         if (!structureCache.enqueue_bulk(std::make_move_iterator(hitLists.begin()), hitLists.size())) {
@@ -1618,7 +1727,6 @@ void processCachedAlignments(
         size_t numQuantThreads) {
 
         std::atomic<uint64_t> numValidHits{0};
-
         std::vector<std::thread> quantThreads;
         for (size_t i = 0; i < numQuantThreads; ++i) {
                 quantThreads.emplace_back(processCachedAlignmentsHelper,
@@ -1674,19 +1782,8 @@ void processReadLibrary(
             // ------ Paired-end --------
             if (rl.format().type == ReadType::PAIRED_END) {
 
-                /*
-                auto len1 = rl.mates1().front().length();
-                auto len2 = rl.mates2().front().length();
-                char* r1 = new char[len1 + 1]; r1[len1] = '\0';
-                char* r2 = new char[len2 + 1]; r2[len2] = '\0';
-                rl.mates1().front().copy(r1, len1);
-                rl.mates2().front().copy(r1, len2);
-                char* readFiles[] = {r1, r2};
-                */
-
                 char* readFiles[] = { const_cast<char*>(rl.mates1().front().c_str()),
                     const_cast<char*>(rl.mates2().front().c_str()) };
-
 
                 size_t maxReadGroup{miniBatchSize}; // Number of reads in each "job"
                 size_t concurrentFile{2}; // Number of files to read simultaneously
@@ -1823,11 +1920,13 @@ bool writeAlignmentCacheToFile(
         uint64_t& numWritten,
         std::atomic<uint64_t>& numObservedFragments,
         uint64_t numRequiredFragments,
+        SalmonOpts& salmonOpts,
         volatile bool& writeToCache,
         cereal::BinaryOutputArchive& outputStream ) {
 
         size_t blockSize{miniBatchSize};
         size_t numDequed{0};
+        bool cacheUniqueReads = !salmonOpts.useMassBanking;
 #if defined(__MOODYCAMEL__)
         // Moody camel
         AlignmentGroup<SMEMAlignment>* alnGroups[blockSize];
@@ -1841,8 +1940,12 @@ bool writeAlignmentCacheToFile(
             // MOODY CAMEL QUEUE
             while ( (numDequed = outputGroups.try_dequeue_bulk(alnGroups, blockSize)) > 0) {
                 for (size_t i = 0; i < numDequed; ++i) {
-                    outputStream((*alnGroups[i]));
-                    ++numWritten;
+                    // only write ambigously mapped fragments to the cache
+                    // for processing in subsequent rounds
+                    if (cacheUniqueReads or !alnGroups[i]->isUniquelyMapped()) {
+                        outputStream((*alnGroups[i]));
+                        ++numWritten;
+                    }
                 }
 
                 structureCache.enqueue_bulk(alnGroups, numDequed);
@@ -1856,8 +1959,10 @@ bool writeAlignmentCacheToFile(
 #else
             // TBB QUEUE
             while (outputGroups.try_pop(alnGroups[0])) {
-                outputStream(*alnGroups[0]);
-                ++numWritten;
+                if (cacheUniqueReads or !alnGroups[0]->isUniquelyMapped()) {
+                    outputStream(*alnGroups[0]);
+                    ++numWritten;
+                }
 
                 structureCache.push(alnGroups[0]);
 
@@ -1873,8 +1978,10 @@ bool writeAlignmentCacheToFile(
 #if defined(__MOODYCAMEL__)
         // Moody camel
         while (outputGroups.try_dequeue(alnGroups[0])) {
-            outputStream((*alnGroups[0]));
-            ++numWritten;
+            if (cacheUniqueReads or !alnGroups[0]->isUniquelyMapped()) {
+                outputStream((*alnGroups[0]));
+                ++numWritten;
+            }
             structureCache.enqueue(alnGroups[0]);
         }
 #else
@@ -2100,6 +2207,9 @@ void quantifyLibrary(
     auto jointLog = spdlog::get("jointLog");
 
     ForgettingMassCalculator fmCalc(salmonOpts.forgettingFactor);
+    size_t prefillSize = 1000000000 / miniBatchSize;
+    fmCalc.prefill(prefillSize);
+
     bool initialRound{true};
     uint32_t roundNum{0};
 
@@ -2191,6 +2301,7 @@ void quantifyLibrary(
                         std::ref(cacheFiles.back().numWritten),
                         std::ref(numObservedFragments),
                         numRequiredFragments,
+                        std::ref(salmonOpts),
                         std::ref(writeToCache),
                         std::ref(alnCacheArchive)));
                 }
@@ -2213,6 +2324,7 @@ void quantifyLibrary(
 
             // Process all of the reads
             experiment.processReads(numQuantThreads, processReadLibraryCallback);
+            experiment.setNumObservedFragments(numObservedFragments);
 
             // Empty the structure cache here
             AlignmentGroup<SMEMAlignment>* ag;
@@ -2240,6 +2352,8 @@ void quantifyLibrary(
 
                 cf.populateCache(finishedParsing, structCacheSize);
 
+                uint64_t priorTotalAssignedFragments = totalAssignedFragments;
+                uint64_t priorTotalObservedFragments = numObservedFragments;
                 processCachedAlignments(rl,
                         //groupCache, alnGroupQueue,
                         *(cf.processed.get()),
@@ -2251,6 +2365,14 @@ void quantifyLibrary(
 
                 cf.flushCache();
 
+               if (salmonOpts.useMassBanking) {
+                   // If we're using mass banking
+                   // Regardless of what we count, we see the same total number
+                   // of fragments we did in the first round
+                   totalAssignedFragments = priorTotalAssignedFragments + experiment.numAssignedFragsInFirstPass();
+                   numObservedFragments = priorTotalObservedFragments + experiment.numAssignedFragsInFirstPass();
+               }
+                // Before mass banking
                 numAssignedFragments = totalAssignedFragments - prevNumAssignedFragments;
                 prevNumAssignedFragments = totalAssignedFragments;
             };
@@ -2324,7 +2446,8 @@ int salmonQuantify(int argc, char *argv[]) {
     vector<string> mate1ReadFiles;
     vector<string> mate2ReadFiles;
 
-    po::options_description generic("salmon quant options");
+    po::options_description generic("\n"
+		    		    "basic options");
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
@@ -2347,41 +2470,11 @@ int salmonQuantify(int argc, char *argv[]) {
                         "that disagree with the library type should be \"impossible\", while setting it to 1 says that alignments "
                         "that disagree with the library type are no less likely than those that do (in this case, though, there "
                         "is no reason to even use --useReadCompat)")
-    ("forgettingFactor,f", po::value<double>(&(sopt.forgettingFactor))->default_value(0.65), "The forgetting factor used "
-                        "in the online learning schedule.  A smaller value results in quicker learning, but higher variance "
-                        "and may be unstable.  A larger value results in slower learning but may be more stable.  Value should "
-                        "be in the interval (0.5, 1.0].")
-    ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
-                        "effective length correction when computing the probability that a fragment was generated "
-                        "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
-                        "into account when computing this probability.")
-    ("noFragLengthDist", po::bool_switch(&(sopt.noFragLengthDist))->default_value(false), "[Currently Experimental] : "
-                        "Don't consider concordance with the learned fragment length distribution when trying to determine "
-                        "the probability that a fragment has originated from a specified location.  Normally, Fragments with "
-                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
-                        "lengths.  When this flag is passed in, the observed fragment length has no effect on that fragment's "
-                        "a priori probability.")
     ("numRequiredObs,n", po::value(&requiredObservations)->default_value(50000000),
                                         "The minimum number of observations (mapped reads) that must be observed before "
                                         "the inference procedure will terminate.  If fewer mapped reads exist in the "
                                         "input file, then it will be read through multiple times.")
     ("minLen,k", po::value<int>(&(memOptions->min_seed_len))->default_value(19), "(S)MEMs smaller than this size won't be considered.")
-    ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(200), "(S)MEMs occuring more than this many times won't be considered.")
-    ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(100), "Reads \"mapping\" to more than this many places won't be considered.")
-    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(0), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
-                                        "The default value will not split (S)MEMs, a higher value will result in more MEMs being explore and, thus, will "
-                                        "result in increased running time.")
-    ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
-                                        "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
-    ("disableMappingCache", po::bool_switch(&(sopt.disableMappingCache))->default_value(false), "Setting this option disables the creation and use "
-                                        "of the \"mapping cache\" file.  The mapping cache can speed up quantification significantly for smaller read "
-                                        "libraries (i.e. where the number of mapped fragments is less than the required number of observations). However, "
-                                        "for very large read libraries, the mapping cache is unnecessary, and disabling it may allow salmon to more effectively "
-                                        "make use of a very large number of threads.")
-    ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(5000000), "If the file contained fewer than this "
-                                        "many reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
-                                        "not be too large if you wish to keep a low memory usage, but setting it large enough can substantially speed up "
-                                        "inference on \"small\" files that contain only a few million reads.")
     ("extraSensitive", po::bool_switch(&(sopt.extraSeedPass))->default_value(false), "Setting this option enables an extra pass of \"seed\" search. "
                                         "Enabling this option may improve sensitivity (the number of reads having sufficient coverage), but will "
                                         "typically slow down quantification by ~40%.  Consider enabling this option if you find the mapping rate to "
@@ -2400,10 +2493,59 @@ int salmonQuantify(int argc, char *argv[]) {
                                         "format; files with any other extension are assumed to be in the simple format.");
     //("optChain", po::bool_switch(&optChain)->default_value(false), "Chain MEMs optimally rather than greedily")
 
+    po::options_description advanced("\n"
+		    		     "advanced options");
+    advanced.add_options()
+    ("maxOcc,m", po::value<int>(&(memOptions->max_occ))->default_value(200), "(S)MEMs occuring more than this many times won't be considered.")
+    ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(100), "Reads \"mapping\" to more than this many places won't be considered.")
+    ("splitWidth,s", po::value<int>(&(memOptions->split_width))->default_value(0), "If (S)MEM occurs fewer than this many times, search for smaller, contained MEMs. "
+                                        "The default value will not split (S)MEMs, a higher value will result in more MEMs being explore and, thus, will "
+                                        "result in increased running time.")
+    ("splitSpanningSeeds,b", po::bool_switch(&(sopt.splitSpanningSeeds))->default_value(false), "Attempt to split seeds that happen to fall on the "
+                                        "boundary between two transcripts.  This can improve the  fragment hit-rate, but is usually not necessary.")
+    ("disableMappingCache", po::bool_switch(&(sopt.disableMappingCache))->default_value(false), "Setting this option disables the creation and use "
+                                        "of the \"mapping cache\" file.  The mapping cache can speed up quantification significantly for smaller read "
+                                        "libraries (i.e. where the number of mapped fragments is less than the required number of observations). However, "
+                                        "for very large read libraries, the mapping cache is unnecessary, and disabling it may allow salmon to more effectively "
+                                        "make use of a very large number of threads.")
+    ("forgettingFactor,f", po::value<double>(&(sopt.forgettingFactor))->default_value(0.65), "The forgetting factor used "
+                        "in the online learning schedule.  A smaller value results in quicker learning, but higher variance "
+                        "and may be unstable.  A larger value results in slower learning but may be more stable.  Value should "
+                        "be in the interval (0.5, 1.0].")
+    ("mappingCacheMemoryLimit", po::value<uint32_t>(&(sopt.mappingCacheMemoryLimit))->default_value(5000000), "If the file contained fewer than this "
+                                        "many reads, then just keep the data in memory for subsequent rounds of inference. Obviously, this value should "
+                                        "not be too large if you wish to keep a low memory usage, but setting it large enough can substantially speed up "
+                                        "inference on \"small\" files that contain only a few million reads.")
+    ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
+                        "effective length correction when computing the probability that a fragment was generated "
+                        "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
+                        "into account when computing this probability.")
+    ("noFragLengthDist", po::bool_switch(&(sopt.noFragLengthDist))->default_value(false), "[Currently Experimental] : "
+                        "Don't consider concordance with the learned fragment length distribution when trying to determine "
+                        "the probability that a fragment has originated from a specified location.  Normally, Fragments with "
+                         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
+                        "lengths.  When this flag is passed in, the observed fragment length has no effect on that fragment's "
+                        "a priori probability.")
+    ("useMassBanking", po::bool_switch(&(sopt.useMassBanking))->default_value(false), "[Currently Experimental] : "
+                        "Use mass \"banking\" in subsequent epoch of inference.  Rather than re-observing uniquely "
+                        "mapped reads, simply remember the ratio of uniquely to ambiguously mapped reads for each "
+                        "transcript and distribute the unique mass uniformly throughout the epoch.")
+    ("numAuxModelSamples", po::value<uint32_t>(&(sopt.numBurninFrags))->default_value(5000000), "The first <numAuxModelSamples> are used to train the "
+     			"auxiliary model parameters (e.g. fragment length distribution, bias, etc.).  After ther first <numAuxModelSamples> observations "
+			"the auxiliary model parameters will be assumed to have converged and will be fixed.")
+    ("numPreAuxModelSamples", po::value<uint32_t>(&(sopt.numPreBurninFrags))->default_value(1000000), "The first <numPreAuxModelSamples> will have their "
+     			"assignment likelihoods and contributions to the transcript abundances computed without applying any auxiliary models.  The purpose "
+			"of ignoring the auxiliary models for the first <numPreAuxModelSamples> observations is to avoid applying these models before thier "
+			"parameters have been learned sufficiently well.");
+
+    po::options_description all("salmon quant options");
+    all.add(generic).add(advanced);
+
+
     po::variables_map vm;
     try {
         auto orderedOptions = po::command_line_parser(argc,argv).
-            options(generic).run();
+            options(all).run();
 
         po::store(orderedOptions, vm);
 
@@ -2415,7 +2557,7 @@ Perform streaming SMEM-based estimation of
 transcript abundance from RNA-seq reads
 )";
             std::cout << hstring << std::endl;
-            std::cout << generic << std::endl;
+            std::cout << all << std::endl;
             std::exit(1);
         }
 
