@@ -342,8 +342,9 @@ message("==================================================================")
 include(ExternalProject)
 ExternalProject_Add(libbwa
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.stonybrook.edu/~rp/files/bwa-master.tar.gz
-    #URL http://www.cs.cmu.edu/~robp/files/bwa-master.tar.gz 
+    #URL http://www.cs.stonybrook.edu/~rp/files/bwa-master.tar.gz
+    DOWNLOAD_COMMAND curl -k -L  http://www.cs.stonybrook.edu/~rp/files/bwa-master.tar.gz -o bwa-master.tar.gz &&
+                     tar -xzvf bwa-master.tar.gz 
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/bwa-master
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     CONFIGURE_COMMAND ""
