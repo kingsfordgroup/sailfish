@@ -9,6 +9,8 @@ repository, and binaries are available under the [release tab](https://github.co
 Setting up Sailfish
 ===================
 
+[![Join the chat at https://gitter.im/kingsfordgroup/sailfish](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/kingsfordgroup/sailfish?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Requirements:
 -------------
 
