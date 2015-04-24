@@ -76,6 +76,8 @@ private:
     };
 
     void setBasesFromCIGAROp_(enum cigar_op op, size_t& curRefBase, size_t& curReadBase);
+                              //std::stringstream& readStr, std::stringstream& matchStr,
+                              //std::stringstream& refstr);
 
     // 11 states --- the 9 listed in "AlignmentModelChar" plus START (9) i
     // and END (10)

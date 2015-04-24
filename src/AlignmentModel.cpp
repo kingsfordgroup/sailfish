@@ -63,6 +63,75 @@ bool AlignmentModel::hasIndel(bam_seq_t* read) {
     return false;
 }
 
+/*
+inline void AlignmentModel::setBasesFromCIGAROp_(enum cigar_op op, size_t& curRefBase, size_t& curReadBase,
+                                                 std::stringstream& readStr, std::stringstream& matchStr,
+                                                 std::stringstream& refStr) {
+    using sailfish::stringtools::twoBitToChar;
+    switch (op) {
+        case BAM_UNKNOWN:
+            std::cerr << "ENCOUNTERED UNKNOWN SYMBOL IN CIGAR STRING!\n";
+            break;
+        case BAM_CMATCH:
+            readStr << twoBitToChar[curReadBase];
+            matchStr << ((curReadBase == curRefBase) ? ' ' : 'X');
+            refStr << twoBitToChar[curRefBase];
+            // do nothing
+            break;
+        case BAM_CBASE_MATCH:
+            readStr << twoBitToChar[curReadBase];
+            matchStr << ' ';
+            refStr << twoBitToChar[curRefBase];
+            // do nothing
+            break;
+        case BAM_CBASE_MISMATCH:
+            readStr << twoBitToChar[curReadBase];
+            matchStr << 'X';
+            refStr << twoBitToChar[curRefBase];
+            // do nothing
+            break;
+        case BAM_CINS:
+            readStr << twoBitToChar[curReadBase];
+            matchStr << ' ';
+            refStr << '-';
+            curRefBase = ALN_DASH;
+            break;
+        case BAM_CDEL:
+            readStr << '-';
+            matchStr << ' ';
+            refStr << twoBitToChar[curRefBase];
+            curReadBase = ALN_DASH;
+            break;
+        case BAM_CREF_SKIP:
+            readStr << 'N';
+            matchStr << ' ';
+            refStr << twoBitToChar[curRefBase];
+            curReadBase = ALN_REF_SKIP;
+            break;
+        case BAM_CSOFT_CLIP:
+            readStr << twoBitToChar[curReadBase];
+            matchStr << ' ';
+            refStr << 'S';
+            curRefBase = ALN_SOFT_CLIP;
+            break;
+        case BAM_CHARD_CLIP:
+            readStr << 'H';
+            matchStr << ' ';
+            refStr << 'H';
+            curRefBase = ALN_HARD_CLIP;
+            curReadBase = ALN_HARD_CLIP;
+            break;
+        case BAM_CPAD:
+            readStr << 'P';
+            matchStr << ' ';
+            refStr << 'P';
+            curRefBase = ALN_PAD;
+            curReadBase = ALN_PAD;
+            break;
+    }
+}
+*/
+
 inline void AlignmentModel::setBasesFromCIGAROp_(enum cigar_op op, size_t& curRefBase, size_t& curReadBase) {
     switch (op) {
         case BAM_UNKNOWN:
@@ -163,6 +232,8 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
         return sailfish::math::LOG_0;
     }
 
+    //std::stringstream readStream, matchStream, refStream;
+
     uint32_t* cigar = bam_cigar(read);
     uint32_t cigarLen = bam_cigar_len(read);
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
@@ -225,7 +296,7 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
             }
 
 
-            setBasesFromCIGAROp_(op, curRefBase, curReadBase);
+            setBasesFromCIGAROp_(op, curRefBase, curReadBase);//, readStream, matchStream, refStream);
             curStateIdx = curRefBase * numStates + curReadBase;
             double tp = transitionProbs[readPosBin](prevStateIdx, curStateIdx);
             logLike += tp;
@@ -241,6 +312,17 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
 
         }
     }
+
+    /*
+    {
+        std::lock_guard<std::mutex> l(outputMutex_);
+        std::cerr << "\n\nread:   " << readStream.str() << "\n";
+        std::cerr << "        " << matchStream.str() << "\n";
+        std::cerr << "ref:    " << refStream.str() << "\n";
+        //std::cerr << "states: " << stateStream.str() << "\n";
+    }
+    */
+
     return logLike;
 }
 
@@ -332,6 +414,8 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
     // unsigned version of transcriptIdx
     size_t uTranscriptIdx = static_cast<size_t>(transcriptIdx);
 
+    //std::stringstream readStream, matchStream, refStream;
+
     uint32_t* cigar = bam_cigar(read);
     uint32_t cigarLen = bam_cigar_len(read);
     uint8_t* qseq = reinterpret_cast<uint8_t*>(bam_seq(read));
@@ -392,7 +476,7 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
                     advanceInReference = false;
                 }
 
-                setBasesFromCIGAROp_(op, curRefBase, curReadBase);
+                setBasesFromCIGAROp_(op, curRefBase, curReadBase);//, readStream, matchStream, refStream);
                 curStateIdx = curRefBase * numStates + curReadBase;
 
                 // update the state in the actual model
