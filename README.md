@@ -6,7 +6,7 @@ Chat live about Salmon
 
 You can chat with developers and other users via Gitter!
 
-[![Join the chat at https://gitter.im/kingsfordgroup/sailfish](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/kingsfordgroup/sailfish?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge
+[![Join the chat at https://gitter.im/kingsfordgroup/sailfish](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/kingsfordgroup/sailfish?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 
 Documentation
