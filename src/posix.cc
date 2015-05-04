@@ -1,7 +1,7 @@
 /*
  A C++ interface to POSIX functions.
 
- Copyright (c) 2014, Victor Zverovich
+ Copyright (c) 2014 - 2015, Victor Zverovich
  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,9 @@
  */
 
 // Disable bogus MSVC warnings.
-#define _CRT_SECURE_NO_WARNINGS
+#ifndef _CRT_SECURE_NO_WARNINGS
+# define _CRT_SECURE_NO_WARNINGS
+#endif
 
 #include "posix.h"
 
@@ -43,16 +45,17 @@
 # define O_CREAT _O_CREAT
 # define O_TRUNC _O_TRUNC
 
-#ifndef S_IRUSR
-# define S_IRUSR _S_IREAD
-#endif
+# ifndef S_IRUSR
+#  define S_IRUSR _S_IREAD
+# endif
 
-#ifndef S_IWUSR
-# define S_IWUSR _S_IWRITE
-#endif
+# ifndef S_IWUSR
+#  define S_IWUSR _S_IWRITE
+# endif
 
 # ifdef __MINGW32__
 #  define _SH_DENYNO 0x40
+#  undef fileno
 # endif
 
 #endif  // _WIN32
@@ -75,7 +78,7 @@ inline std::size_t convert_rwcount(std::size_t count) { return count; }
 #endif
 }
 
-fmt::BufferedFile::~BufferedFile() FMT_NOEXCEPT(true) {
+fmt::BufferedFile::~BufferedFile() FMT_NOEXCEPT {
   if (file_ && FMT_SYSTEM(fclose(file_)) != 0)
     fmt::report_system_error(errno, "cannot close file");
 }
@@ -95,8 +98,11 @@ void fmt::BufferedFile::close() {
     throw SystemError(errno, "cannot close file");
 }
 
+// A macro used to prevent expansion of fileno on broken versions of MinGW.
+#define FMT_ARGS
+
 int fmt::BufferedFile::fileno() const {
-  int fd = FMT_POSIX_CALL(fileno(file_));
+  int fd = FMT_POSIX_CALL(fileno FMT_ARGS(file_));
   if (fd == -1)
     throw SystemError(errno, "cannot get file descriptor");
   return fd;
@@ -104,7 +110,7 @@ int fmt::BufferedFile::fileno() const {
 
 fmt::File::File(fmt::StringRef path, int oflag) {
   int mode = S_IRUSR | S_IWUSR;
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__MINGW32__)
   fd_ = -1;
   FMT_POSIX_CALL(sopen_s(&fd_, path.c_str(), oflag, _SH_DENYNO, mode));
 #else
@@ -114,7 +120,7 @@ fmt::File::File(fmt::StringRef path, int oflag) {
     throw SystemError(errno, "cannot open file {}", path);
 }
 
-fmt::File::~File() FMT_NOEXCEPT(true) {
+fmt::File::~File() FMT_NOEXCEPT {
   // Don't retry close in case of EINTR!
   // See http://linux.derkeiler.com/Mailing-Lists/Kernel/2005-09/3000.html
   if (fd_ != -1 && FMT_POSIX_CALL(close(fd_)) != 0)
@@ -134,13 +140,19 @@ void fmt::File::close() {
 
 fmt::LongLong fmt::File::size() const {
 #ifdef _WIN32
-  LARGE_INTEGER size = {};
+  // Use GetFileSize instead of GetFileSizeEx for the case when _WIN32_WINNT
+  // is less than 0x0500 as is the case with some default MinGW builds.
+  // Both functions support large file sizes.
+  DWORD size_upper = 0;
   HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(fd_));
-  if (!FMT_SYSTEM(GetFileSizeEx(handle, &size)))
-    throw WindowsError(GetLastError(), "cannot get file size");
-  FMT_STATIC_ASSERT(sizeof(fmt::LongLong) >= sizeof(size.QuadPart),
-      "return type of File::size is not large enough");
-  return size.QuadPart;
+  DWORD size_lower = FMT_SYSTEM(GetFileSize(handle, &size_upper));
+  if (size_lower == INVALID_FILE_SIZE) {
+    DWORD error = GetLastError();
+    if (error != NO_ERROR)
+      throw WindowsError(GetLastError(), "cannot get file size");
+  }
+  fmt::ULongLong size = size_upper;
+  return (size << sizeof(DWORD) * CHAR_BIT) | size_lower;
 #else
   typedef struct stat Stat;
   Stat file_stat = Stat();
@@ -186,7 +198,7 @@ void fmt::File::dup2(int fd) {
   }
 }
 
-void fmt::File::dup2(int fd, ErrorCode &ec) FMT_NOEXCEPT(true) {
+void fmt::File::dup2(int fd, ErrorCode &ec) FMT_NOEXCEPT {
   int result = 0;
   FMT_RETRY(result, FMT_POSIX_CALL(dup2(fd_, fd)));
   if (result == -1)
@@ -228,7 +240,7 @@ fmt::BufferedFile fmt::File::fdopen(const char *mode) {
 
 long fmt::getpagesize() {
 #ifdef _WIN32
-  SYSTEM_INFO si = {};
+  SYSTEM_INFO si;
   GetSystemInfo(&si);
   return si.dwPageSize;
 #else

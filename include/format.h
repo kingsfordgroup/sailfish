@@ -1,7 +1,7 @@
 /*
  Formatting library for C++
 
- Copyright (c) 2012 - 2014, Victor Zverovich
+ Copyright (c) 2012 - 2015, Victor Zverovich
  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,42 @@
 # include <iterator>
 #endif
 
+#ifdef _MSC_VER
+# include <intrin.h>  // _BitScanReverse, _BitScanReverse64
+
+namespace fmt {
+namespace internal {
+# pragma intrinsic(_BitScanReverse)
+inline uint32_t clz(uint32_t x) {
+  unsigned long r = 0;
+  _BitScanReverse(&r, x);
+  return 31 - r;
+}
+# define FMT_BUILTIN_CLZ(n) fmt::internal::clz(n)
+
+# ifdef _WIN64
+#  pragma intrinsic(_BitScanReverse64)
+# endif
+
+inline uint32_t clzll(uint64_t x) {
+  unsigned long r = 0;
+# ifdef _WIN64
+  _BitScanReverse64(&r, x);
+# else
+  // Scan the high 32 bits.
+  if (_BitScanReverse(&r, static_cast<uint32_t>(x >> 32)))
+    return 63 - (r + 32);
+
+  // Scan the low 32 bits.
+  _BitScanReverse(&r, static_cast<uint32_t>(x));
+# endif
+  return 63 - r;
+}
+# define FMT_BUILTIN_CLZLL(n) fmt::internal::clzll(n)
+}
+}
+#endif
+
 #ifdef __GNUC__
 # define FMT_GCC_VERSION (__GNUC__ * 100 + __GNUC_MINOR__)
 # define FMT_GCC_EXTENSION __extension__
@@ -56,8 +92,16 @@
 // many valid cases.
 #  pragma GCC diagnostic ignored "-Wshadow"
 # endif
+# if __cplusplus >= 201103L || defined __GXX_EXPERIMENTAL_CXX0X__
+#  define FMT_HAS_GXX_CXX11 1
+# endif
 #else
 # define FMT_GCC_EXTENSION
+#endif
+
+#ifdef __clang__
+# pragma clang diagnostic push
+# pragma clang diagnostic ignored "-Wdocumentation"
 #endif
 
 #ifdef __GNUC_LIBSTD__
@@ -76,13 +120,19 @@
 # define FMT_HAS_BUILTIN(x) 0
 #endif
 
+#ifdef __has_cpp_attribute
+# define FMT_HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
+#else
+# define FMT_HAS_CPP_ATTRIBUTE(x) 0
+#endif
+
 #ifndef FMT_USE_VARIADIC_TEMPLATES
 // Variadic templates are available in GCC since version 4.4
 // (http://gcc.gnu.org/projects/cxx0x.html) and in Visual C++
 // since version 2013.
 # define FMT_USE_VARIADIC_TEMPLATES \
    (FMT_HAS_FEATURE(cxx_variadic_templates) || \
-       (FMT_GCC_VERSION >= 404 && __cplusplus >= 201103) || _MSC_VER >= 1800)
+       (FMT_GCC_VERSION >= 404 && FMT_HAS_GXX_CXX11) || _MSC_VER >= 1800)
 #endif
 
 #ifndef FMT_USE_RVALUE_REFERENCES
@@ -93,7 +143,7 @@
 # else
 #  define FMT_USE_RVALUE_REFERENCES \
     (FMT_HAS_FEATURE(cxx_rvalue_references) || \
-        (FMT_GCC_VERSION >= 403 && __cplusplus >= 201103) || _MSC_VER >= 1600)
+        (FMT_GCC_VERSION >= 403 && FMT_HAS_GXX_CXX11) || _MSC_VER >= 1600)
 # endif
 #endif
 
@@ -103,17 +153,24 @@
 
 // Define FMT_USE_NOEXCEPT to make C++ Format use noexcept (C++11 feature).
 #if FMT_USE_NOEXCEPT || FMT_HAS_FEATURE(cxx_noexcept) || \
-  (FMT_GCC_VERSION >= 408 && __cplusplus >= 201103)
-# define FMT_NOEXCEPT(expr) noexcept(expr)
+  (FMT_GCC_VERSION >= 408 && FMT_HAS_GXX_CXX11)
+# define FMT_NOEXCEPT noexcept
 #else
-# define FMT_NOEXCEPT(expr)
+# define FMT_NOEXCEPT throw()
 #endif
 
 // A macro to disallow the copy constructor and operator= functions
 // This should be used in the private: declarations for a class
-#define FMT_DISALLOW_COPY_AND_ASSIGN(TypeName) \
-  TypeName(const TypeName&); \
-  void operator=(const TypeName&)
+#if FMT_USE_DELETED_FUNCTIONS || FMT_HAS_FEATURE(cxx_deleted_functions) || \
+  (FMT_GCC_VERSION >= 404 && FMT_HAS_GXX_CXX11) || _MSC_VER >= 1800
+# define FMT_DISALLOW_COPY_AND_ASSIGN(TypeName) \
+    TypeName(const TypeName&) = delete; \
+    TypeName& operator=(const TypeName&) = delete
+#else
+# define FMT_DISALLOW_COPY_AND_ASSIGN(TypeName) \
+    TypeName(const TypeName&); \
+    TypeName& operator=(const TypeName&)
+#endif
 
 namespace fmt {
 
@@ -220,13 +277,12 @@ typedef BasicStringRef<wchar_t> WStringRef;
   A formatting error such as invalid format string.
 */
 class FormatError : public std::runtime_error {
-public:
+ public:
   explicit FormatError(StringRef message)
   : std::runtime_error(message.c_str()) {}
 };
 
 namespace internal {
-
 // The number of characters to store in the MemoryBuffer object itself
 // to avoid dynamic memory allocation.
 enum { INLINE_BUFFER_SIZE = 500 };
@@ -241,8 +297,9 @@ inline stdext::checked_array_iterator<T*> make_ptr(T *ptr, std::size_t size) {
 template <typename T>
 inline T *make_ptr(T *ptr, std::size_t) { return ptr; }
 #endif
+}  // namespace internal
 
-// A buffer for POD types. It supports a subset of std::vector's operations.
+/** A buffer supporting a subset of ``std::vector``'s operations. */
 template <typename T>
 class Buffer {
  private:
@@ -256,31 +313,37 @@ class Buffer {
   Buffer(T *ptr = 0, std::size_t capacity = 0)
     : ptr_(ptr), size_(0), capacity_(capacity) {}
 
+  /**
+    Increases the buffer capacity to hold at least *size* elements updating
+    ``ptr_`` and ``capacity_``.
+   */
   virtual void grow(std::size_t size) = 0;
 
  public:
   virtual ~Buffer() {}
 
-  // Returns the size of this buffer.
+  /** Returns the size of this buffer. */
   std::size_t size() const { return size_; }
 
-  // Returns the capacity of this buffer.
+  /** Returns the capacity of this buffer. */
   std::size_t capacity() const { return capacity_; }
 
-  // Resizes the buffer. If T is a POD type new elements are not initialized.
+  /**
+    Resizes the buffer. If T is a POD type new elements may not be initialized.
+   */
   void resize(std::size_t new_size) {
     if (new_size > capacity_)
       grow(new_size);
     size_ = new_size;
   }
 
-  // Reserves space to store at least capacity elements.
+  /** Reserves space to store at least *capacity* elements. */
   void reserve(std::size_t capacity) {
     if (capacity > capacity_)
       grow(capacity);
   }
 
-  void clear() FMT_NOEXCEPT(true) { size_ = 0; }
+  void clear() FMT_NOEXCEPT { size_ = 0; }
 
   void push_back(const T &value) {
     if (size_ == capacity_)
@@ -288,7 +351,7 @@ class Buffer {
     ptr_[size_++] = value;
   }
 
-  // Appends data to the end of the buffer.
+  /** Appends data to the end of the buffer. */
   void append(const T *begin, const T *end);
 
   T &operator[](std::size_t index) { return ptr_[index]; }
@@ -300,9 +363,11 @@ void Buffer<T>::append(const T *begin, const T *end) {
   std::ptrdiff_t num_elements = end - begin;
   if (size_ + num_elements > capacity_)
     grow(size_ + num_elements);
-  std::copy(begin, end, make_ptr(ptr_, capacity_) + size_);
+  std::copy(begin, end, internal::make_ptr(ptr_, capacity_) + size_);
   size_ += num_elements;
 }
+
+namespace internal {
 
 // A memory buffer for POD types with the first SIZE elements stored in
 // the object itself.
@@ -380,6 +445,16 @@ void MemoryBuffer<T, SIZE, Allocator>::grow(std::size_t size) {
     this->deallocate(old_ptr, old_capacity);
 }
 
+// A fixed-size buffer.
+template <typename Char>
+class FixedBuffer : public fmt::Buffer<Char> {
+ public:
+  FixedBuffer(Char *array, std::size_t size) : fmt::Buffer<Char>(array, size) {}
+
+ protected:
+  void grow(std::size_t size);
+};
+
 #ifndef _MSC_VER
 // Portable version of signbit.
 inline int getsign(double x) {
@@ -410,7 +485,9 @@ inline int getsign(double value) {
   return sign;
 }
 inline int isinfinity(double x) { return !_finite(x); }
-inline int isinfinity(long double x) { return !_finite(static_cast<double>(x)); }
+inline int isinfinity(long double x) {
+  return !_finite(static_cast<double>(x));
+}
 #endif
 
 template <typename Char>
@@ -433,8 +510,6 @@ class CharTraits<char> : public BasicCharTraits<char> {
   static char convert(wchar_t);
 
 public:
-  typedef const wchar_t *UnsupportedStrType;
-
   static char convert(char value) { return value; }
 
   // Formats a floating-point number.
@@ -446,8 +521,6 @@ public:
 template <>
 class CharTraits<wchar_t> : public BasicCharTraits<wchar_t> {
  public:
-  typedef const char *UnsupportedStrType;
-
   static wchar_t convert(char value) { return value; }
   static wchar_t convert(wchar_t value) { return value; }
 
@@ -519,22 +592,23 @@ struct BasicData {
 
 typedef BasicData<> Data;
 
+#if FMT_GCC_VERSION >= 400 || FMT_HAS_BUILTIN(__builtin_clz)
+# define FMT_BUILTIN_CLZ(n) __builtin_clz(n)
+#endif
+
 #if FMT_GCC_VERSION >= 400 || FMT_HAS_BUILTIN(__builtin_clzll)
+# define FMT_BUILTIN_CLZLL(n) __builtin_clzll(n)
+#endif
+
+#ifdef FMT_BUILTIN_CLZLL
 // Returns the number of decimal digits in n. Leading zeros are not counted
 // except for n == 0 in which case count_digits returns 1.
 inline unsigned count_digits(uint64_t n) {
   // Based on http://graphics.stanford.edu/~seander/bithacks.html#IntegerLog10
   // and the benchmark https://github.com/localvoid/cxx-benchmark-count-digits.
-  unsigned t = (64 - __builtin_clzll(n | 1)) * 1233 >> 12;
+  unsigned t = (64 - FMT_BUILTIN_CLZLL(n | 1)) * 1233 >> 12;
   return t - (n < Data::POWERS_OF_10_64[t]) + 1;
 }
-# if FMT_GCC_VERSION >= 400 || FMT_HAS_BUILTIN(__builtin_clz)
-// Optional version of count_digits for better performance on 32-bit platforms.
-inline unsigned count_digits(uint32_t n) {
-  uint32_t t = (32 - __builtin_clz(n | 1)) * 1233 >> 12;
-  return t - (n < Data::POWERS_OF_10_32[t]) + 1;
-}
-# endif
 #else
 // Fallback version of count_digits used when __builtin_clz is not available.
 inline unsigned count_digits(uint64_t n) {
@@ -550,6 +624,14 @@ inline unsigned count_digits(uint64_t n) {
     n /= 10000u;
     count += 4;
   }
+}
+#endif
+
+#ifdef FMT_BUILTIN_CLZ
+// Optional version of count_digits for better performance on 32-bit platforms.
+inline unsigned count_digits(uint32_t n) {
+  uint32_t t = (32 - FMT_BUILTIN_CLZ(n | 1)) * 1233 >> 12;
+  return t - (n < Data::POWERS_OF_10_32[t]) + 1;
 }
 #endif
 
@@ -613,27 +695,14 @@ class UTF16ToUTF8 {
 #endif
 
 void format_system_error(fmt::Writer &out, int error_code,
-                         fmt::StringRef message) FMT_NOEXCEPT(true);
+                         fmt::StringRef message) FMT_NOEXCEPT;
 
 #ifdef _WIN32
 void format_windows_error(fmt::Writer &out, int error_code,
-                          fmt::StringRef message) FMT_NOEXCEPT(true);
+                          fmt::StringRef message) FMT_NOEXCEPT;
 #endif
 
-// Computes max(Arg, 1) at compile time. It is used to avoid errors about
-// allocating an array of 0 size.
-template <unsigned Arg>
-struct NonZero {
-  enum { VALUE = Arg };
-};
-
-template <>
-struct NonZero<0> {
-  enum { VALUE = 1 };
-};
-
-// The value of a formatting argument. It is a POD type to allow storage in
-// internal::MemoryBuffer.
+// A formatting argument value.
 struct Value {
   template <typename Char>
   struct StringValue {
@@ -663,9 +732,7 @@ struct Value {
     StringValue<wchar_t> wstring;
     CustomValue custom;
   };
-};
 
-struct Arg : Value {
   enum Type {
     NONE,
     // Integer types should go first,
@@ -674,12 +741,77 @@ struct Arg : Value {
     DOUBLE, LONG_DOUBLE, LAST_NUMERIC_TYPE = LONG_DOUBLE,
     CSTRING, STRING, WSTRING, POINTER, CUSTOM
   };
+};
+
+// A formatting argument. It is a POD type to allow storage in
+// internal::MemoryBuffer.
+struct Arg : Value {
   Type type;
 };
 
-// Makes a Value object from any type.
+template <typename T = void>
+struct None {};
+
+// A helper class template to enable or disable overloads taking wide
+// characters and strings in MakeValue.
+template <typename T, typename Char>
+struct WCharHelper {
+  typedef None<T> Supported;
+  typedef T Unsupported;
+};
+
+template <typename T>
+struct WCharHelper<T, wchar_t> {
+  typedef T Supported;
+  typedef None<T> Unsupported;
+};
+
+template <typename T>
+class IsConvertibleToInt {
+ private:
+  typedef char yes[1];
+  typedef char no[2];
+
+  static const T &get();
+
+  static yes &check(fmt::ULongLong);
+  static no &check(...);
+  
+ public:
+  enum { value = (sizeof(check(get())) == sizeof(yes)) };
+};
+
+#define FMT_CONVERTIBLE_TO_INT(Type) \
+  template <> \
+  class IsConvertibleToInt<Type> { \
+   public: \
+    enum { value = 1 }; \
+  }
+
+// Silence warnings about convering float to int.
+FMT_CONVERTIBLE_TO_INT(float);
+FMT_CONVERTIBLE_TO_INT(double);
+FMT_CONVERTIBLE_TO_INT(long double);
+
+template<bool B, class T = void>
+struct EnableIf {};
+
+template<class T>
+struct EnableIf<true, T> { typedef T type; };
+
+template<bool B, class T, class F>
+struct Conditional { typedef T type; };
+
+template<class T, class F>
+struct Conditional<false, T, F> { typedef F type; };
+
+// A helper function to suppress bogus "conditional expression is constant"
+// warnings.
+inline bool check(bool value) { return value; }
+
+// Makes an Arg object from any type.
 template <typename Char>
-class MakeValue : public Value {
+class MakeValue : public Arg {
  private:
   // The following two methods are private to disallow formatting of
   // arbitrary pointers. If you want to output a pointer cast it to
@@ -691,13 +823,22 @@ class MakeValue : public Value {
   template <typename T>
   MakeValue(T *value);
 
+  // The following methods are private to disallow formatting of wide
+  // characters and strings into narrow strings as in
+  //   fmt::format("{}", L"test");
+  // To fix this, use a wide format string: fmt::format(L"{}", L"test").
+  MakeValue(typename WCharHelper<wchar_t, Char>::Unsupported);
+  MakeValue(typename WCharHelper<wchar_t *, Char>::Unsupported);
+  MakeValue(typename WCharHelper<const wchar_t *, Char>::Unsupported);
+  MakeValue(typename WCharHelper<const std::wstring &, Char>::Unsupported);
+  MakeValue(typename WCharHelper<WStringRef, Char>::Unsupported);
+
   void set_string(StringRef str) {
     string.value = str.c_str();
     string.size = str.size();
   }
 
   void set_string(WStringRef str) {
-    CharTraits<Char>::convert(wchar_t());
     wstring.value = str.c_str();
     wstring.size = str.size();
   }
@@ -711,7 +852,7 @@ class MakeValue : public Value {
            *static_cast<const T*>(arg));
   }
 
-public:
+ public:
   MakeValue() {}
 
 #define FMT_MAKE_VALUE(Type, field, TYPE) \
@@ -727,7 +868,7 @@ public:
   MakeValue(long value) {
     // To minimize the number of types we need to deal with, long is
     // translated either to int or to long long depending on its size.
-    if (sizeof(long) == sizeof(int))
+    if (check(sizeof(long) == sizeof(int)))
       int_value = static_cast<int>(value);
     else
       long_long_value = value;
@@ -737,7 +878,7 @@ public:
   }
 
   MakeValue(unsigned long value) {
-    if (sizeof(unsigned long) == sizeof(unsigned))
+    if (check(sizeof(unsigned long) == sizeof(unsigned)))
       uint_value = static_cast<unsigned>(value);
     else
       ulong_long_value = value;
@@ -756,8 +897,8 @@ public:
   FMT_MAKE_VALUE(unsigned char, int_value, CHAR)
   FMT_MAKE_VALUE(char, int_value, CHAR)
 
-  MakeValue(wchar_t value) {
-    int_value = internal::CharTraits<Char>::convert(value);
+  MakeValue(typename WCharHelper<wchar_t, Char>::Supported value) {
+    int_value = value;
   }
   static uint64_t type(wchar_t) { return Arg::CHAR; }
 
@@ -772,21 +913,37 @@ public:
   FMT_MAKE_STR_VALUE(const std::string &, STRING)
   FMT_MAKE_STR_VALUE(StringRef, STRING)
 
-  FMT_MAKE_STR_VALUE(wchar_t *, WSTRING)
-  FMT_MAKE_STR_VALUE(const wchar_t *, WSTRING)
-  FMT_MAKE_STR_VALUE(const std::wstring &, WSTRING)
-  FMT_MAKE_STR_VALUE(WStringRef, WSTRING)
+#define FMT_MAKE_WSTR_VALUE(Type, TYPE) \
+  MakeValue(typename WCharHelper<Type, Char>::Supported value) { \
+    set_string(value); \
+  } \
+  static uint64_t type(Type) { return Arg::TYPE; }
+
+  FMT_MAKE_WSTR_VALUE(wchar_t *, WSTRING)
+  FMT_MAKE_WSTR_VALUE(const wchar_t *, WSTRING)
+  FMT_MAKE_WSTR_VALUE(const std::wstring &, WSTRING)
+  FMT_MAKE_WSTR_VALUE(WStringRef, WSTRING)
 
   FMT_MAKE_VALUE(void *, pointer, POINTER)
   FMT_MAKE_VALUE(const void *, pointer, POINTER)
 
   template <typename T>
-  MakeValue(const T &value) {
+  MakeValue(const T &value,
+            typename EnableIf<!IsConvertibleToInt<T>::value, int>::type = 0) {
     custom.value = &value;
     custom.format = &format_custom_arg<T>;
   }
+
   template <typename T>
-  static uint64_t type(const T &) { return Arg::CUSTOM; }
+  MakeValue(const T &value,
+            typename EnableIf<IsConvertibleToInt<T>::value, int>::type = 0) {
+    int_value = value;
+  }
+
+  template <typename T>
+  static uint64_t type(const T &) {
+    return IsConvertibleToInt<T>::value ? Arg::INT : Arg::CUSTOM;
+  }
 };
 
 #define FMT_DISPATCH(call) static_cast<Impl*>(this)->call
@@ -814,7 +971,12 @@ public:
 template <typename Impl, typename Result>
 class ArgVisitor {
  public:
-  Result visit_unhandled_arg() { return Result(); }
+  void report_unhandled_arg() {}
+
+  Result visit_unhandled_arg() {
+    FMT_DISPATCH(report_unhandled_arg());
+    return Result();
+  }
 
   Result visit_int(int value) {
     return FMT_DISPATCH(visit_any_int(value));
@@ -864,7 +1026,7 @@ class ArgVisitor {
     switch (arg.type) {
     default:
       assert(false);
-      // Fall through.
+      return Result();
     case Arg::INT:
       return FMT_DISPATCH(visit_int(arg.int_value));
     case Arg::UINT:
@@ -880,7 +1042,7 @@ class ArgVisitor {
     case Arg::CHAR:
       return FMT_DISPATCH(visit_char(arg.int_value));
     case Arg::CSTRING: {
-      Value::StringValue<char> str = arg.string;
+      Arg::StringValue<char> str = arg.string;
       str.size = 0;
       return FMT_DISPATCH(visit_string(str));
     }
@@ -905,42 +1067,65 @@ template <typename Char>
 class ArgFormatter;
 }  // namespace internal
 
-/**
-  An argument list.
- */
+/** An argument list. */
 class ArgList {
  private:
+  // To reduce compiled code size per formatting function call, types of first
+  // MAX_PACKED_ARGS arguments are passed in the types_ field.
   uint64_t types_;
-  const internal::Value *values_;
+  union {
+    // If the number of arguments is less than MAX_PACKED_ARGS, the argument
+    // values are stored in values_, otherwise they are stored in args_.
+    // This is done to reduce compiled code size as storing larger objects
+    // may require more code (at least on x86-64) even if the same amount of
+    // data is actually copied to stack. It saves ~10% on the bloat test.
+    const internal::Value *values_;
+    const internal::Arg *args_;
+  };
+
+  internal::Arg::Type type(unsigned index) const {
+    unsigned shift = index * 4;
+    uint64_t mask = 0xf;
+    return static_cast<internal::Arg::Type>(
+          (types_ & (mask << shift)) >> shift);
+  }
 
  public:
-  // Maximum number of arguments that can be passed in ArgList.
-  enum { MAX_ARGS = 16 };
+  // Maximum number of arguments with packed types.
+  enum { MAX_PACKED_ARGS = 16 };
 
   ArgList() : types_(0) {}
+
+  // TODO: MakeArgList(const Args &...)
   ArgList(ULongLong types, const internal::Value *values)
   : types_(types), values_(values) {}
+  ArgList(ULongLong types, const internal::Arg *args)
+  : types_(types), args_(args) {}
 
-  /**
-    Returns the argument at specified index.
-   */
+  /** Returns the argument at specified index. */
   internal::Arg operator[](unsigned index) const {
     using internal::Arg;
     Arg arg;
-    if (index >= MAX_ARGS) {
+    bool use_values = type(MAX_PACKED_ARGS - 1) == Arg::NONE;
+    if (index < MAX_PACKED_ARGS) {
+      Arg::Type arg_type = type(index);
+      internal::Value &val = arg;
+      if (arg_type != Arg::NONE)
+        val = use_values ? values_[index] : args_[index];
+      arg.type = arg_type;
+      return arg;
+    }
+    if (use_values) {
+      // The index is greater than the number of arguments that can be stored
+      // in values, so return a "none" argument.
       arg.type = Arg::NONE;
       return arg;
     }
-    unsigned shift = index * 4;
-    uint64_t mask = 0xf;
-    Arg::Type type =
-        static_cast<Arg::Type>((types_ & (mask << shift)) >> shift);
-    arg.type = type;
-    if (type != Arg::NONE) {
-      internal::Value &value = arg;
-      value = values_[index];
+    for (unsigned i = MAX_PACKED_ARGS; i <= index; ++i) {
+      if (args_[i].type == Arg::NONE)
+        return args_[i];
     }
-    return arg;
+    return args_[index];
   }
 };
 
@@ -1286,6 +1471,18 @@ inline uint64_t make_type(FMT_GEN15(FMT_ARG_TYPE_DEFAULT)) {
       (t12.type << 48) | (t13.type << 52) | (t14.type << 56);
 }
 #endif
+
+template <unsigned N>
+struct ArgArray {
+  // Computes the argument array size by adding 1 to N, which is the number of
+  // arguments, if N is zero, because array of zero size is invalid, or if N
+  // is greater than ArgList::MAX_PACKED_ARGS to accommodate for an extra
+  // argument that marks the end of the list.
+  enum { SIZE = N + (N == 0 || N >= ArgList::MAX_PACKED_ARGS ? 1 : 0) };
+
+  typedef typename Conditional<
+    (N < ArgList::MAX_PACKED_ARGS), Value, Arg>::type Type[SIZE];
+};
 }  // namespace internal
 
 # define FMT_MAKE_TEMPLATE_ARG(n) typename T##n
@@ -1298,24 +1495,21 @@ inline uint64_t make_type(FMT_GEN15(FMT_ARG_TYPE_DEFAULT)) {
 // Defines a variadic function returning void.
 # define FMT_VARIADIC_VOID(func, arg_type) \
   template <typename... Args> \
-  void func(arg_type arg1, const Args & ... args) { \
-    const fmt::internal::Value values[ \
-      fmt::internal::NonZero<sizeof...(Args)>::VALUE] = { \
+  void func(arg_type arg0, const Args & ... args) { \
+    typename fmt::internal::ArgArray<sizeof...(Args)>::Type array = { \
       fmt::internal::MakeValue<Char>(args)... \
     }; \
-    func(arg1, ArgList(fmt::internal::make_type(args...), values)); \
+    func(arg0, ArgList(fmt::internal::make_type(args...), array)); \
   }
 
 // Defines a variadic constructor.
 # define FMT_VARIADIC_CTOR(ctor, func, arg0_type, arg1_type) \
   template <typename... Args> \
   ctor(arg0_type arg0, arg1_type arg1, const Args & ... args) { \
-    using fmt::internal::MakeValue; \
-    const fmt::internal::Value values[ \
-        fmt::internal::NonZero<sizeof...(Args)>::VALUE] = { \
-      MakeValue<Char>(args)... \
+    typename fmt::internal::ArgArray<sizeof...(Args)>::Type array = { \
+      fmt::internal::MakeValue<Char>(args)... \
     }; \
-    func(arg0, arg1, ArgList(fmt::internal::make_type(args...), values)); \
+    func(arg0, arg1, ArgList(fmt::internal::make_type(args...), array)); \
   }
 
 #else
@@ -1328,13 +1522,14 @@ inline uint64_t make_type(FMT_GEN15(FMT_ARG_TYPE_DEFAULT)) {
 # define FMT_WRAP1(func, arg_type, n) \
   template <FMT_GEN(n, FMT_MAKE_TEMPLATE_ARG)> \
   inline void func(arg_type arg1, FMT_GEN(n, FMT_MAKE_ARG)) { \
-    const fmt::internal::Value vals[] = {FMT_GEN(n, FMT_MAKE_REF)}; \
+    const fmt::internal::Value values[] = {FMT_GEN(n, FMT_MAKE_REF)}; \
     func(arg1, fmt::ArgList( \
-      fmt::internal::make_type(FMT_GEN(n, FMT_MAKE_REF2)), vals)); \
+      fmt::internal::make_type(FMT_GEN(n, FMT_MAKE_REF2)), values)); \
   }
 
 // Emulates a variadic function returning void on a pre-C++11 compiler.
 # define FMT_VARIADIC_VOID(func, arg_type) \
+  inline void func(arg_type arg) { func(arg, fmt::ArgList()); } \
   FMT_WRAP1(func, arg_type, 1) FMT_WRAP1(func, arg_type, 2) \
   FMT_WRAP1(func, arg_type, 3) FMT_WRAP1(func, arg_type, 4) \
   FMT_WRAP1(func, arg_type, 5) FMT_WRAP1(func, arg_type, 6) \
@@ -1344,9 +1539,9 @@ inline uint64_t make_type(FMT_GEN15(FMT_ARG_TYPE_DEFAULT)) {
 # define FMT_CTOR(ctor, func, arg0_type, arg1_type, n) \
   template <FMT_GEN(n, FMT_MAKE_TEMPLATE_ARG)> \
   ctor(arg0_type arg0, arg1_type arg1, FMT_GEN(n, FMT_MAKE_ARG)) { \
-    const fmt::internal::Value vals[] = {FMT_GEN(n, FMT_MAKE_REF)}; \
+    const fmt::internal::Value values[] = {FMT_GEN(n, FMT_MAKE_REF)}; \
     func(arg0, arg1, fmt::ArgList( \
-      fmt::internal::make_type(FMT_GEN(n, FMT_MAKE_REF2)), vals)); \
+      fmt::internal::make_type(FMT_GEN(n, FMT_MAKE_REF2)), values)); \
   }
 
 // Emulates a variadic constructor on a pre-C++11 compiler.
@@ -1404,10 +1599,26 @@ class SystemError : public internal::RuntimeError {
   /**
    \rst
    Constructs a :class:`fmt::SystemError` object with the description
-   of the form "*<message>*: *<system-message>*", where *<message>* is the
-   formatted message and *<system-message>* is the system message corresponding
-   to the error code.
+   of the form
+
+   .. parsed-literal::
+     *<message>*: *<system-message>*
+
+   where *<message>* is the formatted message and *<system-message>* is
+   the system message corresponding to the error code.
    *error_code* is a system error code as given by ``errno``.
+   If *error_code* is not a valid error code such as -1, the system message
+   may look like "Unknown error -1" and is platform-dependent.
+   
+   **Example**::
+
+     // This throws a SystemError with the description
+     //   cannot open file 'madeup': No such file or directory
+     // or similar (system message may vary).
+     const char *filename = "madeup";
+     std::FILE *file = std::fopen(filename, "r");
+     if (!file)
+       throw fmt::SystemError(errno, "cannot open file '{}'", filename);
    \endrst
   */
   SystemError(int error_code, StringRef message) {
@@ -1440,7 +1651,7 @@ template <typename Char>
 class BasicWriter {
  private:
   // Output buffer.
-  internal::Buffer<Char> &buffer_;
+  Buffer<Char> &buffer_;
 
   FMT_DISALLOW_COPY_AND_ASSIGN(BasicWriter);
 
@@ -1496,11 +1707,13 @@ class BasicWriter {
   void write_str(
       const internal::Arg::StringValue<StrChar> &str, const FormatSpec &spec);
 
-  // This method is private to disallow writing a wide string to a
-  // char stream and vice versa. If you want to print a wide string
-  // as a pointer as std::ostream does, cast it to const void*.
+  // This following methods are private to disallow writing wide characters
+  // and strings to a char stream. If you want to print a wide string as a
+  // pointer as std::ostream does, cast it to const void*.
   // Do not implement!
-  void operator<<(typename internal::CharTraits<Char>::UnsupportedStrType);
+  void operator<<(typename internal::WCharHelper<wchar_t, Char>::Unsupported);
+  void operator<<(
+      typename internal::WCharHelper<const wchar_t *, Char>::Unsupported);
 
   // Appends floating-point length specifier to the format string.
   // The second argument is only used for overload resolution.
@@ -1518,7 +1731,7 @@ class BasicWriter {
   /**
     Constructs a ``BasicWriter`` object.
    */
-  explicit BasicWriter(internal::Buffer<Char> &b) : buffer_(b) {}
+  explicit BasicWriter(Buffer<Char> &b) : buffer_(b) {}
 
  public:
   /**
@@ -1535,7 +1748,7 @@ class BasicWriter {
     Returns a pointer to the output buffer content. No terminating null
     character is appended.
    */
-  const Char *data() const FMT_NOEXCEPT(true) { return &buffer_[0]; }
+  const Char *data() const FMT_NOEXCEPT { return &buffer_[0]; }
 
   /**
     Returns a pointer to the output buffer content with terminating null
@@ -1574,8 +1787,8 @@ class BasicWriter {
        Current point:
        (-3.140000, +3.140000)
 
-    The output can be accessed using :meth:`data`, :meth:`c_str` or :meth:`str`
-    methods.
+    The output can be accessed using :func:`data()`, :func:`c_str` or
+    :func:`str` methods.
 
     See also :ref:`syntax`.
     \endrst
@@ -1630,8 +1843,9 @@ class BasicWriter {
     return *this;
   }
 
-  BasicWriter &operator<<(wchar_t value) {
-    buffer_.push_back(internal::CharTraits<Char>::convert(value));
+  BasicWriter &operator<<(
+      typename internal::WCharHelper<wchar_t, Char>::Supported value) {
+    buffer_.push_back(value);
     return *this;
   }
 
@@ -1659,7 +1873,7 @@ class BasicWriter {
     return *this;
   }
 
-  void clear() FMT_NOEXCEPT(true) { buffer_.clear(); }
+  void clear() FMT_NOEXCEPT { buffer_.clear(); }
 };
 
 template <typename Char>
@@ -1998,20 +2212,20 @@ void BasicWriter<Char>::write_double(
 
 /**
   \rst
-  This template provides operations for formatting and writing data into
-  a character stream. The output is stored in a memory buffer that grows
+  This class template provides operations for formatting and writing data
+  into a character stream. The output is stored in a memory buffer that grows
   dynamically.
 
   You can use one of the following typedefs for common character types
   and the standard allocator:
 
-  +---------------+-----------------------------------------------+
-  | Type          | Definition                                    |
-  +===============+===============================================+
-  | MemoryWriter  | BasicWriter<char, std::allocator<char>>       |
-  +---------------+-----------------------------------------------+
-  | WMemoryWriter | BasicWriter<wchar_t, std::allocator<wchar_t>> |
-  +---------------+-----------------------------------------------+
+  +---------------+-----------------------------------------------------+
+  | Type          | Definition                                          |
+  +===============+=====================================================+
+  | MemoryWriter  | BasicMemoryWriter<char, std::allocator<char>>       |
+  +---------------+-----------------------------------------------------+
+  | WMemoryWriter | BasicMemoryWriter<wchar_t, std::allocator<wchar_t>> |
+  +---------------+-----------------------------------------------------+
 
   **Example**::
 
@@ -2041,15 +2255,19 @@ class BasicMemoryWriter : public BasicWriter<Char> {
 
 #if FMT_USE_RVALUE_REFERENCES
   /**
+    \rst
     Constructs a :class:`fmt::BasicMemoryWriter` object moving the content
     of the other object to it.
+    \endrst
    */
   BasicMemoryWriter(BasicMemoryWriter &&other)
     : BasicWriter<Char>(buffer_), buffer_(std::move(other.buffer_)) {
   }
 
   /**
+    \rst
     Moves the content of the other ``BasicMemoryWriter`` object to this one.
+    \endrst
    */
   BasicMemoryWriter &operator=(BasicMemoryWriter &&other) {
     buffer_ = std::move(other.buffer_);
@@ -2061,28 +2279,75 @@ class BasicMemoryWriter : public BasicWriter<Char> {
 typedef BasicMemoryWriter<char> MemoryWriter;
 typedef BasicMemoryWriter<wchar_t> WMemoryWriter;
 
+/**
+  \rst
+  This class template provides operations for formatting and writing data
+  into a fixed-size array. For writing into a dynamically growing buffer
+  use :class:`fmt::BasicMemoryWriter`.
+  
+  Any write method will throw ``std::runtime_error`` if the output doesn't fit
+  into the array.
+
+  You can use one of the following typedefs for common character types:
+
+  +--------------+---------------------------+
+  | Type         | Definition                |
+  +==============+===========================+
+  | ArrayWriter  | BasicArrayWriter<char>    |
+  +--------------+---------------------------+
+  | WArrayWriter | BasicArrayWriter<wchar_t> |
+  +--------------+---------------------------+
+  \endrst
+ */
+template <typename Char>
+class BasicArrayWriter : public BasicWriter<Char> {
+ private:
+  internal::FixedBuffer<Char> buffer_;
+
+ public:
+  /**
+   \rst
+   Constructs a :class:`fmt::BasicArrayWriter` object for *array* of the
+   given size.
+   \endrst
+   */
+  BasicArrayWriter(Char *array, std::size_t size)
+    : BasicWriter<Char>(buffer_), buffer_(array, size) {}
+
+  // FIXME: this is temporary undocumented due to a bug in Sphinx
+  /*
+   \rst
+   Constructs a :class:`fmt::BasicArrayWriter` object for *array* of the
+   size known at compile time.
+   \endrst
+   */
+  template <std::size_t SIZE>
+  explicit BasicArrayWriter(Char (&array)[SIZE])
+    : BasicWriter<Char>(buffer_), buffer_(array, SIZE) {}
+};
+
+typedef BasicArrayWriter<char> ArrayWriter;
+typedef BasicArrayWriter<wchar_t> WArrayWriter;
+
 // Formats a value.
 template <typename Char, typename T>
 void format(BasicFormatter<Char> &f, const Char *&format_str, const T &value) {
   std::basic_ostringstream<Char> os;
   os << value;
-  internal::Arg arg;
-  internal::Value &arg_value = arg;
   std::basic_string<Char> str = os.str();
-  arg_value = internal::MakeValue<Char>(str);
-  arg.type = static_cast<internal::Arg::Type>(internal::MakeValue<Char>::type(str));
+  internal::Arg arg = internal::MakeValue<Char>(str);
+  arg.type = static_cast<internal::Arg::Type>(
+        internal::MakeValue<Char>::type(str));
   format_str = f.format(format_str, arg);
 }
 
 // Reports a system error without throwing an exception.
 // Can be used to report errors from destructors.
-void report_system_error(int error_code, StringRef message) FMT_NOEXCEPT(true);
+void report_system_error(int error_code, StringRef message) FMT_NOEXCEPT;
 
 #ifdef _WIN32
 
-/**
- A Windows error.
-*/
+/** A Windows error. */
 class WindowsError : public SystemError {
  private:
   void init(int error_code, StringRef format_str, ArgList args);
@@ -2091,10 +2356,29 @@ class WindowsError : public SystemError {
   /**
    \rst
    Constructs a :class:`fmt::WindowsError` object with the description
-   of the form "*<message>*: *<system-message>*", where *<message>* is the
-   formatted message and *<system-message>* is the system message corresponding
-   to the error code.
+   of the form
+
+   .. parsed-literal::
+     *<message>*: *<system-message>*
+
+   where *<message>* is the formatted message and *<system-message>* is the
+   system message corresponding to the error code.
    *error_code* is a Windows error code as given by ``GetLastError``.
+   If *error_code* is not a valid error code such as -1, the system message
+   will look like "error -1".
+
+   **Example**::
+
+     // This throws a WindowsError with the description
+     //   cannot open file 'madeup': The system cannot find the file specified.
+     // or similar (system message may vary).
+     const char *filename = "madeup";
+     LPOFSTRUCT of = LPOFSTRUCT();
+     HFILE file = OpenFile(filename, &of, OF_READ);
+     if (file == HFILE_ERROR) {
+       throw fmt::WindowsError(GetLastError(),
+                               "cannot open file '{}'", filename);
+     }
    \endrst
   */
   WindowsError(int error_code, StringRef message) {
@@ -2105,7 +2389,7 @@ class WindowsError : public SystemError {
 
 // Reports a Windows error without throwing an exception.
 // Can be used to report errors from destructors.
-void report_windows_error(int error_code, StringRef message) FMT_NOEXCEPT(true);
+void report_windows_error(int error_code, StringRef message) FMT_NOEXCEPT;
 
 #endif
 
@@ -2348,16 +2632,41 @@ inline void format_decimal(char *&buffer, T value) {
 #define FMT_GET_ARG_NAME(type, index) arg##index
 
 #if FMT_USE_VARIADIC_TEMPLATES
+
+namespace fmt {
+namespace internal {
+inline void do_set_types(Arg *) {}
+
+template <typename T, typename... Args>
+inline void do_set_types(Arg *args, const T &arg, const Args & ... tail) {
+  args->type = static_cast<Arg::Type>(MakeValue<T>::type(arg));
+  do_set_types(args + 1, tail...);
+}
+
+template <typename... Args>
+inline void set_types(Arg *array, const Args & ... args) {
+  do_set_types(array, args...);
+  array[sizeof...(Args)].type = Arg::NONE;
+}
+
+template <typename... Args>
+inline void set_types(Value *, const Args & ...) {
+  // Do nothing as types are passed separately from values.
+}
+}
+}
+
 # define FMT_VARIADIC_(Char, ReturnType, func, call, ...) \
   template <typename... Args> \
   ReturnType func(FMT_FOR_EACH(FMT_ADD_ARG_NAME, __VA_ARGS__), \
       const Args & ... args) { \
-    using fmt::internal::Value; \
-    const Value values[fmt::internal::NonZero<sizeof...(Args)>::VALUE] = { \
+    typename fmt::internal::ArgArray<sizeof...(Args)>::Type array = { \
       fmt::internal::MakeValue<Char>(args)... \
     }; \
-    call(FMT_FOR_EACH(FMT_GET_ARG_NAME, __VA_ARGS__), fmt::ArgList( \
-      fmt::internal::make_type(args...), values)); \
+    if (fmt::internal::check(sizeof...(Args) > fmt::ArgList::MAX_PACKED_ARGS)) \
+      set_types(array, args...); \
+    call(FMT_FOR_EACH(FMT_GET_ARG_NAME, __VA_ARGS__), \
+      fmt::ArgList(fmt::internal::make_type(args...), array)); \
   }
 #else
 // Defines a wrapper for a function taking __VA_ARGS__ arguments
@@ -2366,9 +2675,9 @@ inline void format_decimal(char *&buffer, T value) {
   template <FMT_GEN(n, FMT_MAKE_TEMPLATE_ARG)> \
   inline ReturnType func(FMT_FOR_EACH(FMT_ADD_ARG_NAME, __VA_ARGS__), \
       FMT_GEN(n, FMT_MAKE_ARG)) { \
-    const fmt::internal::Value vals[] = {FMT_GEN(n, FMT_MAKE_REF_##Char)}; \
+    const fmt::internal::Value values[] = {FMT_GEN(n, FMT_MAKE_REF_##Char)}; \
     call(FMT_FOR_EACH(FMT_GET_ARG_NAME, __VA_ARGS__), fmt::ArgList( \
-      fmt::internal::make_type(FMT_GEN(n, FMT_MAKE_REF2)), vals)); \
+      fmt::internal::make_type(FMT_GEN(n, FMT_MAKE_REF2)), values)); \
   }
 
 # define FMT_VARIADIC_(Char, ReturnType, func, call, ...) \
@@ -2440,6 +2749,10 @@ FMT_VARIADIC(int, fprintf, std::FILE *, StringRef)
 // Restore warnings.
 #if FMT_GCC_VERSION >= 406
 # pragma GCC diagnostic pop
+#endif
+
+#ifdef __clang__
+# pragma clang diagnostic pop
 #endif
 
 #ifdef FMT_HEADER_ONLY

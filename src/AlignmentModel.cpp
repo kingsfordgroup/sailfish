@@ -258,13 +258,16 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
         enum cigar_op op = static_cast<enum cigar_op>(cigar[cigarIdx] & BAM_CIGAR_MASK);
         size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
         size_t curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+        advanceInRead = false;
+        advanceInReference = false;
+
 
         for (size_t i = 0; i < opLen; ++i) {
             if (advanceInRead) {
                 // Shouldn't happen!
                 if (readIdx >= readLen) {
                     if (logger_) {
-                        logger_->warn("WARNING: CIGAR string for read [{}] "
+                        logger_->warn("CIGAR string for read [{}] "
                             "seems inconsistent. It refers to non-existant "
                             "positions in the read!", bam_name(read));
                         std::stringstream cigarStream;
@@ -285,7 +288,7 @@ double AlignmentModel::logLikelihood(bam_seq_t* read, Transcript& ref,
                 // Shouldn't happen!
                 if (uTranscriptIdx >= transcriptLen) {
                     if (logger_) {
-                        logger_->warn("WARNING: CIGAR string for read [{}] "
+                        logger_->warn("CIGAR string for read [{}] "
                             "seems inconsistent. It refers to non-existant "
                             "positions in the reference!", bam_name(read));
                     }
@@ -440,12 +443,15 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
             enum cigar_op op = static_cast<enum cigar_op>(cigar[cigarIdx] & BAM_CIGAR_MASK);
             size_t curReadBase = samToTwoBit[bam_seqi(qseq, readIdx)];
             size_t curRefBase = samToTwoBit[ref.baseAt(uTranscriptIdx, readStrand)];
+            advanceInRead = false;
+            advanceInReference = false;
+
             for (size_t i = 0; i < opLen; ++i) {
                 if (advanceInRead) {
                     // Shouldn't happen!
                     if (readIdx >= readLen) {
                         if (logger_) {
-                            logger_->warn("WARNING: CIGAR string for read [{}] "
+                            logger_->warn("CIGAR string for read [{}] "
                                 "seems inconsistent. It refers to non-existant "
                                 "positions in the read!", bam_name(read));
                             std::stringstream cigarStream;
@@ -466,7 +472,7 @@ void AlignmentModel::update(bam_seq_t* read, Transcript& ref, double p, double m
                     // Shouldn't happen!
                     if (uTranscriptIdx >= transcriptLen) {
                         if (logger_) {
-                            logger_->warn("WARNING: CIGAR string for read [{}] "
+                            logger_->warn("CIGAR string for read [{}] "
                                 "seems inconsistent. It refers to non-existant "
                                 "positions in the reference!", bam_name(read));
                         }

@@ -1,7 +1,7 @@
 /*
  Formatting library for C++
 
- Copyright (c) 2012 - 2014, Victor Zverovich
+ Copyright (c) 2012 - 2015, Victor Zverovich
  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,13 @@
 # ifdef __MINGW32__
 #  include <cstring>
 # endif
-# include <windows.h>
+# if defined(NOMINMAX) || defined(FMT_WIN_MINMAX)
+#  include <windows.h>
+# else
+#  define NOMINMAX
+#  include <windows.h>
+#  undef NOMINMAX
+# endif
 #endif
 
 using fmt::internal::Arg;
@@ -81,7 +87,19 @@ using fmt::internal::Arg;
 # pragma warning(push)
 # pragma warning(disable: 4127)  // conditional expression is constant
 # pragma warning(disable: 4702)  // unreachable code
+// Disable deprecation warning for strerror. The latter is not called but
+// MSVC fails to detect it.
+# pragma warning(disable: 4996)
 #endif
+
+// Dummy implementations of strerror_r and strerror_s called if corresponding
+// system functions are not available.
+static inline fmt::internal::None<> strerror_r(int, char *, ...) {
+  return fmt::internal::None<>();
+}
+static inline fmt::internal::None<> strerror_s(char *, std::size_t, ...) {
+  return fmt::internal::None<>();
+}
 
 namespace {
 
@@ -97,6 +115,12 @@ inline int fmt_snprintf(char *buffer, size_t size, const char *format, ...) {
 }
 # define FMT_SNPRINTF fmt_snprintf
 #endif  // _MSC_VER
+
+#if defined(_WIN32) && defined(__MINGW32__) && !defined(__NO_ISOCEXT)
+# define FMT_SWPRINTF snwprintf
+#else
+# define FMT_SWPRINTF swprintf
+#endif // defined(_WIN32) && defined(__MINGW32__) && !defined(__NO_ISOCEXT)
 
 // Checks if a value fits in int - used to avoid warnings about comparing
 // signed and unsigned integers.
@@ -131,59 +155,81 @@ typedef void (*FormatFunc)(fmt::Writer &, int, fmt::StringRef);
 //   other  - failure
 // Buffer should be at least of size 1.
 int safe_strerror(
-    int error_code, char *&buffer, std::size_t buffer_size) FMT_NOEXCEPT(true) {
+    int error_code, char *&buffer, std::size_t buffer_size) FMT_NOEXCEPT {
   assert(buffer != 0 && buffer_size != 0);
-  int result = 0;
-#if ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE) || __ANDROID__
-  // XSI-compliant version of strerror_r.
-  result = strerror_r(error_code, buffer, buffer_size);
-  if (result != 0)
-    result = errno;
-#elif _GNU_SOURCE
-  // GNU-specific version of strerror_r.
-  char *message = strerror_r(error_code, buffer, buffer_size);
-  // If the buffer is full then the message is probably truncated.
-  if (message == buffer && strlen(buffer) == buffer_size - 1)
-    result = ERANGE;
-  buffer = message;
-#elif __MINGW32__
-  errno = 0;
-  (void)buffer_size;
-  buffer = strerror(error_code);
-  result = errno;
-#elif _WIN32
-  result = strerror_s(buffer, buffer_size, error_code);
-  // If the buffer is full then the message is probably truncated.
-  if (result == 0 && std::strlen(buffer) == buffer_size - 1)
-    result = ERANGE;
-#else
-  result = strerror_r(error_code, buffer, buffer_size);
-  if (result == -1)
-    result = errno;  // glibc versions before 2.13 return result in errno.
-#endif
-  return result;
+
+  class StrError {
+   private:
+    int error_code_;
+    char *&buffer_;
+    std::size_t buffer_size_;
+
+    // A noop assignment operator to avoid bogus warnings.
+    void operator=(const StrError &) {}
+
+    // Handle the result of XSI-compliant version of strerror_r.
+    int handle(int result) {
+      // glibc versions before 2.13 return result in errno.
+      return result == -1 ? errno : result;
+    }
+
+    // Handle the result of GNU-specific version of strerror_r.
+    int handle(char *message) {
+      // If the buffer is full then the message is probably truncated.
+      if (message == buffer_ && strlen(buffer_) == buffer_size_ - 1)
+        return ERANGE;
+      buffer_ = message;
+      return 0;
+    }
+
+    // Handle the case when strerror_r is not available.
+    int handle(fmt::internal::None<>) {
+      return fallback(strerror_s(buffer_, buffer_size_, error_code_));
+    }
+
+    // Fallback to strerror_s when strerror_r is not available.
+    int fallback(int result) {
+      // If the buffer is full then the message is probably truncated.
+      return result == 0 && strlen(buffer_) == buffer_size_ - 1 ?
+            ERANGE : result;
+    }
+
+    // Fallback to strerror if strerror_r and strerror_s are not available.
+    int fallback(fmt::internal::None<>) {
+      errno = 0;
+      buffer_ = strerror(error_code_);
+      return errno;
+    }
+
+   public:
+    StrError(int error_code, char *&buffer, std::size_t buffer_size)
+      : error_code_(error_code), buffer_(buffer), buffer_size_(buffer_size) {}
+
+    int run() { return handle(strerror_r(error_code_, buffer_, buffer_size_)); }
+  };
+  return StrError(error_code, buffer, buffer_size).run();
 }
 
 void format_error_code(fmt::Writer &out, int error_code,
-                       fmt::StringRef message) FMT_NOEXCEPT(true) {
+                       fmt::StringRef message) FMT_NOEXCEPT {
   // Report error code making sure that the output fits into
   // INLINE_BUFFER_SIZE to avoid dynamic memory allocation and potential
   // bad_alloc.
   out.clear();
   static const char SEP[] = ": ";
-  static const char ERR[] = "error ";
+  static const char ERROR_STR[] = "error ";
   fmt::internal::IntTraits<int>::MainType ec_value = error_code;
-  // Subtract 2 to account for terminating null characters in SEP and ERR.
-  std::size_t error_code_size =
-      sizeof(SEP) + sizeof(ERR) + fmt::internal::count_digits(ec_value) - 2;
+  // Subtract 2 to account for terminating null characters in SEP and ERROR_STR.
+  std::size_t error_code_size = sizeof(SEP) + sizeof(ERROR_STR) - 2;
+  error_code_size += fmt::internal::count_digits(ec_value);
   if (message.size() <= fmt::internal::INLINE_BUFFER_SIZE - error_code_size)
     out << message << SEP;
-  out << ERR << error_code;
+  out << ERROR_STR << error_code;
   assert(out.size() <= fmt::internal::INLINE_BUFFER_SIZE);
 }
 
 void report_error(FormatFunc func,
-    int error_code, fmt::StringRef message) FMT_NOEXCEPT(true) {
+    int error_code, fmt::StringRef message) FMT_NOEXCEPT {
   fmt::MemoryWriter full_message;
   func(full_message, error_code, message);
   // Use Writer::data instead of Writer::c_str to avoid potential memory
@@ -249,9 +295,8 @@ class WidthHandler : public fmt::internal::ArgVisitor<WidthHandler, unsigned> {
  public:
   explicit WidthHandler(fmt::FormatSpec &spec) : spec_(spec) {}
 
-  unsigned visit_unhandled_arg() {
+  void report_unhandled_arg() {
     FMT_THROW(fmt::FormatError("width is not integer"));
-    return 0;
   }
 
   template <typename T>
@@ -271,9 +316,8 @@ class WidthHandler : public fmt::internal::ArgVisitor<WidthHandler, unsigned> {
 class PrecisionHandler :
     public fmt::internal::ArgVisitor<PrecisionHandler, int> {
  public:
-  unsigned visit_unhandled_arg() {
+  void report_unhandled_arg() {
     FMT_THROW(fmt::FormatError("precision is not integer"));
-    return 0;
   }
 
   template <typename T>
@@ -386,12 +430,12 @@ int fmt::internal::CharTraits<wchar_t>::format_float(
     unsigned width, int precision, T value) {
   if (width == 0) {
     return precision < 0 ?
-        swprintf(buffer, size, format, value) :
-        swprintf(buffer, size, format, precision, value);
+        FMT_SWPRINTF(buffer, size, format, value) :
+        FMT_SWPRINTF(buffer, size, format, precision, value);
   }
   return precision < 0 ?
-      swprintf(buffer, size, format, width, value) :
-      swprintf(buffer, size, format, width, precision, value);
+      FMT_SWPRINTF(buffer, size, format, width, value) :
+      FMT_SWPRINTF(buffer, size, format, width, precision, value);
 }
 
 template <typename T>
@@ -429,6 +473,7 @@ const uint64_t fmt::internal::BasicData<T>::POWERS_OF_10_64[] = {
 };
 
 FMT_FUNC void fmt::internal::report_unknown_type(char code, const char *type) {
+  (void)type;
   if (std::isprint(static_cast<unsigned char>(code))) {
     FMT_THROW(fmt::FormatError(
         fmt::format("unknown format code '{}' for {}", code, type)));
@@ -473,10 +518,10 @@ FMT_FUNC int fmt::internal::UTF16ToUTF8::convert(fmt::WStringRef s) {
 }
 
 FMT_FUNC void fmt::WindowsError::init(
-    int error_code, StringRef format_str, ArgList args) {
-  error_code_ = error_code;
+    int err_code, StringRef format_str, ArgList args) {
+  error_code_ = err_code;
   MemoryWriter w;
-  internal::format_windows_error(w, error_code, format(format_str, args));
+  internal::format_windows_error(w, err_code, format(format_str, args));
   std::runtime_error &base = *this;
   base = std::runtime_error(w.str());
 }
@@ -485,7 +530,7 @@ FMT_FUNC void fmt::WindowsError::init(
 
 FMT_FUNC void fmt::internal::format_system_error(
     fmt::Writer &out, int error_code,
-    fmt::StringRef message) FMT_NOEXCEPT(true) {
+    fmt::StringRef message) FMT_NOEXCEPT {
   FMT_TRY {
     MemoryBuffer<char, INLINE_BUFFER_SIZE> buffer;
     buffer.resize(INLINE_BUFFER_SIZE);
@@ -507,7 +552,7 @@ FMT_FUNC void fmt::internal::format_system_error(
 #ifdef _WIN32
 FMT_FUNC void fmt::internal::format_windows_error(
     fmt::Writer &out, int error_code,
-    fmt::StringRef message) FMT_NOEXCEPT(true) {
+    fmt::StringRef message) FMT_NOEXCEPT {
   class String {
    private:
     LPWSTR str_;
@@ -610,6 +655,11 @@ class fmt::internal::ArgFormatter :
 };
 
 template <typename Char>
+void fmt::internal::FixedBuffer<Char>::grow(std::size_t) {
+  FMT_THROW(std::runtime_error("buffer overflow"));
+}
+
+template <typename Char>
 template <typename StrChar>
 void fmt::BasicWriter<Char>::write_str(
     const Arg::StringValue<StrChar> &s, const FormatSpec &spec) {
@@ -625,7 +675,8 @@ void fmt::BasicWriter<Char>::write_str(
     if (*str_value)
       str_size = std::char_traits<StrChar>::length(str_value);
   }
-  if (spec.precision_ >= 0 && spec.precision_ < str_size)
+  std::size_t precision = spec.precision_;
+  if (spec.precision_ >= 0 && precision < str_size)
     str_size = spec.precision_;
   write_str(str_value, str_size, spec);
 }
@@ -697,6 +748,7 @@ void fmt::internal::PrintfFormatter<Char>::parse_flags(
 template <typename Char>
 Arg fmt::internal::PrintfFormatter<Char>::get_arg(
     const Char *s, unsigned arg_index) {
+  (void)s;
   const char *error = 0;
   Arg arg = arg_index == UINT_MAX ?
     next_arg(error) : FormatterBase::get_arg(arg_index - 1, error);
@@ -1067,13 +1119,13 @@ void fmt::BasicFormatter<Char>::format(
 }
 
 FMT_FUNC void fmt::report_system_error(
-    int error_code, fmt::StringRef message) FMT_NOEXCEPT(true) {
+    int error_code, fmt::StringRef message) FMT_NOEXCEPT {
   report_error(internal::format_system_error, error_code, message);
 }
 
 #ifdef _WIN32
 FMT_FUNC void fmt::report_windows_error(
-    int error_code, fmt::StringRef message) FMT_NOEXCEPT(true) {
+    int error_code, fmt::StringRef message) FMT_NOEXCEPT {
   report_error(internal::format_windows_error, error_code, message);
 }
 #endif
@@ -1109,7 +1161,11 @@ FMT_FUNC int fmt::fprintf(std::FILE *f, StringRef format, ArgList args) {
   return std::fwrite(w.data(), 1, size, f) < size ? -1 : static_cast<int>(size);
 }
 
+#ifndef FMT_HEADER_ONLY
+
 // Explicit instantiations for char.
+
+template void fmt::internal::FixedBuffer<char>::grow(std::size_t);
 
 template const char *fmt::BasicFormatter<char>::format(
     const char *&format_str, const fmt::internal::Arg &arg);
@@ -1130,6 +1186,8 @@ template int fmt::internal::CharTraits<char>::format_float(
 
 // Explicit instantiations for wchar_t.
 
+template void fmt::internal::FixedBuffer<wchar_t>::grow(std::size_t);
+
 template const wchar_t *fmt::BasicFormatter<wchar_t>::format(
     const wchar_t *&format_str, const fmt::internal::Arg &arg);
 
@@ -1147,6 +1205,8 @@ template int fmt::internal::CharTraits<wchar_t>::format_float(
 template int fmt::internal::CharTraits<wchar_t>::format_float(
     wchar_t *buffer, std::size_t size, const wchar_t *format,
     unsigned width, int precision, long double value);
+
+#endif  // FMT_HEADER_ONLY
 
 #if _MSC_VER
 # pragma warning(pop)
