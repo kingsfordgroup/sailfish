@@ -1,10 +1,8 @@
 **Note**: If you're interested in Sailfish, you might also want to take a look
-at our new software, [Salmon](https://github.com/kingsfordgroup/sailfish/tree/develop), which has
-the goal of being potentially more accurate than Sailfish, while requiring
-fewer resources and producing results even *faster*. Salmon uses significant
-parts of the Sailfish code, and is therefore bundled as part of the Sailfish
-package. It is on the [develop branch](https://github.com/kingsfordgroup/sailfish/tree/develop) of this
-repository, and binaries are available under the [release tab](https://github.com/kingsfordgroup/sailfish/releases).
+at our new software, [Salmon](https://COMBINE-lab.github.io/salmon), which is
+generally more accurate than Sailfish, while requiring
+fewer resources and producing results even *faster*. Salmon is 
+developed in the [Salmon GitHub repository](https://github.com/COMBINE-lab/salmon).
 
 Setting up Sailfish
 ===================
