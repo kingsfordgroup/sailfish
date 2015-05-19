@@ -5,7 +5,7 @@ Salmon is a tool for transcript quantification from RNA-seq data.  It
 requires a set of target transcripts (either from a reference or *de-novo*
 assembly) to quantify.  All you need to run Salmon is a fasta file containing
 your reference transcripts and a (set of) fasta/fastq file(s) containing your
-reads.  Optinonally, Salmon can make use of pre-computed alignments (in the 
+reads.  Optionally, Salmon can make use of pre-computed alignments (in the 
 form of a SAM/BAM file) to the transcripts rather than the raw reads.
 
 The read-based mode of Salmon runs in two phases; indexing and quantification.
