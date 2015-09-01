@@ -55,14 +55,6 @@ ${LAPACK_LIBRARY_DIR}
 ${BLAS_LIBRARY_DIR}
 )
 
-<<<<<<< HEAD
-if(HAVE_LOGGER)
-    set (LOGGING_LIBS lib_g2logger_shared)
-else()
-    set (LOGGING_LIBS )
-endif()
-=======
->>>>>>> quasimapping
 #dd_library(pca SHARED ${PCA_LIB_SRCS})
 
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
