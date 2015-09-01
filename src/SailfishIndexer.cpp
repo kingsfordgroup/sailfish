@@ -83,7 +83,7 @@ int mainIndex( int argc, char *argv[] ) {
     ("help,h", "produce help message")
     ("transcripts,t", po::value<std::vector<string>>()->multitoken()->required(), "Transcript fasta file(s)." )
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
-    ("kmerSize,k", po::value<uint32_t>()->required(), "Kmer size.")
+    ("kmerSize,k", po::value<uint32_t>()->required()->default_value(31), "Kmer size.")
     ("out,o", po::value<string>()->required(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
     ("force,f", po::bool_switch(), "" )
