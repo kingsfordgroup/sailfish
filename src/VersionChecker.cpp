@@ -1,4 +1,4 @@
-// based off of 
+// based off of
 // async_client.cpp
 // ~~~~~~~~~~~~~~~~
 //
@@ -109,7 +109,7 @@ void VersionChecker::handle_read_status_line(const boost::system::error_code& er
       deadline_.cancel();
       cancel_upgrade_check(err);
       return;
-    } 
+    }
     if (status_code != 200) {
       deadline_.cancel();
       cancel_upgrade_check(err);
@@ -168,14 +168,14 @@ void VersionChecker::handle_read_content(const boost::system::error_code& err) {
 std::string getVersionMessage() {
   std::string baseSite{"www.cs.cmu.edu"};
   std::string path{"/~ckingsf/software/sailfish/version_info/"};
-  path += Sailfish::version;
+  path += sailfish::version;
 
   std::stringstream ss;
   try {
     boost::asio::io_service io_service;
     VersionChecker c(io_service, baseSite, path);
     io_service.run();
-    ss << "Version Info: " << c.message(); 
+    ss << "Version Info: " << c.message();
   }
   catch (std::exception& e)
   {

@@ -1,8 +1,8 @@
 /**
 >HEADER
-    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+    Copyright (c) 2013/2014 Rob Patro robp@cs.cmu.edu
 
-    This file is part of Sailfish.
+    This file is part of the Sailfish suite.
 
     Sailfish is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

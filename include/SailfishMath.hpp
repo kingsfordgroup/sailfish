@@ -9,6 +9,8 @@ namespace sailfish {
     namespace math {
         constexpr double LOG_0 = HUGE_VAL;
         constexpr double LOG_1 = 0;
+        constexpr double LOG_ONEHALF = -0.69314718055994530941;
+        constexpr double LOG_ORPHAN_PROB = -2.30258509299404568401;
         constexpr double EPSILON = 0.375e-10;
         const double LOG_EPSILON = log(EPSILON);
 

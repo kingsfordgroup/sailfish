@@ -39,8 +39,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
+#include "jellyfish/config.h"
+#include "jellyfish/err.hpp"
+#include "jellyfish/misc.hpp"
+#include "jellyfish/jellyfish.hpp"
+
+#include "cereal/archives/binary.hpp"
+
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/algorithm/string.hpp>
@@ -52,26 +57,14 @@
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
 
-#include "jellyfish/parse_dna.hpp"
-#include "jellyfish/mapped_file.hpp"
-#include "jellyfish/parse_read.hpp"
-#include "jellyfish/sequence_parser.hpp"
-#include "jellyfish/dna_codes.hpp"
-#include "jellyfish/compacted_hash.hpp"
-#include "jellyfish/mer_counting.hpp"
-#include "jellyfish/misc.hpp"
-
-#if HAVE_LOGGER
-#include "g2logworker.h"
-#include "g2log.h"
-#endif
-
-#include "cmph.h"
-#include "CountDBNew.hpp"
-// #include "LookUpTableUtils.hpp"
+#include "RapMapSAIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
-#include "PerfectHashIndex.hpp"
+#include "spdlog/spdlog.h"
+#include "spdlog/details/format.h"
+
+// declaration of quasi index function
+int rapMapSAIndex(int argc, char* argv[]);
 
 void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vector<uint32_t>& counts,
                            size_t merLen, const boost::filesystem::path& indexBasePath) {
@@ -86,7 +79,7 @@ void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vec
                                                               static_cast<cmph_uint32>(sizeof(uint64_t)),
                                                               0, sizeof(uint64_t), nkeys);
 
-    std::cerr << "Building a perfect hash from the Jellyfish hash.\n";
+    std::cerr << "Building a perfect hash with " << nkeys << " keys from the Jellyfish hash.\n";
     cmph_t *hash = nullptr;
     size_t i = 0;
     {
@@ -183,7 +176,9 @@ int runJellyfish(bool canonical,
     argStream << inputFilesStream.str();
 
     std::string argString = argStream.str();
-    boost::trim(argString);
+    argString.pop_back();
+    std::cerr << "argString = [" << argString << "]\n";
+    //boost::trim(argString);
 
     std::cerr << "running jellyfish with " << argString << "\n";
 
@@ -197,12 +192,18 @@ int runJellyfish(bool canonical,
 
         char ** jfargs = new char*[argStrings.size()];
         for (size_t i : boost::irange({0}, argStrings.size())) {
-            jfargs[i] = const_cast<char*>(argStrings[i].c_str());
+            jfargs[i] = new char[argStrings[i].size()+1];
+            std::strcpy(jfargs[i], argStrings[i].c_str());
         }
 
         std::cerr << "In Jellyfish process. Counting transcript kmers\n";
         int jfRet = jellyfish_count_main(argStrings.size(), jfargs);
+        std::cerr << "Finished call to jellyfish process\n";
+        for (size_t i : boost::irange({0}, argStrings.size())) {
+            delete jfargs[i];
+        }
         delete [] jfargs;
+        std::cerr << "Exiting jellyfish thread\n";
         std::exit(jfRet);
 
     } else if (pid < 0) { // fork failed!
@@ -212,11 +213,15 @@ int runJellyfish(bool canonical,
     } else { // parent
 
         int status = -1;
-        waitpid(pid, &status, 0); // wait on the Jellyfish process
-        std::cerr << "Jellyfish terminated with return code " << status << "\n";
-        assert( status == 0 );
+        std::cerr << "waiting on " << pid << "\n";
+        auto waitRet = waitpid(pid, &status, 0); // wait on the Jellyfish process
+        std::cerr << "waited on " << pid << ", waitpid return was " << waitRet << "\n";
+        bool statusOK = (status == 0);
+        std::cerr << "Jellyfish status " << ((statusOK) ? "OK" : "NOT OK")
+                  << " -- return code " << status << "\n";
+        assert(statusOK);
     }
-
+    return 0;
     /*
     // Run Jellyfish as an external process using the shell.
     // This will force the mmapped memory to be cleaned up.
@@ -253,20 +258,10 @@ int mainIndex( int argc, char *argv[] ) {
     generic.add_options()
     ("version,v", "print version string")
     ("help,h", "produce help message")
-    ("transcripts,t", po::value<std::vector<string>>()->multitoken(), "Transcript fasta file(s)." )
+    ("transcripts,t", po::value<std::vector<string>>()->multitoken()->required(), "Transcript fasta file(s)." )
     ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("kmerSize,k", po::value<uint32_t>()->required(), "Kmer size.")
-    ("out,o", po::value<string>(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
-
-      //("canonical,c", po::bool_switch(), "Passing this flag in forces all processing to be done on canonical kmers.\n"
-      //                                       "This means transcripts will be mapped to their canonical kmer multiset and\n"
-      //                                       "that directionality will not be considered when mapping kmers from reads.\n"
-      //                                       "This slightly increases ambiguity in the isoform estimation step, but\n"
-      //                                       "is generally faster than non-canonical processing (about twice as fast\n"
-      //                                       "when counting kmers in the reads).\n")
-
-    //("thash,t", po::value<string>(), "transcript hash file [Jellyfish format]")
-    //("index,i", po::value<string>(), "transcript index file [Sailfish format]")
+    ("out,o", po::value<string>()->required(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
     ("force,f", po::bool_switch(), "" )
     ;
@@ -281,8 +276,7 @@ int mainIndex( int argc, char *argv[] ) {
             auto hstring = R"(
 index
 ==========
-Builds a perfect hash-based Sailfish index [index] from
-the Jellyfish database [thash] of the transcripts.
+Builds a Sailfish index
 )";
             std::cout << hstring << std::endl;
             std::cout << generic << std::endl;
@@ -295,9 +289,6 @@ the Jellyfish database [thash] of the transcripts.
         std::vector<string> transcriptFiles = vm["transcripts"].as<std::vector<string>>();
         uint32_t numThreads = vm["threads"].as<uint32_t>();
         bool force = vm["force"].as<bool>();
-        // temporarily deprecated
-        // bool canonical = vm["canonical"].as<bool>();
-        bool canonical = false;
 
         // Check to make sure that the specified output directory either doesn't exist, or is
         // a valid path (e.g. not a file)
@@ -329,58 +320,112 @@ the Jellyfish database [thash] of the transcripts.
         bfs::path logDir = outputPath / "logs";
         boost::filesystem::create_directory(logDir);
 
-        #if HAVE_LOGGER
-        std::cerr << "writing logs to " << logDir.string() << "\n";
-        g2LogWorker logger(argv[0], logDir.string());
-        g2::initializeLogging(&logger);
-        #endif
+        bfs::path logPath = logDir / "sailfish_index.log";
+        size_t max_q_size = 2097152;
+        spdlog::set_async_mode(max_q_size);
+
+        auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
+        auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
+        auto consoleLog = spdlog::create("consoleLog", {consoleSink});
+        auto fileLog = spdlog::create("fileLog", {fileSink});
+        auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+
+        std::cerr << "writing log to " << logPath.string() << "\n";
 
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
+
+        jointLog->info() << "computeBiasFeatures( {";
+        for (auto& tf : transcriptFiles) {
+            jointLog->info() << "[" << tf << "] ";
+        }
+        jointLog->info() << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
-        bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts_0";
-
-        mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
+        bfs::path headerPath = outputPath / "header.json";
+        mustRecompute = (force or !boost::filesystem::exists(headerPath));
 
         if (!mustRecompute) {
             // Check that the jellyfish has at the given location
             // was computed with the correct kmer length.
-            std::cout << "Checking that jellyfish hash is up to date" << std::endl;
+            jointLog->info("Index exists but will not be rebuilt --- use the force "
+                           "option to rebuild the index");
         }
 
         if (mustRecompute) {
+
+            std::vector<const char*> argVec;
+            argVec.push_back("foo");
+            argVec.push_back("-k");
+
+            if (merLen % 2 == 0) {
+                jointLog->info("k-mer length should be odd to avoid a k-mer being it's own reverse complement");
+                jointLog->info("please specify an odd value of k");
+                std::exit(1);
+            }
+
+            fmt::MemoryWriter optWriter;
+            optWriter << merLen;
+            argVec->push_back(optWriter.str().c_str());
+            argVec->push_back("-t");
+            argVec->push_back(transcriptFiles.front().c_str());
+            argVec->push_back("-i");
+            argVec->push_back(outputPath.string().c_str());
+            SailfishIndex sidx(jointLog);
+            sidx.build(outputPath, argVec);
+
             std::cerr << "Running Jellyfish on transcripts\n";
             runJellyfish(canonical, merLen, numThreads, outputStem, transcriptFiles);
-
             std::cerr << "Jellyfish finished\n";
 
             bfs::path thashFile = jfHashFile;//vm["thash"].as<string>();
             bool recomputePerfectIndex = mustRecompute;
 
             // Read in the Jellyfish hash of the transcripts
-            mapped_file transcriptDB(thashFile.c_str());
-            transcriptDB.random().will_need();
-            char typeTrans[8];
-            memcpy(typeTrans, transcriptDB.base(), sizeof(typeTrans));
+            std::ifstream transcriptDB(thashFile.c_str());
+            if (!transcriptDB.good()) {
+                jointLog->error() << "Couldn't open the Jellyfish hash [" << thashFile.string() << "] quitting\n";
+                std::exit(-1);
+            }
+            jellyfish::file_header header;
+            header.read(transcriptDB);
 
-            hash_query_t transcriptHash(thashFile.c_str());
-            std::cerr << "transcriptHash size is " << transcriptHash.get_distinct() << "\n";
-            size_t nkeys = transcriptHash.get_distinct();
-            size_t merLen = transcriptHash.get_mer_len();
+            std::cerr << "transcript hash size is " << header.size() << "\n";
+            size_t nkeys = header.size();
+            // Since JF2, key_len() is in terms of bits so merLen = keyLen / 2;
+            size_t merLen = header.key_len() / 2;
+            jellyfish::mer_dna::k(merLen);
 
+            std::cerr << "header.key_len = " << merLen << "\n";
             std::vector<uint64_t> keys(nkeys,0);
             std::vector<uint32_t> counts(nkeys,0);
 
             tbb::task_scheduler_init init(numThreads);
-            auto it = transcriptHash.iterator_all();
             size_t i = 0;
-            while ( it.next() ) {
-                keys[i] = it.get_key();
-                counts[i] = it.get_val();
-                ++i;
+
+            if (!header.format().compare(binary_dumper::format)) {
+                binary_reader reader(transcriptDB, &header);
+                while ( reader.next() ) {
+                    keys[i] = reader.key().get_bits(0, 2*merLen);
+                    counts[i] = reader.val();
+                    ++i;
+                }
+
+            } else if (!header.format().compare(text_dumper::format)) {
+                text_reader reader(transcriptDB, &header);
+                while ( reader.next() ) {
+                    keys[i] = reader.key().get_bits(0, 2*merLen);
+                    counts[i] = reader.val();
+                    ++i;
+                }
+            } else {
+                jointLog->error() << "Unknown Jellyfish hash format. quitting\n";
+                std::exit(-1);
             }
+
+            keys.resize(i);
+            counts.resize(i);
 
             bfs::path sfIndexBase(outputPath);
             bfs::path sfIndexFile(sfIndexBase); sfIndexFile /= "transcriptome.sfi";
@@ -402,12 +447,11 @@ the Jellyfish database [thash] of the transcripts.
                 std::cerr << "done\n";
             }
 
-
             { // save transcript <-> gene map to archive
                 bfs::path tgmOutPath(outputPath); tgmOutPath /= "transcriptome.tgm";
                 std::cerr << "Saving transcritpt to gene map to [" << tgmOutPath << "]\n";
                 std::ofstream ofs(tgmOutPath.string(), std::ios::binary);
-                boost::archive::binary_oarchive oa(ofs);
+                cereal::BinaryOutputArchive oa(ofs);
                 // write class instance to archive
                 oa << tgmap;
             } // archive and stream closed when destructors are called

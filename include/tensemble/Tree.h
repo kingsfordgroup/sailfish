@@ -26,7 +26,7 @@
 #include <boost/bind.hpp>
 #include <boost/thread/thread.hpp>
 #define TREE_MAX_DEPTH  30
-using namespace boost;
+//using namespace boost;
 
 enum SplitAlgorithm {
     FIND_BEST = 0,
@@ -56,7 +56,7 @@ void find_best_split_range(bool *skip,Criterion *criterion,REAL** X,REAL* y,spli
 
 class Tree {
     /*base decision tree*/
-    
+
 public:
     Criterion **p_criterion;
     int criterion_name;
@@ -67,47 +67,47 @@ public:
     uint max_depth;
     uint find_split_algorithm;
     uint random_seed;
-    
+
     TreeNode **nodes;
     sint *nodes_deep;
     uint numNodes;
     uint max_nNodes;
-    
+
     uint n_threads;
-    
+
 public:
     Tree(int criterion,uint n_classes,uint n_feature,uint max_features,uint min_sample_leaf,uint max_depth,uint find_split_algorithm=FIND_BEST,\
          uint random_seed=0,uint n_thread=1);
-    
+
     virtual ~Tree();
-    
+
     int build(REAL** X,REAL* y,uint nSamples);
-    
+
     bool find_split(uint node_id,REAL** X,REAL* y,uint* sample_ind,uint s_ind_beg,uint s_ind_end,uint nSamples,uint& feature_split,REAL& value_split,REAL& min_error);
-    
+
     bool find_best_split(uint node_id,REAL** X,REAL* y,uint* sample_ind,uint s_ind_beg,uint s_ind_end,uint nSamples,uint& feature_split,REAL& value_split,REAL& min_error);
-    
+
     bool find_random_split(uint node_id,uint& feature_split,REAL& value_split,REAL& min_error);
-    
+
     virtual void predict(REAL** X,REAL* pred,uint nSamples,uint nFeatures);
-    
+
     //predict with mask
     virtual void predict(REAL** X,REAL* pred,bool* mask,uint nSamples,uint nFeatures);
-    
+
     void predict_terminal_region(REAL** X,uint* region,uint nSamples,uint nFeatures);
-    
+
     virtual void compute_importance(REAL* importance){};
-    
+
     //for parallel find best split
     bool find_best_split_parallel(uint node_id,REAL** X,REAL* y,uint* sample_ind,uint s_ind_beg,uint s_ind_end,uint nSamples,uint& feature_split,REAL& value_split,REAL& min_error);
-    
+
     void resize();
 
 protected:
     void init_nodes(uint nSamples);
-    
+
     void init_criterion();
-    
+
     uint updateNodeSampleMap(uint node_id,uint l_node_id,uint r_node_id,\
                              uint* sample_ind,uint* sample_ind_swap,REAL** X,\
                              uint s_ind_beg,uint s_ind_end,uint feature_split,\
@@ -132,7 +132,7 @@ Tree::Tree(int criterion,uint n_classes,uint n_features,uint max_features,uint m
         n_threads=max_thread;
     }
     max_features=MAX(1,max_features);
-    
+
     //reset number of threads if max_features is too small
     if (n_threads>1 && max_features/n_threads<THREAD_MIN_FEATURES) {
 //        fprintf(stderr, "WARNNING:Number of thread is %d,but max_feature=%d.Each thread at least need %d features to find best split for internal nodes in decision tree.Now set number of thread = %d\n",n_threads,max_features,THREAD_MIN_FEATURES,MAX(1,(uint)max_features/THREAD_MIN_FEATURES));
@@ -244,7 +244,7 @@ uint Tree::updateNodeSampleMap(uint node_id,uint l_node_id,uint r_node_id,\
     /* Map sample index in parent node to left child and right child
      * return the number of sample in left child.
      */
-    
+
 #ifdef DEBUG
     assert(s_ind_beg>=0 && s_ind_beg<s_ind_end);
     assert(s_ind_end>0);
@@ -272,7 +272,7 @@ uint Tree::updateNodeSampleMap(uint node_id,uint l_node_id,uint r_node_id,\
 #ifdef DEBUG
     assert(count==s_ind_end);
 #endif
-    
+
     for (i=s_ind_beg; i<s_ind_end; i++) {
         sample_ind[i]=sample_ind_swap[i];
     }
@@ -294,7 +294,7 @@ int Tree::build(REAL** X,REAL* y,uint nSamples){
     uint i,l_node_id,r_node_id,work_node_id,feature_split,sample_ind_beg,sample_ind_end;
     REAL value_split,ini_error,min_error;
     uint *node_beg,*node_end,*sample_ind,*sample_ind_swap;
-    
+
     //initialize criterion and nodes
     init_criterion();
     init_nodes(nSamples);
@@ -346,7 +346,7 @@ int Tree::build(REAL** X,REAL* y,uint nSamples){
         nodes[work_node_id]->best_error=min_error;
         nodes[work_node_id]->feature_split=feature_split;
         nodes[work_node_id]->value_split=value_split;
-        
+
         //set left,right child
         l_node_id=++numNodes;
         r_node_id=++numNodes;
@@ -400,7 +400,7 @@ bool Tree::find_best_split(uint node_id,REAL** X,REAL* y,uint* sample_ind,uint s
     REAL ini_error=min_error;
     uint i,j,node_nSamples,f,count;
     bool same_data=true;
-    //do not consider split if all data are identical.   
+    //do not consider split if all data are identical.
     REAL pre_y=y[sample_ind[s_ind_beg]];
     for (i=s_ind_beg+1; i<s_ind_end; i++) {
         uint idx=sample_ind[i];
@@ -412,13 +412,13 @@ bool Tree::find_best_split(uint node_id,REAL** X,REAL* y,uint* sample_ind,uint s
     if (same_data) {
         return false;
     }
-    
+
     Criterion *criterion=p_criterion[0];
     bool* skip=new bool[n_features];
     uint* skip_idx=new uint[n_features];
     node_nSamples=nodes[node_id]->nSamples;
     MyPair* x_f=new MyPair[nSamples];
-    
+
     //generate random split feature
     for (i=0; i<n_features; i++) {
         skip[i]=true;
@@ -499,7 +499,7 @@ bool Tree::find_best_split_parallel(uint node_id, REAL **X, REAL *y, uint *sampl
     args.nSamples=nSamples;
     args.min_samples_leaf=min_sample_leaf;
     REAL ini_error=min_error;
-    
+
     //generate random split feature
     for (i=0; i<n_features; i++) {
         skip[i]=true;
@@ -521,7 +521,7 @@ bool Tree::find_best_split_parallel(uint node_id, REAL **X, REAL *y, uint *sampl
         if (i==n_threads-1) {
             args.f_end=n_features;
         }
-        thread[i]=new boost::thread(bind(find_best_split_range,skip, p_criterion[i], X, y, args, boost::ref(f_split[i]), boost::ref(v_split[i]), boost::ref(p_min_error[i])));
+        thread[i]=new boost::thread(boost::bind(find_best_split_range,skip, p_criterion[i], X, y, args, boost::ref(f_split[i]), boost::ref(v_split[i]), boost::ref(p_min_error[i])));
     }
     for (i=0; i<n_threads; i++) {
         thread[i]->join();
@@ -648,8 +648,8 @@ void find_best_split_range(bool *skip,Criterion *criterion,REAL** X,REAL* y,spli
      * find best split for internal node(node_id),feature range in [f_beg,f_end]
      * X,y is the original data
      * samples in internal node(node_id) is specify by spsample_ind[s_ind_beg:s_ind_end]
-     * [f_beg,f_end] /in [0,n_features] is the feature range for each thread. 
-     * 
+     * [f_beg,f_end] /in [0,n_features] is the feature range for each thread.
+     *
      * notice：
      * criterion must be initialied before calling find_best_split_range
      * one criterion for one thread
@@ -669,8 +669,8 @@ void find_best_split_range(bool *skip,Criterion *criterion,REAL** X,REAL* y,spli
 #endif
     uint i,f,count;
     bool same_data=true;
-    
-    //do not consider split if all data are identical.    
+
+    //do not consider split if all data are identical.
     REAL pre_y=y[sample_ind[s_ind_beg]];
     for (i=s_ind_beg+1; i<s_ind_end; i++) {
         uint idx=sample_ind[i];
@@ -682,7 +682,7 @@ void find_best_split_range(bool *skip,Criterion *criterion,REAL** X,REAL* y,spli
     if (same_data) {
         return;
     }
-    
+
     MyPair* x_f=new MyPair[nSamples];
     criterion->init(y, sample_ind,s_ind_beg,s_ind_end, nSamples);
     //find best split main loop

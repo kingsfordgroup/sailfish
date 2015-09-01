@@ -18,47 +18,77 @@
 #include <chrono>
 #include <iomanip>
 
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
+#include "cereal/archives/binary.hpp"
+
 #include <boost/program_options.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/filesystem.hpp>
 
-#include <jellyfish/sequence_parser.hpp>
-#include <jellyfish/parse_read.hpp>
-#include <jellyfish/mer_counting.hpp>
-#include <jellyfish/misc.hpp>
-#include <jellyfish/compacted_hash.hpp>
+// Jellyfish includes
+#include "jellyfish/stream_manager.hpp"
+#include "jellyfish/whole_sequence_parser.hpp"
+#include "jellyfish/mer_dna.hpp"
 
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 #include "CountDBNew.hpp"
 #include "SailfishConfig.hpp"
 #include "VersionChecker.hpp"
-#include "kseq.h"
-
-KSEQ_INIT(int, read)
-
-int runIterativeOptimizer(int, char**) { return 0; }
 
 bool parseTranscripts(boost::filesystem::path& tpath, PerfectHashIndex& phi, boost::filesystem::path& opath) {
+    using my_mer = jellyfish::mer_dna_ns::mer_base_static<uint64_t, 1>;
+    using stream_manager = jellyfish::stream_manager<char**>;
+    using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
 
     using BinMer = uint64_t;
     auto INVALID = phi.INVALID;
     auto merLen = phi.kmerLength();
 
+    // set the appropriate k-mer length
+    my_mer::k(merLen);
+
     std::ofstream ofile(opath.string(), std::ios::out | std::ios::binary);
-    
-    kseq_t* seq;
+
     int l;
     uint64_t seqnum{0};
+
+    // Create a jellyfish parser
+    char** fnames = new char*[1];// fnames[1];
+    fnames[0] = const_cast<char*>(tpath.c_str());
+
+    const int concurrentFile{1};
+    stream_manager streams(fnames, fnames + 1, concurrentFile);
+
+    const uint32_t nworking{1};
+    size_t maxReadGroupSize{100};
+    sequence_parser parser(4*nworking, maxReadGroupSize, concurrentFile, streams);
+
+
+
     int fp = open(tpath.string().c_str(), O_RDONLY);
     BinMer masq{(1UL << (2 * merLen)) - 1};
 
-    seq = kseq_init(fp);
+    //seq = kseq_init(fp);
 
     std::vector<BinMer> klist;
+    while(true) {
+        sequence_parser::job j(parser); // Get a job from the parser: a bunch of read (at most max_read_group)
+        if(j.is_empty()) break;          // If got nothing, quit
+
+        my_mer kmer;
+
+        for(size_t i = 0; i < j->nb_filled; ++i) { // For all the read we got
+
+            char* nameStart = const_cast<char*>(j->data[i].header.c_str());
+            uint32_t nameLen = j->data[i].header.size();
+            char* nameEnd = nameStart + nameLen;
+
+            char* start     = const_cast<char*>(j->data[i].seq.c_str());
+            uint32_t readLen      = j->data[i].seq.size();
+            char* const end = start + readLen;
+
+            /*
     while ((l = kseq_read(seq)) >= 0) {
 
         char* nameStart = seq->name.s;
@@ -67,8 +97,9 @@ bool parseTranscripts(boost::filesystem::path& tpath, PerfectHashIndex& phi, boo
         char* start     = seq->seq.s;
         uint32_t readLen      = seq->seq.l;
         char* end = seq->seq.s + readLen;
+            */
 
-        // reset 
+        // reset
         uint64_t cmlen{0};
         uint64_t kmer{0};
         uint64_t numKmers{0};
@@ -82,13 +113,15 @@ bool parseTranscripts(boost::filesystem::path& tpath, PerfectHashIndex& phi, boo
         while(start < end) {
             char pc = *start++;
             if (pc == ' ' or pc == '\n') { continue; }
-            uint_t     c = jellyfish::dna_codes[static_cast<uint_t>(pc)];
+            auto c = jellyfish::mer_dna::code(pc);
+            //kmer.shift_left(c);
+
             switch(c) {
-            case jellyfish::CODE_IGNORE: break;
-            case jellyfish::CODE_COMMENT:
+                case jellyfish::mer_dna::CODE_IGNORE: break;
+                case jellyfish::mer_dna::CODE_COMMENT:
                 std::cerr << "ERROR: unexpected character " << c << " in read!\n";
                 // Fall through
-            case jellyfish::CODE_RESET:
+                case jellyfish::mer_dna::CODE_RESET:
                 cmlen = kmer = 0;
                 break;
             default:
@@ -106,8 +139,8 @@ bool parseTranscripts(boost::filesystem::path& tpath, PerfectHashIndex& phi, boo
                 } // if k-mer is long enough
             } // end switch
         } // all k-mers in this sequence
-       
-        
+
+
         ofile.write(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
         ofile.write(reinterpret_cast<char*>(nameStart), nameLen * sizeof(char));
         ofile.write(reinterpret_cast<char*>(&numKmers), sizeof(numKmers));
@@ -118,9 +151,10 @@ bool parseTranscripts(boost::filesystem::path& tpath, PerfectHashIndex& phi, boo
             std::cerr << "processed: " << seqnum << " transcripts\r\r";
         }
     }
+    } // end while(true)
     std::cerr << "\n";
     ofile.close();
-    kseq_destroy(seq);
+    //kseq_destroy(seq);
     close(fp);
 }
 
@@ -158,7 +192,7 @@ int main(int argc, char* argv[] ) {
     //bool poisson = ( vm.count("poisson") ) ? true : false;
 
     if ( vm.count("version") ) {
-      std::cout << "version : " << Sailfish::version <<"\n";
+      std::cout << "version : " << sailfish::version <<"\n";
       std::exit(0);
     }
 
@@ -190,7 +224,7 @@ int main(int argc, char* argv[] ) {
     std::cerr << "Reading transcript index from [" << sfIndexFile << "] . . .";
     auto sfIndex = PerfectHashIndex::fromFile( sfIndexFile );
     std::cerr << "done\n";
-    parseTranscripts(transcriptFile, sfIndex, outputFilePath); 
+    parseTranscripts(transcriptFile, sfIndex, outputFilePath);
 
   } catch (po::error &e){
     std::cerr << "exception : [" << e.what() << "]. Exiting.\n";

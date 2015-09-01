@@ -1,8 +1,8 @@
 **Note**: If you're interested in Sailfish, you might also want to take a look
-at our new software, [Salmon](https://COMBINE-lab.github.io/salmon), which is
-generally more accurate than Sailfish, while requiring
-fewer resources and producing results even *faster*. Salmon is 
-developed in the [Salmon GitHub repository](https://github.com/COMBINE-lab/salmon).
+at our new software, [Salmon](https://COMBINE-lab.github.io/salmon). 
+
+The documentation for Salmon and Sailfish is being migrated to [ReadTheDocs](http://readthedocs.org).
+To see [the latest documentation there](http://sailfish.readthedocs.org).
 
 Setting up Sailfish
 ===================
@@ -158,7 +158,7 @@ reads.  To perform the quantification, you run a command like the following:
 Where \<index_dir\> is, as described above, the location of the sailfish index,
 \<libtype\> is a string describing the format of the read library (see the
 [library string](#library-string) section below) \<unmated\> is a list of files
-containing unmated reads, \<mates{1,2}\> are lists of files containg,
+containing unmated reads, \<mates{1,2}\> are lists of files containing,
 respectively, the first and second mates of paired-end reads.  Finally,
 \<quant_dir\> is the directory where the output should be written. Just like
 the indexing step, additional options are available, and can be viewed by
@@ -170,113 +170,21 @@ additional file names "quant_bias_corrected.sf").  This file contains the
 result of the Sailfish quantification step.  This file contains a number of
 columns (which are listed in the last of the header lines beginning with '#').
 Specifically, the columns are (1) Transcript ID, (2) Transcript Length, (3)
-Transcripts per Million (TPM), (4) Reads Per Kilobase per Million mapped reads
-(RPKM), (5) K-mers Per Kilobase per Million mapped k-mers (KPKM), (6) Estimated
-number of k-mers (an estimate of the number of k-mers drawn from this
-transcript given the transcript's relative abundance and length) and (7)
-Estimated number of reads (an estimate of the number of reads drawn from this
-transcript given the transcript's relative abnundance and length).  The first
+Transcripts per Million (TPM), (4) Estimated number of reads (an estimate of the 
+number of reads drawn from this transcript given the transcript's relative abnundance and length).  The first
 two columns are self-explanatory, the next four are measures of transcript
 abundance and the final is a commonly used input for differential expression
 tools.  The Transcripts per Million quantification number is computed as
 described in [1], and is meant as an estimate of the number of transcripts, per
 million observed transcripts, originating from each isoform.  Its benefit over
-the K/RPKM measure is that it is independent of the mean expressed transcript
+the (still common) F/RPKM measure is that it is independent of the mean expressed transcript
 length (i.e. if the mean expressed transcript length varies between samples,
-for example, this alone can affect differential analysis based on the K/RPKM.)
-The RPKM is a classic measure of relative transcript abundance, and is an
-estimate of the number of reads per kilobase of transcript (per million mapped
-reads) originating from each transcript. The KPKM should closely track the
-RPKM, but is defined for very short features which are larger than the chosen
-k-mer length but may be shorter than the read length. Typically, you should
-prefer the KPKM measure to the RPKM measure, since the k-mer is the most
-natural unit of coverage for Sailfish.
+for example, this alone can affect differential analysis based on the K/RPKM.).
 
 ### Library Format String ### {#library-string}
 
-The library format string is given as a parameter to the `quant` step of
-Sailfish.  Since Sailfish works with the reads directly and not alignments,
-the purpose of this string is to inform Sailfish of relevant information about
-the reads in the library.  Not all of this information is _currently_ used, but
-some of it is and other pieces of it may be in the future.
-
-The library format string consists of up to 3 parts (2 parts for unpaired
-reads), provided as key-value pairs. The key-value pairs are provided with the
-syntax "key=value", and they are separated by the \':\' character. The relevant 
-keys and possible value options are:
-
-~~~~
-(T|TYPE)=(PE|SE)
-~~~~
-
-This option specifies the "paired-end" status of the read library.  If the reads
-are paired end, then this should be set to `PE`, and the library format string
-should be followed by the `-1` and `-2` options with the respective mate-pair
-reads.  If the reads are unpaired, then this should be set to `SE` and the
-library format string shoujld be followed by the `-r` option and list of files
-containing unpaired reads.
-
-~~~~
-(O|ORIENTATION)=(>>|<>|><)
-~~~~
-
-This option secifies the relative orientation of reads within a pair.  If
-the library consists of unpaired reads, then this key-value pair can and should
-be ignored.  If the library consists of paired end reads, this key-value pair
-should be provided.  Note, this denotes the *realtive orientation* of the reads,
-not their absolute directionality with respect to the reference.  The options
-are meant to denote, visually, how the reads could be oriented.  
-
-The first option `>>` denotes that the mates are oriented in the same direction
---- e.g. if the 5' end of mate 1 is upstream from the 3' end, then the 5' end
-of mate 2 is upstream from its 3' end and vice-versa.
-
-The second option `<>` denotes that the mates are oriented away from each other.
-This implies that start of mate1 is closer to start of mate 2 than the end of
-mate 2, etc.
-
-The third option `><` is, perhaps, the most common relative orientation.  It
-denotes that the mates are oriented toward each other, so that the start of 
-mate 1 is farther from the start of mate 2 than it is from the end of mate 2
-and vice-versa.
-
-~~~~
-(S|STRAND)=(AS|SA|S|A|U)
-~~~~
-
-This option specifies the strandedness of the reads.  If the type is `SE` the
-only allowable options are `S`, `A`, and `U`, which denote, respectively, that
-the reads come from the sense strand, the antisense strand, or are of unknown
-strandedness (in which case both strands are tried and the one resulting in
-more matching k-mers is used).
-
-If the type of the read library is `PE`, then any of the options are valid. The
-`S`, `A` and `U` options given in the above paragraph have the same meaning. The
-`AS` option specifies that mate 1 is from the antisense strand and mate2 is from
-the sense strand, while `SA` specifies that mate 1 is from the sense strand and
-mate 2 is from the antisense strand.
-
-Because of the way argument parsing works, the library format string must be
-offset by quotations. An example format string specifying that the read library
-consists of unpaired reads with unknown orientation is:
-
-~~~~
--l "T=SE:S=U"
-~~~~
-
-Alternatively, a format string specifying that the read library consists of
-paired-end reads, oriented toward each other where mate 1 is from the sense
-strand and mate 2 is from the antisense strand is:
-
-~~~
--l "T=PE:O=><:S=SA"
-~~~
-
-Many, but not all, combinations of the three options (type, orientation and
-strandedness) are possible.  Sailfish will perform a coarse-grained sainty
-check to ensure that the provided library string is not impossible (e.g.
-`T=SE:O=><:S=A`, which is not possible because unpaired reads can't have a
-relative orientation).
+For a description of the library format strings and meanings, check out the 
+[ReadTheDocs documentation](http://sailfish.readthedocs.org).
 
 License
 =======
@@ -299,11 +207,6 @@ References
 
 [1] Li, Bo, et al. "RNA-Seq gene expression estimation with read mapping uncertainty." 
     Bioinformatics 26.4 (2010): 493-500.
-
-
-
-
-
 
 
 

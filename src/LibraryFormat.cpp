@@ -6,7 +6,7 @@ LibraryFormat::LibraryFormat(ReadType type_in, ReadOrientation orientation_in, R
 bool LibraryFormat::check() {
     bool valid = true;
     switch (type) {
-        
+
     case ReadType::SINGLE_END:
         valid = valid and (orientation == ReadOrientation::NONE);
         switch (strandedness) {
@@ -23,7 +23,7 @@ bool LibraryFormat::check() {
 
     case ReadType::PAIRED_END:
         switch (orientation) {
-            // For paired-end reads, an orientation must be defined 
+            // For paired-end reads, an orientation must be defined
         case ReadOrientation::NONE:
             valid = false;
             break;
@@ -32,10 +32,10 @@ bool LibraryFormat::check() {
         case ReadOrientation::SAME:
             valid = valid and ((strandedness == ReadStrandedness::S) or
                                (strandedness == ReadStrandedness::A) or
-                               (strandedness == ReadStrandedness::U)); 
-                                       
+                               (strandedness == ReadStrandedness::U));
+
             break;
-            // If the reads are oriented away from each other or toward each other, 
+            // If the reads are oriented away from each other or toward each other,
             // then they must come from different strands.
         case ReadOrientation::AWAY:
         case ReadOrientation::TOWARD:
@@ -48,8 +48,8 @@ bool LibraryFormat::check() {
     }
     return valid;
 }
- 
-std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
+
+std::ostream& operator<<(std::ostream& os, const LibraryFormat& lf) {
     os << "Library format { type:";
     switch (lf.type) {
         case ReadType::SINGLE_END:
@@ -59,17 +59,17 @@ std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
             os << "paired end";
             break;
     }
-    
+
     os << ", relative orientation:";
     switch (lf.orientation)  {
         case ReadOrientation::TOWARD:
-            os << "toward";
+            os << "inward";
             break;
         case ReadOrientation::AWAY:
-           os << "away";
+           os << "outward";
            break;
         case ReadOrientation::SAME:
-           os << "same";
+           os << "matching";
            break;
         case ReadOrientation::NONE:
            os << "none";
@@ -93,7 +93,8 @@ std::ostream& operator<<(std::ostream& os, LibraryFormat& lf) {
         case ReadStrandedness::U:
            os << "unstranded";
            break;
-    }   
+    }
     os << " }";
     return os;
 }
+

@@ -24,10 +24,9 @@
 #define TRANSCRIPT_GENE_MAP_HPP
 
 // Allows for the serialization of this class
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/string.hpp>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/vector.hpp>
+#include <cereal/types/string.hpp>
 
 #include <algorithm>
 #include <unordered_map>
@@ -51,11 +50,10 @@ private:
 
         _genesToTranscripts.resize( _geneNames.size(), {});
 
-        Index geneID;
         Index transcriptID = 0;
         size_t maxNumTrans = 0;
         Index maxGene;
-        for ( size_t transcriptID = 0; transcriptID < _transcriptsToGenes.size(); ++transcriptID ) {
+        for ( transcriptID = 0; transcriptID < _transcriptsToGenes.size(); ++transcriptID ) {
             _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].push_back( transcriptID );
             if ( maxNumTrans < _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].size() ) {
                 maxNumTrans = _genesToTranscripts[ _transcriptsToGenes[transcriptID] ].size();
@@ -65,16 +63,13 @@ private:
         std::cerr << "max # of transcripts in a gene was " << maxNumTrans << " in gene " << _geneNames[maxGene] << "\n";
     }
 
-    friend class boost::serialization::access;
+    friend class cereal::access;
 
     template<class Archive>
     void serialize(Archive & ar, const unsigned int version)
     {
-        ar & _transcriptNames;
-        ar & _geneNames;
-        ar & _transcriptsToGenes;
-        ar & _genesToTranscripts;
-        ar & _haveReverseMap;
+        ar(_transcriptNames, _geneNames, _transcriptsToGenes,
+           _genesToTranscripts, _haveReverseMap);
     }
 
 public:
@@ -89,6 +84,9 @@ public:
         _transcriptNames(transcriptNames), _geneNames(geneNames),
         _transcriptsToGenes(transcriptsToGenes), _haveReverseMap(false) {}
 
+
+    TranscriptGeneMap(const TranscriptGeneMap& other) = default;
+    TranscriptGeneMap& operator=(const TranscriptGeneMap& other) = default;
 
 
     Index INVALID { std::numeric_limits<Index>::max() };
@@ -129,6 +127,19 @@ public:
     inline std::string geneName( Index transcriptID ) {
         return _geneNames[_transcriptsToGenes[transcriptID]];
     }
+    inline std::string geneName (const std::string& transcriptName,
+                                 bool complain=true) {
+        auto tid = findTranscriptID(transcriptName);
+        if (tid != INVALID) {
+            return geneName(tid);
+        } else {
+            std::cerr << "WARNING: couldn't find transcript named ["
+                      << transcriptName << "]; returning transcript "
+                      << " as it's own gene\n";
+            return transcriptName;
+        }
+    }
+
     inline std::string transcriptName( Index transcriptID ) {
         return _transcriptNames[transcriptID];
     }
