@@ -48,12 +48,10 @@
 #include "BiasIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
-#include "CountDBNew.hpp"
-#include "CollapsedIterativeOptimizer.hpp"
+//#include "CountDBNew.hpp"
+//#include "CollapsedIterativeOptimizer.hpp"
 #include "SailfishConfig.hpp"
 #include "VersionChecker.hpp"
-//#include "iterative_optimizer.hpp"
-//#include "tclap/CmdLine.h"
 
 int help(int argc, char* argv[]) {
   auto helpmsg = R"(
@@ -89,18 +87,14 @@ int mainSailfish(int argc, char* argv[]) {
 
 }
 
-//int indexMain( int argc, char* argv[] );
 int mainIndex(int argc, char* argv[]);
-//int mainCount(int argc, char* argv[]);
 int mainQuantify(int argc, char* argv[]);
-int mainBuildLUT(int argc, char* argv[] );
 
 bool verbose = false;
 
 int main( int argc, char* argv[] ) {
   using std::string;
   namespace po = boost::program_options;
-
 
   try {
 
@@ -161,27 +155,13 @@ int main( int argc, char* argv[] ) {
     po::notify(vm);
 
     std::unordered_map<string, std::function<int(int, char*[])>> cmds({
-      //{"estimate", runIterativeOptimizer},
       {"index", mainIndex},
-      {"buildlut", mainBuildLUT},
       {"quant", mainQuantify},
-      //{"count", mainCount},
       {"sf", mainSailfish}
     });
 
-    //string cmd = argv[1];
     string cmd = vm["command"].as<string>();
-/*
-    size_t subcommand_argc = subcommand_options.size();
-    char** argv2 = new char*[subcommand_argc+1];
-    argv2[0] = strdup(argv[0]);
-    for (size_t i : boost::irange(size_t{0}, subcommand_argc)) {
-      std::string& s = subcommand_options[i];
-      argv[i+1] = new char[s.size()+1];
-      std::copy(s.begin(), s.end(), argv[i+1]);
-      argv[i+1][s.size()] = '\0';
-    }
-*/
+
     int subCommandArgc = argc - topLevelArgc + 1;
     char** argv2 = new char*[subCommandArgc];
     argv2[0] = argv[0];

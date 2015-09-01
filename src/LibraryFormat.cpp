@@ -97,3 +97,4 @@ std::ostream& operator<<(std::ostream& os, const LibraryFormat& lf) {
     os << " }";
     return os;
 }
+

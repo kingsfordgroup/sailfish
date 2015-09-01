@@ -57,13 +57,14 @@
 #include "tbb/parallel_for.h"
 #include "tbb/task_scheduler_init.h"
 
-#include "cmph.h"
-#include "CountDBNew.hpp"
-// #include "LookUpTableUtils.hpp"
+#include "RapMapSAIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
-#include "PerfectHashIndex.hpp"
 #include "spdlog/spdlog.h"
+#include "spdlog/details/format.h"
+
+// declaration of quasi index function
+int rapMapSAIndex(int argc, char* argv[]);
 
 void buildPerfectHashIndex(bool canonical, std::vector<uint64_t>& keys, std::vector<uint32_t>& counts,
                            size_t merLen, const boost::filesystem::path& indexBasePath) {
@@ -261,16 +262,6 @@ int mainIndex( int argc, char *argv[] ) {
     ("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("kmerSize,k", po::value<uint32_t>()->required(), "Kmer size.")
     ("out,o", po::value<string>()->required(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
-
-      //("canonical,c", po::bool_switch(), "Passing this flag in forces all processing to be done on canonical kmers.\n"
-      //                                       "This means transcripts will be mapped to their canonical kmer multiset and\n"
-      //                                       "that directionality will not be considered when mapping kmers from reads.\n"
-      //                                       "This slightly increases ambiguity in the isoform estimation step, but\n"
-      //                                       "is generally faster than non-canonical processing (about twice as fast\n"
-      //                                       "when counting kmers in the reads).\n")
-
-    //("thash,t", po::value<string>(), "transcript hash file [Jellyfish format]")
-    //("index,i", po::value<string>(), "transcript index file [Sailfish format]")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
     ("force,f", po::bool_switch(), "" )
     ;
@@ -285,8 +276,7 @@ int mainIndex( int argc, char *argv[] ) {
             auto hstring = R"(
 index
 ==========
-Builds a perfect hash-based Sailfish index [index] from
-the Jellyfish database [thash] of the transcripts.
+Builds a Sailfish index
 )";
             std::cout << hstring << std::endl;
             std::cout << generic << std::endl;
@@ -299,9 +289,6 @@ the Jellyfish database [thash] of the transcripts.
         std::vector<string> transcriptFiles = vm["transcripts"].as<std::vector<string>>();
         uint32_t numThreads = vm["threads"].as<uint32_t>();
         bool force = vm["force"].as<bool>();
-        // temporarily deprecated
-        // bool canonical = vm["canonical"].as<bool>();
-        bool canonical = false;
 
         // Check to make sure that the specified output directory either doesn't exist, or is
         // a valid path (e.g. not a file)
@@ -349,24 +336,45 @@ the Jellyfish database [thash] of the transcripts.
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
 
-        std::cerr << "computeBiasFeatures( {";
+        jointLog->info() << "computeBiasFeatures( {";
         for (auto& tf : transcriptFiles) {
-            std::cerr << "[" << tf << "] ";
+            jointLog->info() << "[" << tf << "] ";
         }
-        std::cerr << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
+        jointLog->info() << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
-        bfs::path jfHashFile(outputPath); jfHashFile /= "jf.counts";
-
-        mustRecompute = (force or !boost::filesystem::exists(jfHashFile));
+        bfs::path headerPath = outputPath / "header.json";
+        mustRecompute = (force or !boost::filesystem::exists(headerPath));
 
         if (!mustRecompute) {
             // Check that the jellyfish has at the given location
             // was computed with the correct kmer length.
-            std::cout << "Checking that jellyfish hash is up to date" << std::endl;
+            jointLog->info("Index exists but will not be rebuilt --- use the force "
+                           "option to rebuild the index");
         }
 
         if (mustRecompute) {
+
+            std::vector<const char*> argVec;
+            argVec.push_back("foo");
+            argVec.push_back("-k");
+
+            if (merLen % 2 == 0) {
+                jointLog->info("k-mer length should be odd to avoid a k-mer being it's own reverse complement");
+                jointLog->info("please specify an odd value of k");
+                std::exit(1);
+            }
+
+            fmt::MemoryWriter optWriter;
+            optWriter << merLen;
+            argVec->push_back(optWriter.str().c_str());
+            argVec->push_back("-t");
+            argVec->push_back(transcriptFiles.front().c_str());
+            argVec->push_back("-i");
+            argVec->push_back(outputPath.string().c_str());
+            SailfishIndex sidx(jointLog);
+            sidx.build(outputPath, argVec);
+
             std::cerr << "Running Jellyfish on transcripts\n";
             runJellyfish(canonical, merLen, numThreads, outputStem, transcriptFiles);
             std::cerr << "Jellyfish finished\n";

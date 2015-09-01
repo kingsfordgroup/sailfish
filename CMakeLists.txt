@@ -4,10 +4,10 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.6.4")
+set(CPACK_PACKAGE_VERSION "0.7.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "6")
-set(CPACK_PACKAGE_VERSION_PATCH "4")
+set(CPACK_PACKAGE_VERSION_MINOR "7")
+set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
@@ -26,7 +26,7 @@ SET(CMAKE_FIND_LIBRARY_SUFFIXES .a ${CMAKE_FIND_LIBRARY_SUFFIXES})
 
 ## Set the standard required compile flags
 # Nov 18th --- removed -DHAVE_CONFIG_H 
-set (CMAKE_CXX_FLAGS "-pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -Wall -std=c++11 -Wreturn-type -Werror=return-type")
+set (CMAKE_CXX_FLAGS "-pthread -funroll-loops -fPIC -fomit-frame-pointer -Ofast -DHAVE_ANSI_TERM -DHAVE_SSTREAM -DRAPMAP_SALMON_SUPPORT -Wall -std=c++11 -Wreturn-type -Werror=return-type")
 
 ##
 # OSX is strange (some might say, stupid in this regard).  Deal with it's quirkines here.
@@ -174,54 +174,6 @@ if (NOT ZLIB_FOUND)
 	message (FATAL_ERROR "zlib must be installed before configuration & building can proceed")
 endif()
 
-find_package (LibLZMA)
-if (NOT LIBLZMA_FOUND)
-    message ("Will attempt to fetch and build liblzma")
-    message ("=======================================")
-ExternalProject_Add(liblzma
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://tukaani.org/xz/xz-5.2.0.tar.gz 
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/xz-5.2.0
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    BUILD_IN_SOURCE TRUE
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/xz-5.2.0/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_COMMAND make
-    INSTALL_COMMAND make install
-)
-# Tell cmake that the external project generated a library so we can
-# add dependencies here instead of later
-set (LIBLZMA_LIBRARIES ${GAT_SOURCE_DIR}/external/install/lib/liblzma.a)
-set (LIBSTADEN_LDFLAGS "-L${GAT_SOURCE_DIR}/external/install/lib")
-set (LIBSTADEN_CFLAGS "-I${GAT_SOURCE_DIR}/external/install/include")
-else()
-    message("Found liblzma library: ${LIBLZMA_LIBRARIES}")
-    message("===========================================")
-endif()
-
-find_package (BZip2)
-if (NOT BZIP2_FOUND)
-    message ("Will attempt to fetch and build libbz2")
-    message ("=======================================")
-ExternalProject_Add(libbz2
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2-1.0.6
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    BUILD_IN_SOURCE TRUE
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    INSTALL_COMMAND make install PREFIX=<INSTALL_DIR>
-)
-# Tell cmake that the external project generated a library so we can
-# add dependencies here instead of later
-set (BZIP2_LIBRARIES ${GAT_SOURCE_DIR}/external/install/lib/libbz2.a)
-set (LIBSTADEN_LDFLAGS "-L${GAT_SOURCE_DIR}/external/install/lib -I${GAT_SOURCE_DIR}/external/install/include")
-set (LIBSTADEN_CFLAGS "-I${GAT_SOURCE_DIR}/external/install/include")
-else()
-    message("Found libbz2 library: ${BZIP2_LIBRARIES}")
-    message("===========================================")
-endif()
-
 ##
 # Set the latest version and look for what we need
 ##
@@ -322,51 +274,6 @@ message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
 	
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 
-message("Build system will fetch and build the Cereal serialization library")
-message("==================================================================")
-include(ExternalProject)
-ExternalProject_Add(libcereal
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.cmu.edu/~robp/files/cereal-v1.0.0.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
-    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cereal-1.0.0/build
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/include && cp -r <SOURCE_DIR>/include/cereal <INSTALL_DIR>/include"
-)
-
-message("Build system will fetch and build BWA (for Salmon)")
-message("==================================================================")
-include(ExternalProject)
-ExternalProject_Add(libbwa
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    #URL http://www.cs.stonybrook.edu/~rp/files/bwa-master.tar.gz
-    DOWNLOAD_COMMAND curl -k -L  http://www.cs.stonybrook.edu/~rp/files/bwa-master.tar.gz -o bwa-master.tar.gz &&
-                     tar -xzvf bwa-master.tar.gz 
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/bwa-master
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND sh -c "make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}"
-    INSTALL_COMMAND sh -c "mkdir -p <INSTALL_DIR>/lib && mkdir -p <INSTALL_DIR>/include/bwa && cp libbwa.a <INSTALL_DIR>/lib && cp *.h <INSTALL_DIR>/include/bwa && cp is.c bwtindex.c bwt_gen.c QSufSort.c ${CMAKE_CURRENT_SOURCE_DIR}/src/"
-    BUILD_IN_SOURCE TRUE
-)
-
-message("Build system will fetch and build CMPH")
-message("==================================================================")
-include(ExternalProject)
-ExternalProject_Add(libcmph
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.cs.cmu.edu/~robp/files/cmph-2.0.tar.gz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/cmph-2.0
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/cmph-2.0/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_COMMAND ${MAKE} CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} 
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install
-)
-
 message("Build system will fetch and build Jellyfish")
 message("==================================================================")
 ExternalProject_Add(libjellyfish
@@ -383,7 +290,6 @@ ExternalProject_Add(libjellyfish
 )
 
 find_package(TBB)
-
 ##
 #
 # Fetch and build Intel's Threading Building Blocks library.
@@ -463,36 +369,6 @@ endif()
 
 message("TBB_LIBRARIES = ${TBB_LIBRARIES}")
 
-###
-# Shark library
-# (Getting rid of SHARK dependency --- yay!)
-####
-#if (NOT Boost_FOUND)
-    ## Shark depends on Boost.  If it wasn't already found, then 
-    ## add a dependency between the Boost we fetch and this target.
-    #add_dependencies(libshark libboost)
-#endif()
-
-#message("Build system will fetch and build Shark machine learning library")
-#message("==================================================================")
-## These are useful for the custom install step we'll do later
-#set(SHARK_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark)
-#set(SHARK_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
-#ExternalProject_Add(libshark
-    #DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    #URL http://www.cs.cmu.edu/~robp/files/Shark.tar.gz
-    #SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/Shark
-    #INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    #CMAKE_ARGS -DOPT_DYNAMIC_LIBRARY=FALSE -DBoost_NO_SYSTEM_PATHS=TRUE -DBOOST_INCLUDEDIR=${Boost_INCLUDE_DIRS} 
-               #-DBOOST_LIBRARYDIR=${Boost_LIBRARY_DIRS} -DOPT_MAKE_TESTS=OFF -DCMAKE_INSTALL_PREFIX=${SHARK_INSTALL_DIR}
-               #-DCMAKE_CXX_FLAGS=-std=c++11 -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-               #-DCMAKE_CXX_FLAGS=${CMAKE_SHARK_CXX_FLAGS}
-    #BUILD_COMMAND sh -c "make"
-    #INSTALL_COMMAND sh -c "make install"
-    #BUILD_IN_SOURCE 1
-    #UPDATE_COMMAND ""
-#)
-
 message("Build system will compile libgff")
 message("==================================================================")
 ExternalProject_Add(libgff
@@ -503,38 +379,6 @@ ExternalProject_Add(libgff
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff/build
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_CURRENT_SOURCE_DIR}/external/install
-)
-
-message("Build system will compile Staden IOLib")
-message("==================================================================")
-ExternalProject_Add(libstadenio 
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/staden-io_lib/releases/download/v1.13.9/staden-io_lib-1.13.9.tar.gz -o staden-io_lib-v1.13.9.tar.gz &&
-                     tar -xzf staden-io_lib-v1.13.9.tar.gz &&
-                     rm -fr staden-io_lib &&
-                     mv -f staden-io_lib-1.13.9 staden-io_lib
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/staden-io_lib
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ./configure --enable-shared=no --without-libcurl --prefix=<INSTALL_DIR> LDFLAGS=${LIBSTADEN_LDFLAGS} CFLAGS=${LIBSTADEN_CFLAGS} CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install
-)
-
-message("Build system will fetch SPDLOG")
-message("==================================================================")
-ExternalProject_Add(libspdlog
-    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/spdlog/archive/v1.4.tar.gz -o spdlog-v1.4.tar.gz &&
-                     tar -xzf spdlog-v1.4.tar.gz &&
-                     rm -fr spdlog &&
-                     mv -f  spdlog-1.4 spdlog
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/spdlog
-    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND cp -r <SOURCE_DIR>/include/spdlog <INSTALL_DIR>/include
 )
 
 set (FAST_MALLOC_LIB "")
@@ -577,62 +421,38 @@ if (NOT HAVE_FAST_MALLOC)
     set (HAVE_FAST_MALLOC TRUE)
 endif ()
 
-#message("Build system will compile htslib")
-#message("==================================================================")
-#ExternalProject_Add(libhts
-#    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-#    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/htslib/archive/1.1.tar.gz -o htslib-1.1.tar.gz &&
-#                     tar -xzf htslib-1.1.tar.gz &&
-#                     rm -fr htslib &&
-#                     mv -f htslib-1.1 htslib
-#    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/htslib
-#    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-#    CONFIGURE_COMMAND ""
-#    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-#    BUILD_IN_SOURCE 1
-#    INSTALL_COMMAND make install prefix=<INSTALL_DIR> 
-#)
-#
-#message("Build system will compile samtools")
-#message("==================================================================")
-#ExternalProject_Add(libsamtools
-#    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-#    DOWNLOAD_COMMAND curl -k -L https://github.com/samtools/samtools/archive/1.1.tar.gz -o samtools-1.1.tar.gz &&
-#                     tar -xzf samtools-1.1.tar.gz &&
-#                     rm -fr samtools &&
-#                     mv -f samtools-1.1 samtools
-#    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/samtools
-#    CONFIGURE_COMMAND ""
-#    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-#    BUILD_COMMAND make CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
-#    BUILD_IN_SOURCE 1
-#    INSTALL_COMMAND make install prefix=<INSTALL_DIR> &&
-#                    mv <SOURCE_DIR>/libbam.a <INSTALL_DIR>/lib/libbam.a
-#)
-#if(HAVE_LOGGER)
-#
-#if (APPLE AND CLANG)
-#    set (G2LOGGER_CXX_FLAGS "-std=c++11 -stdlib=libc++")
-#endif()
-#
-#message("Build system will compile g2log logging library")
-#message("==================================================================")
-#ExternalProject_Add(libg2log
-#  DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-#  URL http://www.cs.cmu.edu/~robp/files/g2log.tar.gz
-#  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log
-#  INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-#  BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build
-#  #UPDATE_COMMAND sh -c "mkdir -p ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/build"
-#  UPDATE_COMMAND sh -c "mv ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/g2log/* ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log && mkdir ${CMAKE_CURRENT_SOURCE_DIR}/external/g2log/build"
-#  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/external/install -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-#  BUILD_COMMAND sh -c "make"
-#  INSTALL_COMMAND sh -c "cp <SOURCE_DIR>/src/*.h <INSTALL_DIR>/include/ && cp <BINARY_DIR>/*.a <BINARY_DIR>/*.${SHARED_LIB_EXTENSION} <INSTALL_DIR>/lib/"
-#)
-#endif()
-#
 
+##
+## This depenency is for RapMap
+##
+message("Build system will fetch and build SparseHash")
+message("==================================================================")
+ExternalProject_Add(libsparsehash
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    DOWNLOAD_COMMAND curl -k -L https://github.com/COMBINE-lab/sparsehash/archive/sparsehash-2.0.2.tar.gz -o sparsehash-2.0.2.tar.gz &&
+        tar -xzf sparsehash-2.0.2.tar.gz 
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/sparsehash-sparsehash-2.0.2
+    BUILD_IN_SOURCE TRUE
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    CONFIGURE_COMMAND sh -c "CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ./configure --prefix=<INSTALL_DIR>"
+    INSTALL_COMMAND make install 
+)
 
+###
+#
+# Done building external dependencies.
+#
+###
+
+###
+#
+#  Grab RapMap sources for quasi-mapping code --- DURING CONFIGURE TIME!
+#
+####
+if(NOT FETCHED_RAPMAP)
+  exec_program(${CMAKE_CURRENT_SOURCE_DIR}/scripts/fetchRapMap.sh)
+  set(FETCHED_RAPMAP TRUE CACHE BOOL "Has RapMap been fetched?" FORCE)
+endif()
 
 ###
 #

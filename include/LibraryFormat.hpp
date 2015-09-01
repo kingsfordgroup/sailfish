@@ -1,5 +1,5 @@
-#ifndef LIBRARY_FORMAT_HPP
-#define LIBRARY_FORMAT_HPP
+#ifndef __LIBRARY_FORMAT_HPP__
+#define __LIBRARY_FORMAT_HPP__
 
 #include <ostream>
 #include <cstdint>
