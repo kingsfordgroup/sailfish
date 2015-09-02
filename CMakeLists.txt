@@ -4,10 +4,10 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.7.0")
+set(CPACK_PACKAGE_VERSION "0.7.1")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
 set(CPACK_PACKAGE_VERSION_MINOR "7")
-set(CPACK_PACKAGE_VERSION_PATCH "0")
+set(CPACK_PACKAGE_VERSION_PATCH "1")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
@@ -420,7 +420,6 @@ if (NOT HAVE_FAST_MALLOC)
     set (FAST_MALLOC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib/libjemalloc.a)
     set (HAVE_FAST_MALLOC TRUE)
 endif ()
-
 
 ##
 ## This depenency is for RapMap

@@ -82,7 +82,7 @@ class EquivalenceClassBuilder {
         inline void addGroup(TranscriptGroup&& g,
                              std::vector<double>& weights) {
 
-            auto upfn = [&weights](TGValue& x) -> TGValue& {
+            auto upfn = [&weights](TGValue& x) -> void {
                 // update the count
                 x.count++;
                 // update the weights
@@ -94,7 +94,6 @@ class EquivalenceClassBuilder {
                         salmon::math::logAdd(x.weights[i], weights[i]);
                     */
                 }
-                return x;
             };
             TGValue v(weights, 1);
             countMap_.upsert(g, upfn, v);

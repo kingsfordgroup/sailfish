@@ -52,7 +52,7 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                                tbb::concurrent_bounded_queue<TranscriptFeatures>& featQueue,
                                size_t& numComplete, size_t numThreads) {
 
-    using stream_manager = jellyfish::stream_manager<char**>;
+    using stream_manager = jellyfish::stream_manager<std::vector<std::string>::iterator>;
     using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
 
     size_t merLen = 2;
@@ -169,7 +169,6 @@ int computeBiasFeatures(
     tbb::concurrent_bounded_queue<TranscriptFeatures> featQueue;
 
     std::ofstream ofile(outFilePath.string());
-
     auto outputThread = std::thread(
          [&ofile, &numComplete, &featQueue, numActors]() -> void {
              TranscriptFeatures tf{};
@@ -195,28 +194,24 @@ int computeBiasFeatures(
     }
     std::cerr << "\n";
 
-    for (auto& readFile : transcriptFiles) {
-        std::cerr << "file " << readFile << ": \n";
+    for (auto readFile : transcriptFiles) {
 
-        //namespace bfs = boost::filesystem;
-        //bfs::path filePath(readFile);
-
-        char* pc = new char[readFile.size() + 1];
-        std::strcpy(pc, readFile.c_str());
-        char* fnames[] = {pc};
+	std::vector<std::string> fnames;
+	std::string rfname = readFile;
+	fnames.push_back(rfname);
+        std::cerr << "file " << fnames.front() << ": \n";
 
         // Create a jellyfish parser
         const int concurrentFile{1};
 
-        using stream_manager = jellyfish::stream_manager<char**>;
+        using stream_manager = jellyfish::stream_manager<std::vector<std::string>::iterator>;
         using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
-        stream_manager streams(fnames, fnames + 1, concurrentFile);
+        stream_manager streams(fnames.begin(), fnames.end(), concurrentFile);
 
         size_t maxReadGroupSize{100};
         sequence_parser parser(1*numActors, maxReadGroupSize, concurrentFile, streams);
         computeBiasFeaturesHelper<sequence_parser>(
                 parser, featQueue, numComplete, numActors);
-        delete pc;
     }
 
     std::cerr << "\n";

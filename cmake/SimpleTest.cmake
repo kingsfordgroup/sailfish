@@ -7,7 +7,12 @@ if (TAR_RESULT)
     message(FATAL_ERROR "Error untarring sample_data.tgz")
 endif()
 
-set(INDEX_CMD ${TOPLEVEL_DIR}/build/src/sailfish index -t transcripts.fasta -o sample_index --force)
+if (NOT EXISTS ${TOPLEVEL_DIR}/bin/sailfish)
+    message(FATAL_ERROR "You must make install sailfish before you can run make test")
+endif()
+
+
+set(INDEX_CMD ${TOPLEVEL_DIR}/bin/sailfish index -t transcripts.fasta -o sample_index --force)
 execute_process(COMMAND ${INDEX_CMD}
                 WORKING_DIRECTORY ${TOPLEVEL_DIR}/sample_data
                 RESULT_VARIABLE INDEX_RESULT

@@ -20,12 +20,11 @@ LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
 cokus.cpp
-format.cc
 xxhash.c
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapFileSystem.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAIndexer.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAIndex.cpp
-${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAMapper.cpp
+#${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAMapper.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapUtils.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/HitManager.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/rank9b.cpp
@@ -93,14 +92,19 @@ target_link_libraries(sailfish
     ${FAST_MALLOC_LIB}
 )
 
+
+##
+#  This ensures that the sailfish executable should work with or without `make install`
+##
 # Grumble grumble . . . OSX
 if (APPLE)
     # only attempt install_name_tool for tbb if we installed it
     if (${TBB_LIBRARY_DIRS} MATCHES ${GAT_SOURCE_DIR}/external/install/lib)
-        add_custom_command(TARGET salmon
-            PRE_LINK
-            COMMAND install_name_tool -id @rpath/libtbb.dylib ${TBB_LIBRARY_DIRS}/libtbb.dylib
-            COMMAND install_name_tool -id @rpath/libtbbmalloc.dylib ${TBB_LIBRARY_DIRS}/libtbbmalloc.dylib
+        add_custom_command(TARGET sailfish 
+	    POST_BUILD
+	    COMMAND install_name_tool -change libtbb.dylib @rpath/libtbb.dylib ${GAT_SOURCE_DIR}/build/src/sailfish
+	    COMMAND install_name_tool -change libtbbmalloc.dylib @rpath/libtbbmalloc.dylib ${GAT_SOURCE_DIR}/build/src/sailfish
+	    COMMAND install_name_tool -add_rpath  ${GAT_SOURCE_DIR}/external/install/lib ${GAT_SOURCE_DIR}/build/src/sailfish
         )
     endif()
 else()
@@ -108,6 +112,17 @@ else()
     set (BOOST_THREAD_LIBRARY)
 endif()
 
+
+#if (APPLE)
+#	add_custom_command(TARGET sailfish 
+#		POST_BUILD
+#		COMMAND install_name_tool -add_rpath ${GAT_SOURCE_DIR}/external/install/lib/libtbb.dylib sailfish 
+#		COMMAND install_name_tool -add_rpath ${GAT_SOURCE_DIR}/external/install/lib/libtbbmalloc.dylib sailfish 
+#		COMMAND install_name_tool -add_rpath @executable_path/../lib/libtbb.dylib sailfish 
+#		COMMAND install_name_tool -add_rpath @executable_path/../lib/libtbbmalloc.dylib sailfish 
+#		)
+#endif()
+#
 ##### ======================================
 IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   SET(CMAKE_INSTALL_PREFIX
@@ -150,4 +165,4 @@ install(
 # install(FILES ${GAT_SOURCE_DIR}/experimental_configs/SRX016368_25mers.cfg DESTINATION experimental_configs/SRX016368_25mers.cfg )
 
 include(InstallRequiredSystemLibraries)
-add_test( NAME simple_test COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${GAT_SOURCE_DIR} -P ${GAT_SOURCE_DIR}/cmake/SimpleTest.cmake )
+add_test( NAME simple_test COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${CMAKE_INSTALL_PREFIX} -P ${GAT_SOURCE_DIR}/cmake/SimpleTest.cmake )

@@ -75,7 +75,7 @@ int mainIndex( int argc, char *argv[] ) {
     namespace po = boost::program_options;
 
     uint32_t maxThreads = std::thread::hardware_concurrency();
-    bool useStreamingParser = true;
+    bool useStreamingParser = false;
 
     po::options_description generic("Command Line Options");
     generic.add_options()
@@ -158,14 +158,15 @@ Builds a Sailfish index
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
-
+	
         jointLog->info() << "computeBiasFeatures( {";
         for (auto& tf : transcriptFiles) {
             jointLog->info() << "[" << tf << "] ";
         }
-        jointLog->info() << ", " << transcriptBiasFile << ", " << useStreamingParser << ", " << numThreads << ")\n";
+	std::string txpBiasFileName = transcriptBiasFile.string();
+        jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads); 
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
-
+	
         bfs::path headerPath = outputPath / "header.json";
         mustRecompute = (force or !boost::filesystem::exists(headerPath));
 
