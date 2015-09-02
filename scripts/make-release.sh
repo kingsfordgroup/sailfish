@@ -41,12 +41,12 @@ mkdir ${DIR}/../RELEASES/${betaname}/lib
 
 # copy over the executable and Intel TBB libraries
 echo -e "Copying over the binary and Intel TBB libraries\n"
-cp ${DIR}/../bin/salmon ${DIR}/../RELEASES/${betaname}/bin/
+cp ${DIR}/../bin/sailfish ${DIR}/../RELEASES/${betaname}/bin/
 cp ${DIR}/../lib/libtbb* ${DIR}/../RELEASES/${betaname}/lib/
 
 # copy other dependencies (shared libraries)
 echo -e "Copying over other shared library dependencies\n"
-bash ${DIR}/../scripts/cpld.bash ${DIR}/../bin/salmon ${DIR}/../RELEASES/${betaname}/lib/
+bash ${DIR}/../scripts/cpld.bash ${DIR}/../bin/sailfish ${DIR}/../RELEASES/${betaname}/lib/
 echo -e "Removing dangerous dependencies\n"
 rm ${DIR}/../RELEASES/${betaname}/lib/libc.so.6
 rm ${DIR}/../RELEASES/${betaname}/lib/ld-linux-x86-64.so.2
