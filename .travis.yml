@@ -1,6 +1,7 @@
 #whitelist
 branches:
     only:
+        - master
         - develop
         - feature/fastio
             
