@@ -7,7 +7,8 @@ To see [the latest documentation there](http://sailfish.readthedocs.org).
 Setting up Sailfish
 ===================
 
-[![Join the chat at https://gitter.im/kingsfordgroup/sailfish](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/kingsfordgroup/sailfish?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Documentation Status](https://readthedocs.org/projects/sailfish/badge/?version=master)](https://readthedocs.org/projects/sailfish/?badge=master)
+[![Join the chat at https://gitter.im/kingsfordgroup/ailfish](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/kingsfordgroup/sailfish?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Requirements:
 -------------
