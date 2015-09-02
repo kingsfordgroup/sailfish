@@ -13,7 +13,6 @@ Contents:
    
    building.rst
    sailfish.rst
-   salmon.rst
    library_type.rst
 
 Indices and tables

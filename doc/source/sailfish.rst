@@ -12,7 +12,6 @@ quantification step, obviously, is specific to the set of RNA-seq reads and is
 thus run more frequently. For a more complete description of all available
 options in sailfish, see the manual.
 
-
 Indexing
 --------
 
@@ -24,11 +23,18 @@ should run the following command:
     > sailfish index -t <ref_transcripts> -o <out_dir> -k <kmer_len>
 
 
-This will build a sailfish index for k-mers of length ``<kmer_len>`` for the
+This will build a sailfish index using k-mers of length ``<kmer_len>`` for the
 reference transcripts  provided in the file ``<ref_transcripts>`` and place the
 index under the directory ``<out_dir>``.  There  are additional options that can
 be passed to the sailfish indexer (e.g. the number of threads to use).  These
 can be seen by executing the command ``sailfish index -h``.
+
+Note that, as of v0.7.0, the meaning of the ``-k`` parameter has changed slightly.
+Rather than the k-mer size on which Sailfish will quantify abundances, it becomes
+the minimum match size that will be considered in the `quasi-mapping <http://github.com/COMBINE-lab/RapMap>`_ 
+procedure during quantification.  For sufficiently long (e.g. 75bp or greater) 
+reads, the default should be acceptable.  If you have substantially shorter
+reads, you may want to consider a smaller ``-k``.
 
 Quantification
 --------------
@@ -57,27 +63,17 @@ additional file names "quant_bias_corrected.sf").  This file contains the
 result of the Sailfish quantification step.  This file contains a number of
 columns (which are listed in the last of the header lines beginning with '#').
 Specifically, the columns are (1) Transcript ID, (2) Transcript Length, (3)
-Transcripts per Million (TPM), (4) Reads Per Kilobase per Million mapped reads
-(RPKM), (5) K-mers Per Kilobase per Million mapped k-mers (KPKM), (6) Estimated
-number of k-mers (an estimate of the number of k-mers drawn from this
-transcript given the transcript's relative abundance and length) and (7)
-Estimated number of reads (an estimate of the number of reads drawn from this
-transcript given the transcript's relative abnundance and length).  The first
-two columns are self-explanatory, the next four are measures of transcript
-abundance and the final is a commonly used input for differential expression
-tools.  The Transcripts per Million quantification number is computed as
-described in [1]_, and is meant as an estimate of the number of transcripts, per
-million observed transcripts, originating from each isoform.  Its benefit over
-the K/RPKM measure is that it is independent of the mean expressed transcript
-length (i.e. if the mean expressed transcript length varies between samples,
-for example, this alone can affect differential analysis based on the K/RPKM.)
-The RPKM is a classic measure of relative transcript abundance, and is an
-estimate of the number of reads per kilobase of transcript (per million mapped
-reads) originating from each transcript. The KPKM should closely track the
-RPKM, but is defined for very short features which are larger than the chosen
-k-mer length but may be shorter than the read length. Typically, you should
-prefer the KPKM measure to the RPKM measure, since the k-mer is the most
-natural unit of coverage for Sailfish.
+Transcripts per Million (TPM) and (6) Estimated number of reads (an estimate
+of the number of reads drawn from this transcript given the transcript's
+relative abundance and length). The first two columns are self-explanatory,
+the next four are measures of transcript abundance and the final is a commonly
+used input for differential expression tools.  The Transcripts per Million
+quantification number is computed as described in [1]_, and is meant as an
+estimate of the number of transcripts, per million observed transcripts,
+originating from each isoform.  Its benefit over the F/RPKM measure is that it
+is independent of the mean expressed transcript length (i.e. if the mean
+expressed transcript length varies between samples, for example, this alone can
+affect differential analysis based on the K/RPKM.).
 
 References
 ----------
