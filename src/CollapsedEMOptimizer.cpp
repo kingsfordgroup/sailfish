@@ -330,7 +330,7 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     double scale = 1.0 / activeTranscriptIDs.size();
     for (size_t i = 0; i < transcripts.size(); ++i) {
         //double m = transcripts[i].mass(false);
-        alphas[i] = transcripts[i].getActive() ? scale : 0.0;
+        alphas[i] = transcripts[i].getActive() ? scale * totalNumFrags : 0.0;
         effLens(i) = transcripts[i].RefLength;
         totalLen += effLens(i);
     }
@@ -412,7 +412,7 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
 
     if (alphaSum < minWeight) {
         jointLog->error("Total alpha weight was too small! "
-                        "Make sure you ran salmon correclty.");
+                        "Make sure you ran sailfish correctly.");
         return false;
     }
 

@@ -381,6 +381,8 @@ int mainQuantify(int argc, char* argv[]) {
          "effective length correction when computing the probability that a fragment was generated "
          "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
          "into account when computing this probability.")
+        ("useVBOpt", po::bool_switch(&(sopt.useVBOpt))->default_value(false), "Use the Variational Bayesian EM rather than the "
+     			"traditional EM algorithm to estimate transcript abundances.")
         ("noFragLengthDist", po::bool_switch(&(sopt.noFragLengthDist))->default_value(false), "[Currently Experimental] : "
          "Don't consider concordance with the learned fragment length distribution when trying to determine "
          "the probability that a fragment has originated from a specified location.  Normally, Fragments with "
@@ -469,7 +471,12 @@ int mainQuantify(int argc, char* argv[]) {
         size_t max_q_size = 2097152;
         spdlog::set_async_mode(max_q_size);
 
-        auto fileSink = std::make_shared<spdlog::sinks::simple_file_sink_mt>(logPath.string(), true);
+        std::ofstream logFile(logPath.string());
+        if (!logFile.good()) {
+            std::cerr << "[WARNING]: Could not open log file --- this seems suspicious!\n";
+        }
+
+        auto fileSink = std::make_shared<spdlog::sinks::ostream_sink_mt>(logFile);
         auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
         auto consoleLog = spdlog::create("stderrLog", {consoleSink});
         auto fileLog = spdlog::create("fileLog", {fileSink});
@@ -581,6 +588,9 @@ int mainQuantify(int argc, char* argv[]) {
                         e.what());
             }
         }
+
+        jointLog->flush();
+        logFile.close();
 
     } catch (po::error &e) {
         std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";
