@@ -4,10 +4,9 @@ at our new software, [Salmon](https://COMBINE-lab.github.io/salmon).
 The documentation for Salmon and Sailfish is being migrated to [ReadTheDocs](http://readthedocs.org).
 To see [the latest documentation there](http://sailfish.readthedocs.org).
 
-Setting up Sailfish
-===================
+Documentation, Build Status and Gitter Channel:
+===============================================
 
-            for 
 [![Documentation Status](https://readthedocs.org/projects/sailfish/badge/?version=master)](http://sailfish.readthedocs.org)
 [![Build Status](https://travis-ci.org/kingsfordgroup/sailfish.svg?branch=master)](https://travis-ci.org/kingsfordgroup/sailfish)
 [![Join the chat at https://gitter.im/kingsfordgroup/ailfish](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/kingsfordgroup/sailfish?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
