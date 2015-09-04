@@ -477,29 +477,30 @@ int mainQuantify(int argc, char* argv[]) {
          "separated by a tab.  The extension of the file is used to determine how the file "
          "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
          "format; files with any other extension are assumed to be in the simple format.")
-       ("biasCorrect", po::value(&biasCorrect)->zero_tokens(), "[Experimental: Output both bias-corrected and non-bias-corrected "
-       "qunatification estimates.");
+       ("biasCorrect", po::value(&biasCorrect)->zero_tokens(), "[Experimental]: Output both bias-corrected and non-bias-corrected "
+         "qunatification estimates.");
 
     po::options_description advanced("\n"
             "advanced options");
     advanced.add_options()
+        /*
         ("fldMax" , po::value<size_t>(&(sopt.fragLenDistMax))->default_value(800), "The maximum fragment length to consider when building the empirical "
          "distribution")
-        ("fldMean", po::value<size_t>(&(sopt.fragLenDistPriorMean))->default_value(200), "The mean used in the fragment length distribution prior")
-        ("fldSD" , po::value<size_t>(&(sopt.fragLenDistPriorSD))->default_value(80), "The standard deviation used in the fragment length distribution prior")
+         */
+        ("fldMean", po::value<size_t>(&(sopt.fragLenDistPriorMean))->default_value(200),
+            "If single end reads are being used for quantification, or there are an insufficient "
+            "number of uniquely mapping reads when performing paired-end quantification to estimate "
+            "the empirical fragment length distribution, then use this value to calculate effective lengths")
+        ("fldSD" , po::value<size_t>(&(sopt.fragLenDistPriorSD))->default_value(80),
+            "The standard deviation used in the fragment length distribution for single-end quantification or "
+            "when an empirical distribution cannot be learned.")
         ("maxReadOcc,w", po::value<uint32_t>(&(sopt.maxReadOccs))->default_value(200), "Reads \"mapping\" to more than this many places won't be considered.")
         ("noEffectiveLengthCorrection", po::bool_switch(&(sopt.noEffectiveLengthCorrection))->default_value(false), "Disables "
          "effective length correction when computing the probability that a fragment was generated "
          "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
          "into account when computing this probability.")
         ("useVBOpt", po::bool_switch(&(sopt.useVBOpt))->default_value(false), "Use the Variational Bayesian EM rather than the "
-     			"traditional EM algorithm to estimate transcript abundances.")
-        ("noFragLengthDist", po::bool_switch(&(sopt.noFragLengthDist))->default_value(false), "[Currently Experimental] : "
-         "Don't consider concordance with the learned fragment length distribution when trying to determine "
-         "the probability that a fragment has originated from a specified location.  Normally, Fragments with "
-         "unlikely lengths will be assigned a smaller relative probability than those with more likely "
-         "lengths.  When this flag is passed in, the observed fragment length has no effect on that fragment's "
-         "a priori probability.");
+     			"traditional EM algorithm to estimate transcript abundances.");
 
     po::options_description all("sailfish quant options");
     all.add(generic).add(advanced);
