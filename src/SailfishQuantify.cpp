@@ -598,13 +598,8 @@ int mainQuantify(int argc, char* argv[]) {
         sopt.fileLog = fileLog;
 
         // Verify that no inconsistent options were provided
-        {
-            if (sopt.noFragLengthDist and !sopt.noEffectiveLengthCorrection) {
-                jointLog->info() << "Error: You cannot enable --noFragLengthDist without "
-                    << "also enabling --noEffectiveLengthCorrection; exiting!\n";
-                std::exit(1);
-            }
-        }
+        // {
+        // }
 
         jointLog->info() << "parsing read library format";
 
