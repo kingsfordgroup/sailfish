@@ -19,6 +19,7 @@ StreamingSequenceParser.cpp
 LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
+EmpiricalDistribution.cpp
 cokus.cpp
 xxhash.c
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapFileSystem.cpp

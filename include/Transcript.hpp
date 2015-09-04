@@ -12,13 +12,14 @@
 class Transcript {
 public:
     Transcript(size_t idIn, const char* name, uint32_t len) :
-        RefName(name), RefLength(len), id(idIn),
+        RefName(name), RefLength(len), EffectiveLength(len), id(idIn),
         mass_(0.0), estCount_(0.0), active_(false) { }
 
     Transcript(Transcript&& other) {
         id = other.id;
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
+        EffectiveLength = other.EffectiveLength;
         Sequence = other.Sequence;
         mass_.store(other.mass_.load());
         estCount_.store(other.estCount_.load());
@@ -29,6 +30,7 @@ public:
         id = other.id;
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
+        EffectiveLength = other.EffectiveLength;
         Sequence = other.Sequence;
         mass_.store(other.mass_.load());
         estCount_.store(other.estCount_.load());
@@ -116,6 +118,7 @@ public:
 
     std::string RefName;
     uint32_t RefLength;
+    double EffectiveLength;
     uint32_t id;
 
     double uniqueCounts{0.0};

@@ -331,7 +331,8 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     for (size_t i = 0; i < transcripts.size(); ++i) {
         //double m = transcripts[i].mass(false);
         alphas[i] = transcripts[i].getActive() ? scale * totalNumFrags : 0.0;
-        effLens(i) = transcripts[i].RefLength;
+        effLens(i) = (sopt.noEffectiveLengthCorrection) ?
+                        transcripts[i].RefLength : transcripts[i].EffectiveLength;
         totalLen += effLens(i);
     }
 

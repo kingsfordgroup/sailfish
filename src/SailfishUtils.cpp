@@ -77,33 +77,27 @@ namespace sailfish {
 
             double tfracDenom{0.0};
             for (auto& transcript : transcripts_) {
-                /** TODO: Effective Length **/
-                double refLength = transcript.RefLength;
-                /*
                 double refLength = sopt.noEffectiveLengthCorrection ?
                     transcript.RefLength :
-                    std::exp(transcript.getCachedEffectiveLength());
-                */
+                    transcript.EffectiveLength;
                 tfracDenom += (transcript.projectedCounts / numMappedFrags) / refLength;
             }
 
             double million = 1000000.0;
             // Now posterior has the transcript fraction
             for (auto& transcript : transcripts_) {
-                /** TODO: Effective Length **/
-                double logLength = std::log(transcript.RefLength);
-                /*
-                double logLength = sopt.noEffectiveLengthCorrection ?
-                    std::log(transcript.RefLength) :
-                    transcript.getCachedEffectiveLength();
-                */
+                double refLength = sopt.noEffectiveLengthCorrection ?
+                    transcript.RefLength :
+                    transcript.EffectiveLength;
                 double count = transcript.projectedCounts;
                 double npm = (transcript.projectedCounts / numMappedFrags);
-                double refLength = std::exp(logLength);
                 double tfrac = (npm / refLength) / tfracDenom;
                 double tpm = tfrac * million;
+                auto effLen = sopt.noEffectiveLengthCorrection ?
+                    transcript.RefLength :
+                    transcript.EffectiveLength;
                 fmt::print(output.get(), "{}\t{}\t{}\t{}\n",
-                        transcript.RefName, transcript.RefLength,
+                        transcript.RefName, transcript.RefLength, //effLen,
                         tpm, count);
             }
 
