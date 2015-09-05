@@ -149,6 +149,24 @@ void processReadsQuasi(paired_parser* parser,
                 flMap[jointHits.front().fragLen]++;
             }
 
+            // If these aren't paired-end reads --- so that
+            // we have orphans --- make sure we sort the
+            // mappings so that they are in transcript order
+            if (!isPaired) {
+                 // Find the end of the hits for the left read
+                 auto leftHitEndIt = std::partition_point(
+                        jointHits.begin(), jointHits.end(),
+                        [](const QuasiAlignment& q) -> bool {
+                        return q.mateStatus == rapmap::utils::MateStatus::PAIRED_END_LEFT;
+                        });
+                 // Merge the hits so that the entire list is in order
+                 // by transcript ID.
+                 std::inplace_merge(jointHits.begin(), leftHitEndIt, jointHits.end(),
+                         [](const QuasiAlignment& a, const QuasiAlignment& b) -> bool {
+                            return a.transcriptID() < b.transcriptID();
+                         });
+            }
+
             auto auxProb = 1.0 / jointHits.size();
             for (auto& h : jointHits) {
                 auto transcriptID = h.transcriptID();
