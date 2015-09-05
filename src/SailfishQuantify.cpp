@@ -149,60 +149,15 @@ void processReadsQuasi(paired_parser* parser,
                 flMap[jointHits.front().fragLen]++;
             }
 
-            // If the hits are paired, then we have only a single transcript
-            // group to add.
-            if (isPaired) {
-                auto auxProb = 1.0 / jointHits.size();
-                for (auto& h : jointHits) {
-                    auto transcriptID = h.transcriptID();
-                    txpIDs.push_back(transcriptID);
-                    auxProbs.push_back(auxProb);
-                    boost::hash_combine(txpIDsHash, transcriptID);
-                }
-                TranscriptGroup tg(txpIDs, txpIDsHash);
-                eqBuilder.addGroup(std::move(tg), auxProbs);
-            } else { // Otherwise, we have either one or two
-                // In this case, jointHits contains the set (possibly empty)
-                // of this for the left read followed by the set (possibly empty)
-                // of hits for the right read.
-
-                // Find the end of the hits for the left read
-                auto leftHitEndIt = std::partition_point(
-                        jointHits.begin(), jointHits.end(),
-                        [](const QuasiAlignment& q) -> bool {
-                            return q.mateStatus == rapmap::utils::MateStatus::PAIRED_END_LEFT;
-                        });
-                // Process the left orphans
-                auto numLeftHits = std::distance(jointHits.begin(), leftHitEndIt);
-                if (numLeftHits > 0) {
-                    auto auxProb = 1.0 / numLeftHits;
-                    for (auto hit = jointHits.begin(); hit != leftHitEndIt; ++hit) {
-                        auto transcriptID = hit->transcriptID();
-                        txpIDs.push_back(transcriptID);
-                        auxProbs.push_back(auxProb);
-                        boost::hash_combine(txpIDsHash, transcriptID);
-                    }
-                    TranscriptGroup tg(txpIDs, txpIDsHash);
-                    eqBuilder.addGroup(std::move(tg), auxProbs);
-                } // end processing left orphans
-
-                // Process the right orphans
-                auto numRightHits = std::distance(leftHitEndIt, jointHits.end());
-                if (numRightHits > 0) {
-                    auto auxProb = 1.0 / numRightHits;
-                    txpIDs.clear();
-                    auxProbs.clear();
-                    txpIDsHash = 0;
-                    for (auto hit = leftHitEndIt; hit != jointHits.end(); ++hit) {
-                        auto transcriptID = hit->transcriptID();
-                        txpIDs.push_back(transcriptID);
-                        auxProbs.push_back(auxProb);
-                        boost::hash_combine(txpIDsHash, transcriptID);
-                    }
-                    TranscriptGroup tg(txpIDs, txpIDsHash);
-                    eqBuilder.addGroup(std::move(tg), auxProbs);
-                } // end processing right orphans
-            } // end of processing orphaned mappings
+            auto auxProb = 1.0 / jointHits.size();
+            for (auto& h : jointHits) {
+                auto transcriptID = h.transcriptID();
+                txpIDs.push_back(transcriptID);
+                auxProbs.push_back(auxProb);
+                boost::hash_combine(txpIDsHash, transcriptID);
+            }
+            TranscriptGroup tg(txpIDs, txpIDsHash);
+            eqBuilder.addGroup(std::move(tg), auxProbs);
         }
 
         validHits += (jointHits.size() > 0);
