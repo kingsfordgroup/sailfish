@@ -283,7 +283,7 @@ void setEffectiveLengthsTrivial(ReadExperiment& readExp,
         for(size_t txpID = 0; txpID < transcripts.size(); ++txpID) {
             auto& txp = transcripts[txpID];
             double refLen = txp.RefLength;
-            if (txp.RefLength < sfOpts.fragLenDistPriorMean) {
+            if (txp.RefLength <= sfOpts.fragLenDistPriorMean) {
                 txp.EffectiveLength = refLen;
             } else {
                 // Maybe convolve this with the normal given the variance
@@ -406,7 +406,7 @@ void quasiMapReads(
                           *  originally written by Adam Roberts.
                           */
                         double refLen = txp.RefLength;
-                        if (refLen < empDist.median()) {
+                        if (refLen <= empDist.median()) {
                             txp.EffectiveLength = refLen;
                         } else {
                            uint32_t mval = empDist.maxValue();
