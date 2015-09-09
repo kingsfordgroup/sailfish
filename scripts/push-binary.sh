@@ -7,7 +7,7 @@ mkdir $HOME/SailfishBeta-latest_ubuntu-12.04/lib
 
 # copy over the executable and Intel TBB libraries
 echo -e "Copying over the binary and Intel TBB libraries\n"
-cp $TRAVIS_BUILD_DIR/bin/salmon $HOME/SailfishBeta-latest_ubuntu-12.04/bin/
+cp $TRAVIS_BUILD_DIR/bin/sailfish $HOME/SailfishBeta-latest_ubuntu-12.04/bin/
 cp $TRAVIS_BUILD_DIR/lib/libtbb* $HOME/SailfishBeta-latest_ubuntu-12.04/lib/
 
 # copy other dependencies (shared libraries)
