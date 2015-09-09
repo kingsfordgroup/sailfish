@@ -471,6 +471,7 @@ int mainQuantify(int argc, char* argv[]) {
     vector<string> unmatedReadFiles;
     vector<string> mate1ReadFiles;
     vector<string> mate2ReadFiles;
+    string txpAggregationKey;
 
     po::options_description generic("\n"
             "basic options");
@@ -509,10 +510,14 @@ int mainQuantify(int argc, char* argv[]) {
         ("fldMax" , po::value<size_t>(&(sopt.fragLenDistMax))->default_value(800), "The maximum fragment length to consider when building the empirical "
          "distribution")
          */
+        ("txpAggregationKey", po::value<std::string>(&txpAggregationKey)->default_value("gene_id"), "When generating the gene-level estimates, "
+            "use the provided key for aggregating transcripts.  The default is the \"gene_id\" field, but other fields (e.g. \"gene_name\") might "
+            "be useful depending on the specifics of the annotation being used.  Note: this option only affects aggregation when using a "
+            "GTF annotation; not an annotation in \"simple\" format.")
         ("fldMean", po::value<size_t>(&(sopt.fragLenDistPriorMean))->default_value(200),
             "If single end reads are being used for quantification, or there are an insufficient "
             "number of uniquely mapping reads when performing paired-end quantification to estimate "
-            "the empirical fragment length distribution, then use this value to calculate effective lengths")
+            "the empirical fragment length distribution, then use this value to calculate effective lengths.")
         ("fldSD" , po::value<size_t>(&(sopt.fragLenDistPriorSD))->default_value(80),
             "The standard deviation used in the fragment length distribution for single-end quantification or "
             "when an empirical distribution cannot be learned.")
@@ -710,6 +715,7 @@ int mainQuantify(int argc, char* argv[]) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                         outputDirectory,
+                        txpAggregationKey,
                         biasCorrect);
             } catch (std::invalid_argument& e) {
                 fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\

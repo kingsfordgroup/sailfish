@@ -586,6 +586,7 @@ namespace sailfish {
 
         void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
                 boost::filesystem::path& estDir,
+                std::string aggKey,
                 bool haveBiasCorrectedFile) {
             namespace bfs = boost::filesystem;
             std::cerr << "Computing gene-level abundance estimates\n";
@@ -596,7 +597,7 @@ namespace sailfish {
             // parse the map as a GTF file
             if (extension == gtfExtension) {
                 // Using libgff
-                tranGeneMap = sailfish::utils::transcriptGeneMapFromGTF(geneMapPath.string(), "gene_id");
+                tranGeneMap = sailfish::utils::transcriptGeneMapFromGTF(geneMapPath.string(), aggKey);
             } else { // parse the map as a simple format files
                 std::ifstream tgfile(geneMapPath.string());
                 tranGeneMap = sailfish::utils::readTranscriptToGeneMap(tgfile);
