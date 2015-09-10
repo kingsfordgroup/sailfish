@@ -158,15 +158,15 @@ Builds a Sailfish index
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
-	
+
         jointLog->info() << "computeBiasFeatures( {";
         for (auto& tf : transcriptFiles) {
             jointLog->info() << "[" << tf << "] ";
         }
 	std::string txpBiasFileName = transcriptBiasFile.string();
-        jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads); 
+        jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads);
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
-	
+
         bfs::path headerPath = outputPath / "header.json";
         mustRecompute = (force or !boost::filesystem::exists(headerPath));
 
@@ -198,7 +198,6 @@ Builds a Sailfish index
             argVec.push_back(outputPath.string().c_str());
             SailfishIndex sidx(jointLog);
             sidx.build(outputPath, argVec, merLen);
-
             /*
             TranscriptGeneMap tgmap;
             if (vm.count("tgmap") ) { // if we have a GTF file
