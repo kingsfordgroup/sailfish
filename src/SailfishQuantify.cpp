@@ -33,6 +33,7 @@
 #include "GenomicFeature.hpp"
 #include "TranscriptGeneMap.hpp"
 #include "CollapsedEMOptimizer.hpp"
+#include "CollapsedGibbsSampler.hpp"
 #include "ReadLibrary.hpp"
 #include "RapMapUtils.hpp"
 #include "HitManager.hpp"
@@ -527,8 +528,11 @@ int mainQuantify(int argc, char* argv[]) {
          "from a transcript.  If this flag is passed in, the fragment length distribution is not taken "
          "into account when computing this probability.")
         ("useVBOpt", po::bool_switch(&(sopt.useVBOpt))->default_value(false), "Use the Variational Bayesian EM rather than the "
-     			"traditional EM algorithm to estimate transcript abundances.");
-
+     			"traditional EM algorithm to estimate transcript abundances.")
+        ("useGSOpt", po::bool_switch(&(sopt.useGSOpt))->default_value(false), "[*super*-experimental]: After the initial optimization has finished, "
+            "use collapsed Gibbs sampling to refine estimates even further (and obtain variance)")
+        ("numGibbsSamples", po::value<uint32_t>(&(sopt.numGibbsSamples))->default_value(500), "[*super*-experimental]: Number of Gibbs sampling rounds to "
+            "perform.");
     po::options_description all("sailfish quant options");
     all.add(generic).add(advanced);
 
@@ -684,6 +688,13 @@ int mainQuantify(int argc, char* argv[]) {
 
         sailfish::utils::writeAbundancesFromCollapsed(
                 sopt, experiment, estFilePath, commentString);
+
+        if (sopt.useGSOpt) {
+            jointLog->info("Starting Gibbs Sampler");
+            CollapsedGibbsSampler sampler;
+            sampler.sample(experiment, sopt, sopt.numGibbsSamples);
+            jointLog->info("Finished Gibbs Sampler");
+        }
 
         /*
         // Now create a subdirectory for any parameters of interest

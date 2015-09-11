@@ -19,6 +19,7 @@ StreamingSequenceParser.cpp
 LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
+CollapsedGibbsSampler.cpp
 EmpiricalDistribution.cpp
 cokus.cpp
 xxhash.c

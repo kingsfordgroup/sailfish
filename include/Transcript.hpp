@@ -60,6 +60,11 @@ public:
         mass_.store(mass);
     }
 
+    inline double mass(bool fauxArg) {
+        return mass_.load();
+    }
+
+
     inline double mass() {
         return mass_.load();
     }
