@@ -1,7 +1,9 @@
-**Note**: If you're interested in Sailfish, you might also want to take a look
-at our new software, [Salmon](https://COMBINE-lab.github.io/salmon). 
+**Note**: If you're using a version of Sailfish prior to v0.7.0, please consider upgrading to the latest version as soon as is convenient.  It contains **substantial** improvements over v0.6.3 in terms of both accuracy and speed.
 
-The documentation for Salmon and Sailfish is being migrated to [ReadTheDocs](http://readthedocs.org).
+If you're interested in Sailfish, you might also want to take a look
+at our new software, [Salmon](https://COMBINE-lab.github.io/salmon).
+
+The documentation for Sailfish is being migrated to [ReadTheDocs](http://readthedocs.org).
 To see [the latest documentation there](http://sailfish.readthedocs.org).
 
 Documentation, Build Status and Gitter Channel:
@@ -16,7 +18,7 @@ Requirements:
 
 To build Sailfish from source, the following are required:
 
-* A C++-11 compliant version of GCC.  Any version of [g++](gcc.gnu.org) >= 4.7 
+* A C++-11 compliant version of GCC.  Any version of [g++](gcc.gnu.org) >= 4.7
   should work.
 
 * [CMake](www.cmake.org).  Sailfish uses the CMake build system to check,
@@ -27,7 +29,7 @@ To build Sailfish from source, the following are required:
 Installation and Usage:
 -----------------------
 
-For information about building, installing or using Sailfish, please refer 
+For information about building, installing or using Sailfish, please refer
 to [the documentation](https://travis-ci.org/kingsfordgroup/sailfish).
 
 License
