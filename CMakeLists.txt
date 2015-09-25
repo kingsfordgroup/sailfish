@@ -377,7 +377,8 @@ ExternalProject_Add(libgff
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
     DOWNLOAD_COMMAND curl -k -L https://github.com/Kingsford-Group/libgff/archive/v1.0.tar.gz -o libgff.tgz &&
     	tar -xzvf libgff.tgz &&
-	mv libgff-1.0 libgff
+        rm -fr libgff &&
+	    mv libgff-1.0 libgff
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libgff
     UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
