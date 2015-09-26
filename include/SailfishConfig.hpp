@@ -28,8 +28,8 @@
 namespace sailfish {
 	constexpr char majorVersion[] = "0";
 	constexpr char minorVersion[] = "7";
-	constexpr char patchVersion[] = "4";
-	constexpr char version[] = "0.7.4";
+	constexpr char patchVersion[] = "5";
+	constexpr char version[] = "0.7.5";
     constexpr uint32_t indexVersion = 1;
 }
 

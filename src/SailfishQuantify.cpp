@@ -406,13 +406,15 @@ void quasiMapReads(
                           *  (https://github.com/adarob/eXpress/blob/master/src/targets.cpp)
                           *  originally written by Adam Roberts.
                           */
+                        uint32_t minVal = empDist.minValue();
+                        uint32_t maxVal = empDist.maxValue();
+                        bool validDistSupport = (maxVal > minVal);
                         double refLen = txp.RefLength;
-                        if (refLen <= empDist.median()) {
+                        if (refLen <= empDist.median() or !validDistSupport) {
                             txp.EffectiveLength = refLen;
                         } else {
-                           uint32_t mval = empDist.maxValue();
                            double effectiveLength = 0.0;
-                           for (size_t l = empDist.minValue(); l <= std::min(txp.RefLength, mval); ++l) {
+                           for (size_t l = minVal; l <= std::min(txp.RefLength, maxVal); ++l) {
                                 effectiveLength += empDist.pdf(l) * (txp.RefLength - l + 1.0);
                             }
                             txp.EffectiveLength = effectiveLength;
