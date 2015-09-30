@@ -76,6 +76,9 @@ void incLoop(double& val, double inc) {
     val += inc;
 }
 
+/**
+ * Single-threaded EM-update routine for use in bootstrapping
+ */
 template <typename VecT>
 void EMUpdate_(
         std::vector<std::vector<uint32_t>>& txpGroupLabels,
@@ -124,6 +127,82 @@ void EMUpdate_(
         } else {
             incLoop(alphaOut[txps.front()], count);
         }
+    }
+}
+
+/**
+ * Single-threaded VBEM-update routine for use in bootstrapping
+ */
+template <typename VecT>
+void VBEMUpdate_(
+	std::vector<std::vector<uint32_t>>& txpGroupLabels,
+	std::vector<std::vector<double>>& txpGroupWeights,
+	std::vector<uint64_t>& txpGroupCounts,
+	std::vector<Transcript>& transcripts,
+	Eigen::VectorXd& effLens,
+        double priorAlpha,
+        double totLen,
+        const VecT& alphaIn,
+        VecT& alphaOut,
+	VecT& expTheta) {
+
+    assert(alphaIn.size() == alphaOut.size());
+
+    size_t numEQClasses = txpGroupLabels.size();
+    double alphaSum = {0.0};
+    for (auto& e : alphaIn) { alphaSum += e; }
+
+    double logNorm = boost::math::digamma(alphaSum);
+
+
+    double prior = priorAlpha;
+    double priorNorm = prior * totLen;
+
+    for (size_t i = 0; i < transcripts.size(); ++i) {
+	if (alphaIn[i] > ::minWeight) {
+	    expTheta[i] = std::exp(boost::math::digamma(alphaIn[i]) - logNorm);
+	} else {
+	    expTheta[i] = 0.0;
+	}
+	alphaOut[i] = prior;
+    }
+
+    for (size_t eqID = 0; eqID < numEQClasses; ++eqID) {
+	uint64_t count = txpGroupCounts[eqID];
+	const std::vector<uint32_t>& txps = txpGroupLabels[eqID]; 
+	const std::vector<double>& auxs = txpGroupWeights[eqID]; 
+
+	double denom = 0.0;
+	size_t groupSize = txps.size();
+	// If this is a single-transcript group,
+	// then it gets the full count.  Otherwise,
+	// update according to our VBEM rule.
+	if (BOOST_LIKELY(groupSize > 1)) {
+	    for (size_t i = 0; i < groupSize; ++i) {
+		auto tid = txps[i];
+		auto aux = auxs[i];
+		if (expTheta[tid] > 0.0) {
+		    double v = expTheta[tid] * aux;
+		    denom += v;
+		}
+	    }
+	    if (denom <= ::minEQClassWeight) {
+		// tgroup.setValid(false);
+	    } else {
+		double invDenom = count / denom;
+		for (size_t i = 0; i < groupSize; ++i) {
+		    auto tid = txps[i];
+		    auto aux = auxs[i];
+		    if (expTheta[tid] > 0.0) {
+			double v = expTheta[tid] * aux;
+			incLoop(alphaOut[tid], v * invDenom);
+		    }
+		}
+	    }
+
+	} else {
+	    incLoop(alphaOut[txps.front()], count);
+	}
     }
 }
 
@@ -361,10 +440,11 @@ bool doBootstrap(
         uint32_t maxIter) {
 
 
+    bool useVBEM{sopt.useVBOpt};
     size_t numClasses = txpGroups.size();
     CollapsedEMOptimizer::SerialVecType alphas(transcripts.size(), 0.0);
     CollapsedEMOptimizer::SerialVecType alphasPrime(transcripts.size(), 0.0);
-    // SerialVecT expTheta(transcripts.size(), 0.0);
+    CollapsedEMOptimizer::SerialVecType expTheta(transcripts.size(), 0.0);
     std::vector<uint64_t> sampCounts(numClasses, 0);
 
     uint32_t numBootstraps = sopt.numBootstraps;
@@ -376,26 +456,30 @@ bool doBootstrap(
         // Do a new bootstrap
         msamp(sampCounts.begin(), totalNumFrags, numClasses, sampleWeights.begin());
 
+	double totalLen{0.0};
         for (size_t i = 0; i < transcripts.size(); ++i) {
             alphas[i] = transcripts[i].getActive() ? uniformTxpWeight * totalNumFrags : 0.0;
+            totalLen += effLens(i);
         }
 
         bool converged{false};
         double maxRelDiff = -std::numeric_limits<double>::max();
         size_t itNum = 0;
-
+	
+	// If we use VBEM, we'll need the prior parameters
+	double priorAlpha = 0.01;
         double minAlpha = 1e-8;
-        double cutoff = minAlpha;//(useVBEM) ? (priorAlpha + minAlpha) : minAlpha;
+        double cutoff = (useVBEM) ? (priorAlpha + minAlpha) : minAlpha;
 
-        while (itNum < maxIter and !converged) {
+	while (itNum < maxIter and !converged) {
 
-            //if (useVBEM) {
-            //    VBEMUpdate_(txpGroups, txpGroupWeights, sampCounts, transcripts, effLens,
-            //            priorAlpha, totalLen, alphas, alphasPrime, expTheta);
-            //} else {
+            if (useVBEM) {
+		VBEMUpdate_(txpGroups, txpGroupWeights, sampCounts, transcripts, 
+			effLens, priorAlpha, totalLen, alphas, alphasPrime, expTheta);
+	    } else {
                 EMUpdate_(txpGroups, txpGroupWeights, sampCounts, transcripts,
                         effLens, alphas, alphasPrime);
-            //}
+            }
 
             converged = true;
             maxRelDiff = -std::numeric_limits<double>::max();
