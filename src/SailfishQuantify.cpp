@@ -40,6 +40,7 @@
 #include "SASearcher.hpp"
 #include "SACollector.hpp"
 #include "EmpiricalDistribution.hpp"
+#include "TextBootstrapWriter.hpp"
 
 #include "spdlog/spdlog.h"
 
@@ -534,7 +535,10 @@ int mainQuantify(int argc, char* argv[]) {
         ("useGSOpt", po::bool_switch(&(sopt.useGSOpt))->default_value(false), "[*super*-experimental]: After the initial optimization has finished, "
             "use collapsed Gibbs sampling to refine estimates even further (and obtain variance)")
         ("numGibbsSamples", po::value<uint32_t>(&(sopt.numGibbsSamples))->default_value(500), "[*super*-experimental]: Number of Gibbs sampling rounds to "
-            "perform.");
+            "perform.")
+        ("numBootstraps", po::value<uint32_t>(&(sopt.numBootstraps))->default_value(0), "[*super*-experimental]: Number of bootstrap samples to generate. Note: "
+            "This is mutually exclusive with Gibbs sampling.");
+
     po::options_description all("sailfish quant options");
     all.add(generic).add(advanced);
 
@@ -636,6 +640,12 @@ int mainQuantify(int argc, char* argv[]) {
 
         jointLog->info() << "parsing read library format";
 
+        if (sopt.useGSOpt and sopt.numBootstraps > 0) {
+            jointLog->error("You cannot perform both Gibbs sampling and bootstrapping. "
+                            "Please choose one.");
+            std::exit(1);
+        }
+
         vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
 
         SailfishIndexVersionInfo versionInfo;
@@ -696,8 +706,13 @@ int mainQuantify(int argc, char* argv[]) {
             CollapsedGibbsSampler sampler;
             sampler.sample(experiment, sopt, sopt.numGibbsSamples);
             jointLog->info("Finished Gibbs Sampler");
+        } else if (sopt.numBootstraps > 0) {
+            bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
+            std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
+            bsWriter->writeHeader(commentString, experiment.transcripts());
+            optimizer.gatherBootstraps(experiment, sopt,
+                      bsWriter.get(), 0.01, 10000);
         }
-
         /*
         // Now create a subdirectory for any parameters of interest
         bfs::path paramsDir = outputDirectory / "libParams";

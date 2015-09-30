@@ -78,6 +78,15 @@ namespace sailfish{
             } while (returnedMass != oldMass);
         }
 
+        /**
+         * Provide the above function for non-atomic variables
+         * (*not* thread safe!).
+         */
+        inline void incLoopLog(double& val, double inc) {
+            auto newMass = sailfish::math::logAdd(val, inc);
+            val = newMass;
+        }
+
         /*
          * Use atomic compare-and-swap to update val to
          * val + inc.  Update occurs in a loop in case other
@@ -92,6 +101,14 @@ namespace sailfish{
                 newMass = oldMass + inc;
                 returnedMass = val.compare_and_swap(newMass, oldMass);
             } while (returnedMass != oldMass);
+        }
+
+        /**
+         * Provide the above function for non-atomic variables
+         * (*not* thread safe!).
+         */
+        inline void incLoop(double& val, double inc) {
+            val += inc;
         }
 
 

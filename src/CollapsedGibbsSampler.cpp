@@ -36,7 +36,7 @@ void initCountMap_(
 	std::vector<Transcript>& transcriptsIn,
 	double priorAlpha,
         MultinomialSampler& msamp,
-        std::vector<int>& countMap,
+        std::vector<uint64_t>& countMap,
         std::vector<double>& probMap,
 	std::vector<int>& txpCounts) {
 
@@ -94,7 +94,7 @@ void initCountMap_(
 
 void sampleRound_(
         std::vector<std::pair<const TranscriptGroup, TGValue>>& eqVec,
-        std::vector<int>& countMap,
+        std::vector<uint64_t>& countMap,
         std::vector<double>& probMap,
         double priorAlpha,
         std::vector<int>& txpCount,
@@ -107,7 +107,7 @@ void sampleRound_(
     // Choose a fraction of this class to re-sample
 
     // The count substracted from each transcript
-    std::vector<int> txpResamp;
+    std::vector<uint64_t> txpResamp;
 
     for (auto& eqClass : eqVec) {
         uint64_t classCount = eqClass.second.count;
@@ -232,7 +232,7 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
                     }
                 }
 
-                std::vector<int> countMap(countMapSize, 0);
+                std::vector<uint64_t> countMap(countMapSize, 0);
                 std::vector<double> probMap(countMapSize, 0.0);
 
                 initCountMap_(eqVec, transcripts, priorAlpha, ms, countMap, probMap, allSamples[range.begin()]);

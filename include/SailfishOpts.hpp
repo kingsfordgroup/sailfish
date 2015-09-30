@@ -13,6 +13,7 @@ struct SailfishOpts {
     bool useVBOpt{false};
     bool useGSOpt{false};
     uint32_t numGibbsSamples;
+    uint32_t numBootstraps;
     uint32_t maxReadOccs;
     size_t fragLenDistMax;
     size_t fragLenDistPriorMean;
