@@ -50,15 +50,14 @@ class TextBootstrapWriter : public BootstrapWriter {
                     ofile_ << '\t';
                 }
             }
-            /*
+            ofile_ << '\n';
             for (size_t tn = 0; tn < numTxps; ++tn) {
                 auto& t  = transcripts[tn];
-                ofile_ << t.RefLength;
+                ofile_ << t.EffectiveLength;
                 if (tn < numTxps - 1) {
                     ofile_ << '\t';
                 }
             }
-            */
             ofile_ << '\n';
             return true;
         }

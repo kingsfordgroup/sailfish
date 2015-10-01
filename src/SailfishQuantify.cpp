@@ -76,6 +76,7 @@ void processReadsQuasi(paired_parser* parser,
                FragLengthCountMap& flMap,
 	           std::mutex& iomutex) {
 
+  uint32_t maxFragLen = sfOpts.maxFragLen;
   uint64_t prevObservedFrags{1};
   uint64_t leftHitCount{0};
   uint64_t hitListCount{0};
@@ -148,7 +149,10 @@ void processReadsQuasi(paired_parser* parser,
 
             // This is a unique hit
             if (jointHits.size() == 1 and isPaired) {
-                flMap[jointHits.front().fragLen]++;
+                auto& h = jointHits.front();
+                if (h.fragLen < maxFragLen) {
+                    flMap[jointHits.front().fragLen]++;
+                }
             }
 
             // If these aren't paired-end reads --- so that
@@ -514,6 +518,8 @@ int mainQuantify(int argc, char* argv[]) {
         ("fldMax" , po::value<size_t>(&(sopt.fragLenDistMax))->default_value(800), "The maximum fragment length to consider when building the empirical "
          "distribution")
          */
+        ("maxFragLen", po::value<uint32_t>(&(sopt.maxFragLen))->default_value(1500), "The maximum length of a fragment to consider when "
+            "building the empirical fragment length distribution")
         ("txpAggregationKey", po::value<std::string>(&txpAggregationKey)->default_value("gene_id"), "When generating the gene-level estimates, "
             "use the provided key for aggregating transcripts.  The default is the \"gene_id\" field, but other fields (e.g. \"gene_name\") might "
             "be useful depending on the specifics of the annotation being used.  Note: this option only affects aggregation when using a "
