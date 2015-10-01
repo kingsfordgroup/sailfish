@@ -28,6 +28,7 @@
 #include <array>
 #include <atomic>
 #include <thread>
+#include <mutex>
 
 #include "jellyfish/stream_manager.hpp"
 #include "jellyfish/whole_sequence_parser.hpp"
@@ -39,6 +40,7 @@
 #include <boost/filesystem.hpp>
 
 #include "CommonTypes.hpp"
+#include "SailfishSpinLock.hpp"
 
 // holding 2-mers as a uint64_t is a waste of space,
 // but using Jellyfish makes life so much easier, so
@@ -64,9 +66,15 @@ bool computeBiasFeaturesHelper(ParserT& parser,
     std::vector<std::thread> threads;
     auto tstart = std::chrono::steady_clock::now();
 
+#if defined __APPLE__
+        spin_lock writeMutex_;
+#else
+        std::mutex writeMutex_;
+#endif
+
     for (auto i : boost::irange(size_t{0}, numActors)) {
         threads.push_back(std::thread(
-	        [&featQueue, &numComplete, &parser, &readNum, &tstart, lshift, masq, merLen, numActors]() -> void {
+	        [&featQueue, &numComplete, &parser, &readNum, &tstart, &writeMutex_, lshift, masq, merLen, numActors]() -> void {
 
                 size_t cmlen, numKmers;
                 jellyfish::mer_dna_ns::mer_base_dynamic<uint64_t> kmer(merLen);
@@ -84,7 +92,12 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                             auto sec = std::chrono::duration_cast<std::chrono::seconds>(tend-tstart);
                             auto nsec = sec.count();
                             auto rate = (nsec > 0) ? readNum / sec.count() : 0;
-                            std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
+#if defined __APPLE__
+			    spin_lock::scoped_lock sl(writeMutex_);
+#else
+			    std::lock_guard<std::mutex> lock(writeMutex_);
+#endif
+			    std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
                         }
 
                         // we iterate over the entire read
