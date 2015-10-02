@@ -74,6 +74,7 @@ void processReadsQuasi(paired_parser* parser,
                ReadLibrary& rl,
                const SailfishOpts& sfOpts,
                FragLengthCountMap& flMap,
+               std::atomic<uint32_t>& remainingFLOps,
 	           std::mutex& iomutex) {
 
   uint32_t maxFragLen = sfOpts.maxFragLen;
@@ -148,10 +149,11 @@ void processReadsQuasi(paired_parser* parser,
             bool isPaired = jointHits.front().mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
 
             // This is a unique hit
-            if (jointHits.size() == 1 and isPaired) {
+            if (jointHits.size() == 1 and isPaired and remainingFLOps > 0) {
                 auto& h = jointHits.front();
-                if (h.fragLen < maxFragLen) {
-                    flMap[jointHits.front().fragLen]++;
+                if (h.fwd != h.mateIsFwd and h.fragLen < maxFragLen) {
+                    flMap[h.fragLen]++;
+                    remainingFLOps--;
                 }
             }
 
@@ -299,6 +301,130 @@ void setEffectiveLengthsTrivial(ReadExperiment& readExp,
         }
 }
 
+void computeEmpiricalEffectiveLengths(
+        const SailfishOpts& sfOpts,
+        std::vector<Transcript>& transcripts,
+        std::map<uint32_t, uint32_t>& jointMap) {
+            std::vector<uint32_t> vals;
+            std::vector<uint32_t> multiplicities;
+
+            vals.reserve(jointMap.size());
+            multiplicities.reserve(jointMap.size());
+
+            for (auto& kv : jointMap) {
+                vals.push_back(kv.first);
+                multiplicities.push_back(kv.second);
+            }
+
+            sfOpts.jointLog->info("Building empirical fragment length distribution");
+            EmpiricalDistribution empDist(vals, multiplicities);
+            sfOpts.jointLog->info("finished building empirical fragment length distribution");
+            using BlockedIndexRange =  tbb::blocked_range<size_t>;
+
+            tbb::task_scheduler_init tbbScheduler(sfOpts.numThreads);
+
+            sfOpts.jointLog->info("Estimating effective lengths");
+            sfOpts.jointLog->info("Emp. dist min = {}, Emp. dist max = {}",
+                                  empDist.minValue(), empDist.maxValue());
+
+            tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts.size())),
+                [&transcripts, &empDist](const BlockedIndexRange& range) -> void {
+                    for (auto txpID : boost::irange(range.begin(), range.end())) {
+                        auto& txp = transcripts[txpID];
+                       /**
+                          *  NOTE: Adopted from "est_effective_length" at
+                          *  (https://github.com/adarob/eXpress/blob/master/src/targets.cpp)
+                          *  originally written by Adam Roberts.
+                          */
+                        uint32_t minVal = empDist.minValue();
+                        uint32_t maxVal = empDist.maxValue();
+                        bool validDistSupport = (maxVal > minVal);
+                        double refLen = txp.RefLength;
+                        if (refLen <= empDist.median() or !validDistSupport) {
+                            txp.EffectiveLength = refLen;
+                        } else {
+                           double effectiveLength = 0.0;
+                           for (size_t l = minVal; l <= std::min(txp.RefLength, maxVal); ++l) {
+                                effectiveLength += empDist.pdf(l) * (txp.RefLength - l + 1.0);
+                            }
+                            txp.EffectiveLength = effectiveLength;
+                        }
+                    }
+                });
+}
+
+
+void computeSmoothedEffectiveLengths(
+        const SailfishOpts& sfOpts,
+        std::vector<Transcript>& transcripts,
+        std::map<uint32_t, uint32_t>& jointMap) {
+
+            auto maxLen = sfOpts.maxFragLen;
+
+            std::vector<double> correctionFactors(maxLen, 0.0);
+            std::vector<double> vals(maxLen, 0.0);
+            std::vector<uint32_t> multiplicities(maxLen, 0);
+
+            auto valIt = jointMap.find(0);
+            if (valIt != jointMap.end()) {
+                multiplicities[0] = valIt->second;
+            } else {
+                multiplicities[0] = 0;
+            }
+
+            sfOpts.jointLog->info(
+                    "Computing effective length factors --- max length = {}", maxLen);
+            uint32_t v{0};
+            for (size_t i = 1; i < maxLen; ++i) {
+                valIt = jointMap.find(i);
+                if (valIt == jointMap.end()) {
+                    v = 0;
+                } else {
+                    v = valIt->second;
+                }
+                vals[i] = static_cast<double>(v * i) + vals[i-1];
+                multiplicities[i] = v + multiplicities[i-1];
+                if (multiplicities[i] > 0) {
+                    correctionFactors[i] = vals[i] / static_cast<double>(multiplicities[i]);
+                }
+            }
+            sfOpts.jointLog->info("finished computing effective length factors");
+            sfOpts.jointLog->info("mean fragment length = {}", correctionFactors[maxLen-1]);
+
+
+            std::ofstream fldFile("fld.txt");
+            for (size_t i = 1; i < maxLen; ++i) {
+                fldFile << i << '\t' << correctionFactors[i] << '\n';
+            }
+            fldFile.close();
+
+
+            using BlockedIndexRange =  tbb::blocked_range<size_t>;
+            tbb::task_scheduler_init tbbScheduler(sfOpts.numThreads);
+            sfOpts.jointLog->info("Estimating effective lengths");
+
+            tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts.size())),
+                [&transcripts, &correctionFactors, maxLen](const BlockedIndexRange& range) -> void {
+
+                    for (auto txpID : boost::irange(range.begin(), range.end())) {
+                        auto& txp = transcripts[txpID];
+                        auto origLen = txp.RefLength;
+                        double correctionFactor = (origLen >= maxLen) ?
+                                                  correctionFactors[maxLen-1] :
+                                                  correctionFactors[origLen];
+
+                        double effLen = static_cast<double>(txp.RefLength) -
+                                        correctionFactor + 1.0;
+                        if (effLen < 1.0) {
+                            effLen = static_cast<double>(origLen);
+                        }
+
+                        txp.EffectiveLength = effLen;
+                    }
+                });
+}
+
+
 
 void quasiMapReads(
         ReadExperiment& readExp,
@@ -341,6 +467,8 @@ void quasiMapReads(
                 paired_parser(4 * numThreads, maxReadGroup,
                     concurrentFile, pairFileList, pairFileList+numFiles));
 
+        std::atomic<uint32_t> remainingFLOps{10000};
+
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
             // change value before the lambda below is evaluated --- crazy!
@@ -351,6 +479,7 @@ void quasiMapReads(
                         rl,
                         sfOpts,
                         flMaps[i],
+                        remainingFLOps,
                         iomutex);
             };
             threads.emplace_back(threadFun);
@@ -377,55 +506,15 @@ void quasiMapReads(
         // Note: if "noEffectiveLengthCorrection" is set, so that these values
         // won't matter anyway, then don't bother computing this "expensive"
         // version.
-        const size_t numRequiredFLDObs{50000};
-        if (totalObs > numRequiredFLDObs and !sfOpts.noEffectiveLengthCorrection) {
-            std::vector<uint32_t> vals;
-            std::vector<uint32_t> multiplicities;
+        const size_t numRequiredFLDObs{10000};
+        if (totalObs >= numRequiredFLDObs and !sfOpts.noEffectiveLengthCorrection) {
 
-            vals.reserve(jointMap.size());
-            multiplicities.reserve(jointMap.size());
-
-            for (auto& kv : jointMap) {
-                vals.push_back(kv.first);
-                multiplicities.push_back(kv.second);
+            if (sfOpts.useUnsmoothedFLD) {
+                computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
+            } else {
+                computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
             }
 
-            sfOpts.jointLog->info("Building empirical fragment length distribution");
-            EmpiricalDistribution empDist(vals, multiplicities);
-            sfOpts.jointLog->info("finished building empirical fragment length distribution");
-            using BlockedIndexRange =  tbb::blocked_range<size_t>;
-
-            tbb::task_scheduler_init tbbScheduler(sfOpts.numThreads);
-            auto& transcripts = readExp.transcripts();
-
-            sfOpts.jointLog->info("Estimating effective lengths");
-            sfOpts.jointLog->info("Emp. dist min = {}, Emp. dist max = {}",
-                                  empDist.minValue(), empDist.maxValue());
-
-            tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(transcripts.size())),
-                [&transcripts, &empDist](const BlockedIndexRange& range) -> void {
-                    for (auto txpID : boost::irange(range.begin(), range.end())) {
-                        auto& txp = transcripts[txpID];
-                       /**
-                          *  NOTE: Adopted from "est_effective_length" at
-                          *  (https://github.com/adarob/eXpress/blob/master/src/targets.cpp)
-                          *  originally written by Adam Roberts.
-                          */
-                        uint32_t minVal = empDist.minValue();
-                        uint32_t maxVal = empDist.maxValue();
-                        bool validDistSupport = (maxVal > minVal);
-                        double refLen = txp.RefLength;
-                        if (refLen <= empDist.median() or !validDistSupport) {
-                            txp.EffectiveLength = refLen;
-                        } else {
-                           double effectiveLength = 0.0;
-                           for (size_t l = minVal; l <= std::min(txp.RefLength, maxVal); ++l) {
-                                effectiveLength += empDist.pdf(l) * (txp.RefLength - l + 1.0);
-                            }
-                            txp.EffectiveLength = effectiveLength;
-                        }
-                    }
-                });
         } else {
             sfOpts.jointLog->warn("Sailfish saw fewer then {} uniquely mapped reads "
                                   "so {} will be used as the mean fragment length for "
@@ -518,7 +607,10 @@ int mainQuantify(int argc, char* argv[]) {
         ("fldMax" , po::value<size_t>(&(sopt.fragLenDistMax))->default_value(800), "The maximum fragment length to consider when building the empirical "
          "distribution")
          */
-        ("maxFragLen", po::value<uint32_t>(&(sopt.maxFragLen))->default_value(1500), "The maximum length of a fragment to consider when "
+        ("unsmoothedFLD", po::bool_switch(&(sopt.useUnsmoothedFLD))->default_value(false), "Use the \"un-smoothed\" "
+            "(i.e. traditional) approach to effective length correction by convolving the FLD with the "
+            "characteristic function over each transcript")
+        ("maxFragLen", po::value<uint32_t>(&(sopt.maxFragLen))->default_value(1000), "The maximum length of a fragment to consider when "
             "building the empirical fragment length distribution")
         ("txpAggregationKey", po::value<std::string>(&txpAggregationKey)->default_value("gene_id"), "When generating the gene-level estimates, "
             "use the provided key for aggregating transcripts.  The default is the \"gene_id\" field, but other fields (e.g. \"gene_name\") might "
