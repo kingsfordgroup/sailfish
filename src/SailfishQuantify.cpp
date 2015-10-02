@@ -392,11 +392,13 @@ void computeSmoothedEffectiveLengths(
             sfOpts.jointLog->info("mean fragment length = {}", correctionFactors[maxLen-1]);
 
 
+            /*
             std::ofstream fldFile("fld.txt");
             for (size_t i = 1; i < maxLen; ++i) {
                 fldFile << i << '\t' << correctionFactors[i] << '\n';
             }
             fldFile.close();
+            */
 
 
             using BlockedIndexRange =  tbb::blocked_range<size_t>;
