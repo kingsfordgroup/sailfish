@@ -801,6 +801,13 @@ int mainQuantify(int argc, char* argv[]) {
         sailfish::utils::writeAbundancesFromCollapsed(
                 sopt, experiment, estFilePath, commentString);
 
+        {
+          bfs::path statPath = outputDirectory / "stats.tsv";
+          std::ofstream statStream(statPath.string(), std::ofstream::out);
+          statStream << "numObservedFragments\t" << experiment.numObservedFragments() << '\n';
+          statStream.close();
+        }
+
         if (sopt.useGSOpt) {
             jointLog->info("Starting Gibbs Sampler");
             CollapsedGibbsSampler sampler;
