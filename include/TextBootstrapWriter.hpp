@@ -79,7 +79,7 @@ class TextBootstrapWriter : public BootstrapWriter {
                 }
             }
             ofile_ << '\n';
-            logger_->info("wrote {} bootstraps", numWritten_.load());
+            logger_->info("wrote {} bootstraps", numWritten_.load()+1);
             ++numWritten_;
             return true;
         }
