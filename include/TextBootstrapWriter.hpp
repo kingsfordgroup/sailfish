@@ -51,6 +51,7 @@ class TextBootstrapWriter : public BootstrapWriter {
                 }
             }
             ofile_ << '\n';
+            /*
             for (size_t tn = 0; tn < numTxps; ++tn) {
                 auto& t  = transcripts[tn];
                 ofile_ << t.EffectiveLength;
@@ -59,6 +60,7 @@ class TextBootstrapWriter : public BootstrapWriter {
                 }
             }
             ofile_ << '\n';
+            */
             return true;
         }
 

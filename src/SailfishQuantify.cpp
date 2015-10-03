@@ -805,6 +805,10 @@ int mainQuantify(int argc, char* argv[]) {
           bfs::path statPath = outputDirectory / "stats.tsv";
           std::ofstream statStream(statPath.string(), std::ofstream::out);
           statStream << "numObservedFragments\t" << experiment.numObservedFragments() << '\n';
+          for (auto& t : experiment.transcripts()) {
+              auto l = (sopt.noEffectiveLengthCorrection) ? t.RefLength : t.EffectiveLength;
+              statStream << t.RefName << '\t' << l << '\n';
+          }
           statStream.close();
         }
 
