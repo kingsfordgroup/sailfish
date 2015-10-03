@@ -65,7 +65,7 @@ namespace sailfish {
             std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(fname.c_str(), "w"), std::fclose);
 
             fmt::print(output.get(), "{}", headerComments);
-            fmt::print(output.get(), "# Name\tLength\tEffectiveLength\tTPM\tNumReads\n");
+            fmt::print(output.get(), "# Name\tLength\tTPM\tNumReads\n");
 
             double numMappedFrags = readExp.upperBoundHits();
 
