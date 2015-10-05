@@ -184,8 +184,9 @@ Builds a Sailfish index
             argVec.push_back("-k");
 
             if (merLen % 2 == 0) {
-                jointLog->info("k-mer length should be odd to avoid a k-mer being it's own reverse complement");
-                jointLog->info("please specify an odd value of k");
+		std::cerr << "k-mer length should be odd to avoid a k-mer being it's own reverse complement\n";
+		std::cerr << "please specify an odd value of k\n";
+		jointLog->flush();
                 std::exit(1);
             }
 
