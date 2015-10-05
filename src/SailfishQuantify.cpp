@@ -753,19 +753,6 @@ int mainQuantify(int argc, char* argv[]) {
         versionInfo.load(versionPath);
 
         ReadExperiment experiment(readLibraries, indexDirectory, sopt);
-
-        // Parameter validation
-        // If we're allowing orphans, make sure that the read libraries are paired-end.
-        // Otherwise, this option makes no sense.
-        if (sopt.allowOrphans) {
-            for (auto& rl : readLibraries) {
-                if (!rl.isPairedEnd()) {
-                    jointLog->error("You cannot specify the --allowOrphans argument "
-                            "for single-end libraries; exiting!");
-                    std::exit(1);
-                }
-            }
-        }
         // end parameter validation
 
 

@@ -4,13 +4,13 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.7.5")
+set(CPACK_PACKAGE_VERSION "0.7.6")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
 set(CPACK_PACKAGE_VERSION_MINOR "7")
-set(CPACK_PACKAGE_VERSION_PATCH "5")
+set(CPACK_PACKAGE_VERSION_PATCH "6")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
-set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University")
+set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University / Stony Brook University")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Sailfish - Alignment-free RNA-seq isoform quantification")
 set(CPACK_PACKAGE_NAME 
   "${CMAKE_PROJECT_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
@@ -177,7 +177,7 @@ endif()
 ##
 # Set the latest version and look for what we need
 ##
-set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55" "1.56" "1.57.0")
+set(Boost_ADDITIONAL_VERSIONS "1.53" "1.53.0" "1.54" "1.55" "1.56" "1.57.0" "1.58")
 find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options serialization)
 message("BOOST_INCLUDEDIR = ${BOOST_INCLUDEDIR}")
 message("BOOST_LIBRARYDIR = ${BOOST_LIBRARYDIR}")
