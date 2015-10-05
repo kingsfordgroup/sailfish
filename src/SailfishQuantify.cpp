@@ -632,9 +632,9 @@ int mainQuantify(int argc, char* argv[]) {
          "into account when computing this probability.")
         ("useVBOpt", po::bool_switch(&(sopt.useVBOpt))->default_value(false), "Use the Variational Bayesian EM rather than the "
      			"traditional EM algorithm to estimate transcript abundances.")
-        ("useGSOpt", po::bool_switch(&(sopt.useGSOpt))->default_value(false), "[*super*-experimental]: After the initial optimization has finished, "
-            "use collapsed Gibbs sampling to refine estimates even further (and obtain variance)")
-        ("numGibbsSamples", po::value<uint32_t>(&(sopt.numGibbsSamples))->default_value(500), "[*super*-experimental]: Number of Gibbs sampling rounds to "
+        //("useGSOpt", po::bool_switch(&(sopt.useGSOpt))->default_value(false), "[*super*-experimental]: After the initial optimization has finished, "
+        //    "use collapsed Gibbs sampling to refine estimates even further (and obtain variance)")
+        ("numGibbsSamples", po::value<uint32_t>(&(sopt.numGibbsSamples))->default_value(0), "[*super*-experimental]: Number of Gibbs sampling rounds to "
             "perform.")
         ("numBootstraps", po::value<uint32_t>(&(sopt.numBootstraps))->default_value(0), "[*super*-experimental]: Number of bootstrap samples to generate. Note: "
             "This is mutually exclusive with Gibbs sampling.");
@@ -740,7 +740,7 @@ int mainQuantify(int argc, char* argv[]) {
 
         jointLog->info() << "parsing read library format";
 
-        if (sopt.useGSOpt and sopt.numBootstraps > 0) {
+        if (sopt.numGibbsSamples > 0 and sopt.numBootstraps > 0) {
             jointLog->error("You cannot perform both Gibbs sampling and bootstrapping. "
                             "Please choose one.");
             std::exit(1);
@@ -799,7 +799,7 @@ int mainQuantify(int argc, char* argv[]) {
           statStream.close();
         }
 
-        if (sopt.useGSOpt) {
+        if (sopt.numGibbsSamples > 0) {
             jointLog->info("Starting Gibbs Sampler");
             CollapsedGibbsSampler sampler;
             sampler.sample(experiment, sopt, sopt.numGibbsSamples);
