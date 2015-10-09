@@ -33,6 +33,16 @@ using BlockedIndexRange =  tbb::blocked_range<size_t>;
 constexpr double minEQClassWeight = std::numeric_limits<double>::denorm_min();
 constexpr double minWeight = std::numeric_limits<double>::denorm_min();
 
+template <typename VecT>
+double truncateCountVector(VecT& alphas, double cutoff) {
+    double alphaSum = 0.0;
+    for (size_t i = 0; i < alphas.size(); ++i) {
+        if (alphas[i] <= cutoff) { alphas[i] = 0.0; }
+        alphaSum += alphas[i];
+    }
+    return alphaSum;
+}
+
 double normalize(std::vector<tbb::atomic<double>>& vec) {
     double sum{0.0};
     for (auto& v : vec) {
@@ -169,8 +179,8 @@ void VBEMUpdate_(
 
     for (size_t eqID = 0; eqID < numEQClasses; ++eqID) {
 	uint64_t count = txpGroupCounts[eqID];
-	const std::vector<uint32_t>& txps = txpGroupLabels[eqID]; 
-	const std::vector<double>& auxs = txpGroupWeights[eqID]; 
+	const std::vector<uint32_t>& txps = txpGroupLabels[eqID];
+	const std::vector<double>& auxs = txpGroupWeights[eqID];
 
 	double denom = 0.0;
 	size_t groupSize = txps.size();
@@ -440,6 +450,7 @@ bool doBootstrap(
         uint32_t maxIter) {
 
 
+    auto& jointLog = sopt.jointLog;
     bool useVBEM{sopt.useVBOpt};
     size_t numClasses = txpGroups.size();
     CollapsedEMOptimizer::SerialVecType alphas(transcripts.size(), 0.0);
@@ -465,7 +476,7 @@ bool doBootstrap(
         bool converged{false};
         double maxRelDiff = -std::numeric_limits<double>::max();
         size_t itNum = 0;
-	
+
 	// If we use VBEM, we'll need the prior parameters
 	double priorAlpha = 0.01;
         double minAlpha = 1e-8;
@@ -474,7 +485,7 @@ bool doBootstrap(
 	while (itNum < maxIter and !converged) {
 
             if (useVBEM) {
-		VBEMUpdate_(txpGroups, txpGroupWeights, sampCounts, transcripts, 
+		VBEMUpdate_(txpGroups, txpGroupWeights, sampCounts, transcripts,
 			effLens, priorAlpha, totalLen, alphas, alphasPrime, expTheta);
 	    } else {
                 EMUpdate_(txpGroups, txpGroupWeights, sampCounts, transcripts,
@@ -496,6 +507,15 @@ bool doBootstrap(
             }
 
             ++itNum;
+        }
+
+        // Truncate tiny expression values
+        double alphaSum = truncateCountVector(alphas, cutoff);
+
+        if (alphaSum < minWeight) {
+            jointLog->error("Total alpha weight was too small! "
+                    "Make sure you ran sailfish correctly.");
+            return false;
         }
 
         bootstrapWriter->writeBootstrap(alphas);
@@ -778,13 +798,7 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
                     itNum, maxRelDiff);
 
     // Truncate tiny expression values
-    double alphaSum = 0.0;
-
-    alphaSum = 0.0;
-    for (size_t i = 0; i < alphas.size(); ++i) {
-      if (alphas[i] <= cutoff) { alphas[i] = 0.0; }
-      alphaSum += alphas[i];
-    }
+    double alphaSum = truncateCountVector(alphas, cutoff);
 
     if (alphaSum < minWeight) {
         jointLog->error("Total alpha weight was too small! "
