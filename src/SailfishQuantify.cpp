@@ -700,13 +700,13 @@ int mainQuantify(int argc, char* argv[]) {
         logFile.close();
 
     } catch (po::error &e) {
-        std::cerr << "Exception : [" << e.what() << "]. Exiting.\n";
+        std::cerr << "Exception: [" << e.what() << "]. Exiting.\n";
         std::exit(1);
     } catch (const spdlog::spdlog_ex& ex) {
         std::cerr << "logger failed with : [" << ex.what() << "]. Exiting.\n";
         std::exit(1);
     } catch (std::exception& e) {
-        std::cerr << "Exception : [" << e.what() << "]\n";
+        std::cerr << "Exception: [" << e.what() << "]\n";
         std::cerr << argv[0] << " quant was invoked improperly.\n";
         std::cerr << "For usage information, try " << argv[0] << " quant --help\nExiting.\n";
         std::exit(1);
