@@ -32,7 +32,7 @@ class SailfishIndex{
             if (versionInfo_.indexVersion() == 0) {
                 fmt::MemoryWriter infostr;
                 infostr << "Error: The index version file " << versionPath.string()
-                    << " doesn't seem to exist.  Please try re-building the salmon "
+                    << " doesn't seem to exist.  Please try re-building the sailfish "
                     "index.";
                 throw std::invalid_argument(infostr.str());
             }
@@ -84,7 +84,7 @@ class SailfishIndex{
                 quasiIndex_.reset(new RapMapSAIndex);
                 if (!quasiIndex_->load(indexStr)) {
                     fmt::print(stderr, "Couldn't open index [{}] --- ", indexPath);
-                    fmt::print(stderr, "Please make sure that 'salmon index' has been run successfully\n");
+                    fmt::print(stderr, "Please make sure that 'sailfish index' has been run successfully\n");
                     std::exit(1);
                 }
             }

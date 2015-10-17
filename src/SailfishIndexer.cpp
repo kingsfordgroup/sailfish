@@ -231,10 +231,10 @@ Builds a Sailfish index
         }
 
     } catch (po::error &e) {
-        std::cerr << "exception : [" << e.what() << "]. Exiting.\n";
+        std::cerr << "Exception: [" << e.what() << "]. Exiting.\n";
         std::exit(1);
     } catch (std::exception& e) {
-        std::cerr << "Exception : [" << e.what() << "]\n";
+        std::cerr << "Exception: [" << e.what() << "]\n";
         std::cerr << argv[0] << " index was invoked improperly.\n";
         std::cerr << "For usage information, try " << argv[0] << " index --help\nExiting.\n";
     }
