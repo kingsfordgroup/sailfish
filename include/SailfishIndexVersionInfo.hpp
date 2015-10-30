@@ -23,7 +23,7 @@ class SailfishIndexVersionInfo {
             if(!bfs::exists(versionFile)) {
                 fmt::MemoryWriter infostr;
                 infostr << "Error: The index version file " << versionFile.string()
-                    << " doesn't seem to exist.  Please try re-building the salmon "
+                    << " doesn't seem to exist.  Please try re-building the sailfish "
                     "index.";
                 throw std::invalid_argument(infostr.str());
             }
