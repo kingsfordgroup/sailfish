@@ -585,10 +585,12 @@ int mainQuantify(int argc, char* argv[]) {
          "File containing the #1 mates")
         ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
          "File containing the #2 mates")
+        /*
         ("allowOrphans", po::bool_switch(&(sopt.allowOrphans))->default_value(true), "Consider orphaned reads as valid hits when "
          "performing lightweight-alignment.  This option will increase sensitivity (allow more reads to map and "
          "more transcripts to be detected), but may decrease specificity as orphaned alignments are more likely "
          "to be spurious.")
+         */
         ("threads,p", po::value<uint32_t>(&(sopt.numThreads))->default_value(sopt.numThreads), "The number of threads to use concurrently.")
         ("output,o", po::value<std::string>()->required(), "Output quantification file.")
         ("geneMap,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "

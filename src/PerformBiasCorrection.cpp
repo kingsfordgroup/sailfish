@@ -219,7 +219,7 @@ int performBiasCorrectionSalmon(
                 pcavec.push_back(f.gcContent);
                 featMat(fnum, 0) = f.gcContent;
                 for (auto i : boost::irange(size_t{0}, f.diNucleotides.size())) {
-                        featMat(fnum, i) = f.diNucleotides[i];
+                        featMat(fnum, i+1) = f.diNucleotides[i];
                         pcavec.push_back(f.diNucleotides[i]);
                 }
                 ++fnum;
