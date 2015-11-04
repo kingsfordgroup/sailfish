@@ -28,6 +28,7 @@
 #include <array>
 #include <atomic>
 #include <thread>
+#include <mutex>
 
 #include "jellyfish/stream_manager.hpp"
 #include "jellyfish/whole_sequence_parser.hpp"
@@ -39,6 +40,7 @@
 #include <boost/filesystem.hpp>
 
 #include "CommonTypes.hpp"
+#include "SailfishSpinLock.hpp"
 
 // holding 2-mers as a uint64_t is a waste of space,
 // but using Jellyfish makes life so much easier, so
@@ -52,7 +54,7 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                                tbb::concurrent_bounded_queue<TranscriptFeatures>& featQueue,
                                size_t& numComplete, size_t numThreads) {
 
-    using stream_manager = jellyfish::stream_manager<char**>;
+    using stream_manager = jellyfish::stream_manager<std::vector<std::string>::iterator>;
     using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
 
     size_t merLen = 2;
@@ -64,9 +66,15 @@ bool computeBiasFeaturesHelper(ParserT& parser,
     std::vector<std::thread> threads;
     auto tstart = std::chrono::steady_clock::now();
 
+#if defined __APPLE__
+        spin_lock writeMutex_;
+#else
+        std::mutex writeMutex_;
+#endif
+
     for (auto i : boost::irange(size_t{0}, numActors)) {
         threads.push_back(std::thread(
-	        [&featQueue, &numComplete, &parser, &readNum, &tstart, lshift, masq, merLen, numActors]() -> void {
+	        [&featQueue, &numComplete, &parser, &readNum, &tstart, &writeMutex_, lshift, masq, merLen, numActors]() -> void {
 
                 size_t cmlen, numKmers;
                 jellyfish::mer_dna_ns::mer_base_dynamic<uint64_t> kmer(merLen);
@@ -84,7 +92,12 @@ bool computeBiasFeaturesHelper(ParserT& parser,
                             auto sec = std::chrono::duration_cast<std::chrono::seconds>(tend-tstart);
                             auto nsec = sec.count();
                             auto rate = (nsec > 0) ? readNum / sec.count() : 0;
-                            std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
+#if defined __APPLE__
+			    spin_lock::scoped_lock sl(writeMutex_);
+#else
+			    std::lock_guard<std::mutex> lock(writeMutex_);
+#endif
+			    std::cerr << "processed " << readNum << " transcripts (" << rate << ") transcripts/s\r\r";
                         }
 
                         // we iterate over the entire read
@@ -169,7 +182,6 @@ int computeBiasFeatures(
     tbb::concurrent_bounded_queue<TranscriptFeatures> featQueue;
 
     std::ofstream ofile(outFilePath.string());
-
     auto outputThread = std::thread(
          [&ofile, &numComplete, &featQueue, numActors]() -> void {
              TranscriptFeatures tf{};
@@ -195,28 +207,24 @@ int computeBiasFeatures(
     }
     std::cerr << "\n";
 
-    for (auto& readFile : transcriptFiles) {
-        std::cerr << "file " << readFile << ": \n";
+    for (auto readFile : transcriptFiles) {
 
-        //namespace bfs = boost::filesystem;
-        //bfs::path filePath(readFile);
-
-        char* pc = new char[readFile.size() + 1];
-        std::strcpy(pc, readFile.c_str());
-        char* fnames[] = {pc};
+	std::vector<std::string> fnames;
+	std::string rfname = readFile;
+	fnames.push_back(rfname);
+        std::cerr << "file " << fnames.front() << ": \n";
 
         // Create a jellyfish parser
         const int concurrentFile{1};
 
-        using stream_manager = jellyfish::stream_manager<char**>;
+        using stream_manager = jellyfish::stream_manager<std::vector<std::string>::iterator>;
         using sequence_parser = jellyfish::whole_sequence_parser<stream_manager>;
-        stream_manager streams(fnames, fnames + 1, concurrentFile);
+        stream_manager streams(fnames.begin(), fnames.end(), concurrentFile);
 
         size_t maxReadGroupSize{100};
         sequence_parser parser(1*numActors, maxReadGroupSize, concurrentFile, streams);
         computeBiasFeaturesHelper<sequence_parser>(
                 parser, featQueue, numComplete, numActors);
-        delete pc;
     }
 
     std::cerr << "\n";
