@@ -138,11 +138,13 @@ void processReadsQuasi(paired_parser* parser,
 
         if (jointHits.size() > sfOpts.maxReadOccs ) { jointHits.clear(); }
 
+	/*
         if (!sfOpts.allowOrphans) {
             if (jointHits.size() > 0 and jointHits.front().mateStatus != MateStatus::PAIRED_END_PAIRED) {
                 jointHits.clear();
             }
         }
+	*/
 
         if (jointHits.size() > 0) {
             // Are the jointHits paired-end quasi-mappings or orphans?
@@ -152,8 +154,8 @@ void processReadsQuasi(paired_parser* parser,
             if (jointHits.size() == 1 and isPaired and remainingFLOps > 0) {
                 auto& h = jointHits.front();
                 if (h.fwd != h.mateIsFwd and h.fragLen < maxFragLen) {
-                    flMap[h.fragLen]++;
                     remainingFLOps--;
+                    flMap[h.fragLen]++;
                 }
             }
 

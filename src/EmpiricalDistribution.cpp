@@ -13,11 +13,20 @@
 
 EmpiricalDistribution::EmpiricalDistribution(EmpiricalDistribution& other)
     : pdfvals(other.pdfvals) , cdfvals(other.cdfvals) , med(other.med),
-      minVal(other.minVal), maxVal(other.maxVal) { }
+      minVal(other.minVal), maxVal(other.maxVal) { isValid_.store(other.isValid_.load()); }
 
+
+EmpiricalDistribution::EmpiricalDistribution() {}
 
 EmpiricalDistribution::EmpiricalDistribution(
         const std::vector<uint32_t>& vals,
+        const std::vector<uint32_t>& lens) {
+    buildDistribution(vals, lens);
+}
+
+
+void EmpiricalDistribution::buildDistribution(
+    	const std::vector<uint32_t>& vals,
         const std::vector<uint32_t>& lens) {
     assert(vals.size() == lens.size());
     auto n = vals.size();
@@ -80,8 +89,8 @@ EmpiricalDistribution::EmpiricalDistribution(
         }
     }
     med = vals[i];
+    isValid_ = true;
 }
-
 
 uint32_t EmpiricalDistribution::minValue() const {
     return minVal;
@@ -93,7 +102,7 @@ uint32_t EmpiricalDistribution::maxValue() const {
 }
 
 bool EmpiricalDistribution::valid() const {
-    return (pdfvals.size() > 0);
+    return (isValid_ and (pdfvals.size() > 0));
 }
 
 float EmpiricalDistribution::median() const

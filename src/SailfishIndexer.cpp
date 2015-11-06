@@ -116,6 +116,22 @@ Builds a Sailfish index
         // Check to make sure that the specified output directory either doesn't exist, or is
         // a valid path (e.g. not a file)
         namespace bfs = boost::filesystem;
+
+        // Ensure that the transcript file provided by the user exists
+        auto txpFile = transcriptFiles.front();
+        if (!bfs::exists(txpFile)) {
+            std::cerr << "The provided transcript file [" << txpFile << "] does not seem to exist!\n";
+            std::cerr << "Please check that the correct path was provided.\n";
+            std::exit(1);
+        }
+        // and that it is, in fact, a file
+        if (bfs::is_directory(txpFile)) {
+            std::cerr << "The provided transcript file [" << txpFile << "] appears to be a directory!\n";
+            std::cerr << "Please check that the correct path was provided.\n";
+            std::exit(1);
+        }
+
+        // Check that the output path doesn't exist yet (or at least is not a file)
         if (bfs::exists(outputStem) and !bfs::is_directory(outputStem)) {
             std::cerr << "The provided output path [" << outputStem << "] " <<
                          "already exists and is not a directory\n.";
@@ -163,7 +179,7 @@ Builds a Sailfish index
         for (auto& tf : transcriptFiles) {
             jointLog->info() << "[" << tf << "] ";
         }
-	std::string txpBiasFileName = transcriptBiasFile.string();
+        std::string txpBiasFileName = transcriptBiasFile.string();
         jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads);
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
 
@@ -184,9 +200,9 @@ Builds a Sailfish index
             argVec.push_back("-k");
 
             if (merLen % 2 == 0) {
-		std::cerr << "k-mer length should be odd to avoid a k-mer being it's own reverse complement\n";
-		std::cerr << "please specify an odd value of k\n";
-		jointLog->flush();
+                std::cerr << "k-mer length should be odd to avoid a k-mer being it's own reverse complement\n";
+                std::cerr << "please specify an odd value of k\n";
+                jointLog->flush();
                 std::exit(1);
             }
 
