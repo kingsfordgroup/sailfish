@@ -30,7 +30,7 @@ Installation and Usage:
 -----------------------
 
 For information about building, installing or using Sailfish, please refer
-to [the documentation](https://travis-ci.org/kingsfordgroup/sailfish).
+to [the documentation](http://sailfish.readthedocs.org/).
 
 License
 =======
