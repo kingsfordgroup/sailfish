@@ -180,9 +180,9 @@ void processReadsQuasi(paired_parser* parser,
                 auto transcriptID = h.transcriptID();
                 txpIDs.push_back(transcriptID);
                 auxProbs.push_back(auxProb);
-                boost::hash_combine(txpIDsHash, transcriptID);
+                //boost::hash_combine(txpIDsHash, transcriptID);
             }
-            TranscriptGroup tg(txpIDs, txpIDsHash);
+            TranscriptGroup tg(txpIDs);
             eqBuilder.addGroup(std::move(tg), auxProbs);
         }
 
@@ -262,9 +262,9 @@ void processReadsQuasi(single_parser* parser,
                     auto transcriptID = h.transcriptID();
                     txpIDs.push_back(transcriptID);
                     auxProbs.push_back(auxProb);
-                    boost::hash_combine(txpIDsHash, transcriptID);
+                    //boost::hash_combine(txpIDsHash, transcriptID);
                 }
-                TranscriptGroup tg(txpIDs, txpIDsHash);
+                TranscriptGroup tg(txpIDs);
                 eqBuilder.addGroup(std::move(tg), auxProbs);
             }
 
