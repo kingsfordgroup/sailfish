@@ -128,7 +128,7 @@ Builds a Sailfish index
         if (!bfs::exists(outputStem)) {
             mustRecompute = true;
             try {
-                bool success = bfs::create_directory(outputStem);
+                bool success = bfs::create_directories(outputStem);
                 if (!success) { throw std::runtime_error("unspecified error creating file."); }
             } catch ( std::exception& e ) {
                 std::cerr << "Creation of " << outputStem << " failed [" << e.what() << "]\n.";
@@ -141,7 +141,7 @@ Builds a Sailfish index
 
         // create the directory for log files
         bfs::path logDir = outputPath / "logs";
-        boost::filesystem::create_directory(logDir);
+        boost::filesystem::create_directories(logDir);
 
         bfs::path logPath = logDir / "sailfish_index.log";
         size_t max_q_size = 2097152;
@@ -184,9 +184,9 @@ Builds a Sailfish index
             argVec.push_back("-k");
 
             if (merLen % 2 == 0) {
-		std::cerr << "k-mer length should be odd to avoid a k-mer being it's own reverse complement\n";
-		std::cerr << "please specify an odd value of k\n";
-		jointLog->flush();
+                std::cerr << "k-mer length should be odd to avoid a k-mer being it's own reverse complement\n";
+                std::cerr << "please specify an odd value of k\n";
+                jointLog->flush();
                 std::exit(1);
             }
 

@@ -17,6 +17,7 @@
 #include <boost/range/irange.hpp>
 
 // TBB include
+#include "tbb/atomic.h"
 #include "tbb/blocked_range.h"
 #include "tbb/parallel_for.h"
 
@@ -56,31 +57,51 @@ using single_parser = jellyfish::whole_sequence_parser<stream_manager>;
 /****** Parser aliases ***/
 
 
-using FragLengthCountMap = std::unordered_map<uint32_t, uint64_t>;
+// using FragLengthCountMap = std::unordered_map<uint32_t, uint64_t>;
+using FragLengthCountMap = std::vector<tbb::atomic<uint32_t>>;
 
 using std::string;
 
 constexpr uint32_t readGroupSize{1000};
 
 int performBiasCorrectionSalmon(boost::filesystem::path featPath,
-                          boost::filesystem::path expPath,
-                        boost::filesystem::path outPath,
-                          size_t numThreads);
+                                boost::filesystem::path expPath,
+                                boost::filesystem::path outPath,
+                                size_t numThreads);
 
 
+int32_t getMeanFragLen(FragLengthCountMap& flMap) {
+    double totalCount{0.0};
+    double totalLength{0.0};
+    for (size_t i = 0; i < flMap.size(); ++i) {
+        totalLength += i * flMap[i];
+        totalCount += flMap[i];
+    }
+    double ret{200.0};
+    if (totalCount <= 0.0) {
+        std::cerr << "Saw no fragments; can't get mean fragment length\n";
+        std::cerr << "This appears to be a bug. Please report it on GitHub\n";
+        return ret;
+    }
+    if (totalLength > totalCount) {
+        ret = (totalLength / totalCount);
+    }
+    return static_cast<uint32_t>(ret);
+}
 
 void processReadsQuasi(paired_parser* parser,
                ReadExperiment& readExp,
                ReadLibrary& rl,
                const SailfishOpts& sfOpts,
                FragLengthCountMap& flMap,
-               std::atomic<uint32_t>& remainingFLOps,
+               std::atomic<int32_t>& remainingFLOps,
 	           std::mutex& iomutex) {
 
   uint32_t maxFragLen = sfOpts.maxFragLen;
   uint64_t prevObservedFrags{1};
   uint64_t leftHitCount{0};
   uint64_t hitListCount{0};
+  int32_t meanFragLen{-1};
 
   size_t locRead{0};
   uint64_t localUpperBoundHits{0};
@@ -91,9 +112,10 @@ void processReadsQuasi(paired_parser* parser,
 
   auto& numObservedFragments = readExp.numObservedFragmentsAtomic();
   auto& validHits = readExp.numMappedFragmentsAtomic();
-  auto&totalHits = readExp.numFragHitsAtomic();
+  auto& totalHits = readExp.numFragHitsAtomic();
   auto& upperBoundHits = readExp.upperBoundHitsAtomic();
   auto& eqBuilder = readExp.equivalenceClassBuilder();
+  auto& transcripts = readExp.transcripts();
 
   auto sidx = readExp.getIndex();
   SACollector hitCollector(sidx->quasiIndex());
@@ -107,6 +129,9 @@ void processReadsQuasi(paired_parser* parser,
   std::vector<uint32_t> txpIDs;
   std::vector<double> auxProbs;
   size_t txpIDsHash{0};
+  double priorFragProb{0.0};
+
+  std::unique_ptr<EmpiricalDistribution> empDist{nullptr};
 
   while(true) {
     typename paired_parser::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
@@ -120,19 +145,22 @@ void processReadsQuasi(paired_parser* parser,
         rightHits.clear();
         txpIDs.clear();
         auxProbs.clear();
-        txpIDsHash = 0;
 
         bool lh = hitCollector(j->data[i].first.seq,
                                leftHits, saSearcher,
-                               MateStatus::PAIRED_END_LEFT);
+                               MateStatus::PAIRED_END_LEFT,
+							   true // strict check
+							   );
 
         bool rh = hitCollector(j->data[i].second.seq,
                                rightHits, saSearcher,
-                               MateStatus::PAIRED_END_RIGHT);
+                               MateStatus::PAIRED_END_RIGHT,
+							   true // strict check
+							   );
 
         rapmap::utils::mergeLeftRightHits(
-                               leftHits, rightHits, jointHits,
-                               readLen, maxNumHits, tooManyHits, hctr);
+                leftHits, rightHits, jointHits,
+                readLen, maxNumHits, tooManyHits, hctr);
 
         upperBoundHits += (jointHits.size() > 0);
 
@@ -151,11 +179,14 @@ void processReadsQuasi(paired_parser* parser,
             // This is a unique hit
             if (jointHits.size() == 1 and isPaired and remainingFLOps > 0) {
                 auto& h = jointHits.front();
+
                 if (h.fwd != h.mateIsFwd and h.fragLen < maxFragLen) {
                     flMap[h.fragLen]++;
                     remainingFLOps--;
                 }
+
             }
+
 
             // If these aren't paired-end reads --- so that
             // we have orphans --- make sure we sort the
@@ -175,15 +206,59 @@ void processReadsQuasi(paired_parser* parser,
                          });
             }
 
-            auto auxProb = 1.0 / jointHits.size();
+
+            double auxSum = 0.0;
             for (auto& h : jointHits) {
                 auto transcriptID = h.transcriptID();
-                txpIDs.push_back(transcriptID);
-                auxProbs.push_back(auxProb);
-                //boost::hash_combine(txpIDsHash, transcriptID);
+
+                if (!isPaired and remainingFLOps <= 0) {
+                    if (meanFragLen < 0) {
+                        meanFragLen = getMeanFragLen(flMap);
+                    }
+                    int32_t pos = static_cast<int32_t>(h.pos);
+                    if (h.fwd and (pos + meanFragLen) <= transcripts[transcriptID].RefLength) {
+                        txpIDs.push_back(transcriptID);
+                        auxProbs.push_back(1.0);
+                        auxSum += 1.0;
+                    } else if (!h.fwd and (pos - meanFragLen) >= 0 ) {
+                        txpIDs.push_back(transcriptID);
+                        auxProbs.push_back(1.0);
+                        auxSum += 1.0;
+                    }
+                } else {
+                    double distProb = 1.0;
+                    /* -- don't use this info for the time being
+                    if (remainingFLOps <= 0) {
+                        if (!empDist) {
+                            size_t totObs{0};
+                            std::vector<uint32_t> vals(flMap.size());
+                            std::vector<uint32_t> freq(flMap.size());
+                            for (size_t i = 0; i < flMap.size(); ++i) {
+                                vals[i] = i;
+                                freq[i] = flMap[i];
+                                totObs += freq[i];
+                            }
+                            empDist.reset(new EmpiricalDistribution(vals, freq));
+                            priorFragProb = 0.1 / totObs;
+                        }
+                        distProb = empDist->pdf(h.fragLen) + priorFragProb;
+                    }
+                    */
+                    txpIDs.push_back(transcriptID);
+                    auxProbs.push_back(distProb);
+                    auxSum += distProb;
+                }
+
             }
-            TranscriptGroup tg(txpIDs);
-            eqBuilder.addGroup(std::move(tg), auxProbs);
+            if (txpIDs.size() > 0) {
+                /*
+                for (auto& p : auxProbs) {
+                    p /= auxSum;
+                }
+                */
+                TranscriptGroup tg(txpIDs);
+                eqBuilder.addGroup(std::move(tg), auxProbs);
+            }
         }
 
         validHits += (jointHits.size() > 0);
@@ -193,7 +268,9 @@ void processReadsQuasi(paired_parser* parser,
         if (numObservedFragments % 500000 == 0) {
     	    iomutex.lock();
             fmt::print(stderr, "\033[A\r\rprocessed {} fragments\n", numObservedFragments);
-            fmt::print(stderr, "hits per frag:  {}", totalHits / static_cast<float>(prevObservedFrags));
+            fmt::print(stderr, "hits: {}; hits per frag:  {}",
+                    totalHits,
+                    totalHits / static_cast<float>(prevObservedFrags));
             iomutex.unlock();
         }
 
@@ -220,7 +297,7 @@ void processReadsQuasi(single_parser* parser,
 
     auto& numObservedFragments = readExp.numObservedFragmentsAtomic();
     auto& validHits = readExp.numMappedFragmentsAtomic();
-    auto&totalHits = readExp.numFragHitsAtomic();
+    auto& totalHits = readExp.numFragHitsAtomic();
     auto& upperBoundHits = readExp.upperBoundHitsAtomic();
     auto& eqBuilder = readExp.equivalenceClassBuilder();
 
@@ -275,7 +352,9 @@ void processReadsQuasi(single_parser* parser,
             if (numObservedFragments % 500000 == 0) {
                 iomutex.lock();
                 fmt::print(stderr, "\033[A\r\rprocessed {} fragments\n", numObservedFragments);
-                fmt::print(stderr, "hits per frag:  {}", totalHits / static_cast<float>(prevObservedFrags));
+                fmt::print(stderr, "hits: {}; hits per frag:  {}",
+                        totalHits,
+                        totalHits / static_cast<float>(prevObservedFrags));
                 iomutex.unlock();
             }
 
@@ -285,19 +364,40 @@ void processReadsQuasi(single_parser* parser,
     }
 }
 
-void setEffectiveLengthsTrivial(ReadExperiment& readExp,
+std::vector<double> getNormalFragLengthDist(
+        const SailfishOpts& sfOpts) {
+
+    std::vector<double> correctionFactors(sfOpts.maxFragLen, 0.0);
+    auto maxLen = sfOpts.maxFragLen;
+    auto mean = sfOpts.fragLenDistPriorMean;
+    auto sd = sfOpts.fragLenDistPriorSD;
+
+    auto kernel = [mean, sd](double p) -> double {
+        double invStd = 1.0 / sd;
+        double x = invStd * (p - mean);
+        return std::exp(-0.5 * x * x) * invStd;
+    };
+
+    double cumulativeMass{0.0};
+    double cumulativeDenisty{0.0};
+    for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
+        auto d = kernel(static_cast<double>(i));
+        cumulativeMass += i * d;
+        cumulativeDenisty += d;
+        if (cumulativeDenisty > 0) {
+            correctionFactors[i] = cumulativeMass / cumulativeDenisty;
+        }
+    }
+    return correctionFactors;
+}
+
+void setEffectiveLengthsDirect(ReadExperiment& readExp,
         const SailfishOpts& sfOpts) {
         auto& transcripts = readExp.transcripts();
         for(size_t txpID = 0; txpID < transcripts.size(); ++txpID) {
             auto& txp = transcripts[txpID];
             double refLen = txp.RefLength;
-            if (txp.RefLength <= sfOpts.fragLenDistPriorMean) {
-                txp.EffectiveLength = refLen;
-            } else {
-                // Maybe convolve this with the normal given the variance
-                // provided by the user.
-                txp.EffectiveLength = refLen - sfOpts.fragLenDistPriorMean;
-            }
+            txp.EffectiveLength = txp.RefLength;
         }
 }
 
@@ -353,54 +453,52 @@ void computeEmpiricalEffectiveLengths(
                 });
 }
 
+std::vector<double> correctionFactorsFromCounts(
+        const SailfishOpts& sfOpts,
+        std::map<uint32_t, uint32_t>& jointMap) {
+    auto maxLen = sfOpts.maxFragLen;
+
+    std::vector<double> correctionFactors(maxLen, 0.0);
+    std::vector<double> vals(maxLen, 0.0);
+    std::vector<uint32_t> multiplicities(maxLen, 0);
+
+    auto valIt = jointMap.find(0);
+    if (valIt != jointMap.end()) {
+        multiplicities[0] = valIt->second;
+    } else {
+        multiplicities[0] = 0;
+    }
+
+    sfOpts.jointLog->info(
+            "Computing effective length factors --- max length = {}",
+            maxLen);
+
+    uint32_t v{0};
+    for (size_t i = 1; i < maxLen; ++i) {
+        valIt = jointMap.find(i);
+        if (valIt == jointMap.end()) {
+            v = 0;
+        } else {
+            v = valIt->second;
+        }
+        vals[i] = static_cast<double>(v * i) + vals[i-1];
+        multiplicities[i] = v + multiplicities[i-1];
+        if (multiplicities[i] > 0) {
+            correctionFactors[i] = vals[i] / static_cast<double>(multiplicities[i]);
+        }
+    }
+    sfOpts.jointLog->info("finished computing effective length factors");
+    sfOpts.jointLog->info("mean fragment length = {}", correctionFactors[maxLen-1]);
+
+    return correctionFactors;
+}
 
 void computeSmoothedEffectiveLengths(
         const SailfishOpts& sfOpts,
         std::vector<Transcript>& transcripts,
-        std::map<uint32_t, uint32_t>& jointMap) {
+        std::vector<double>& correctionFactors) {
 
             auto maxLen = sfOpts.maxFragLen;
-
-            std::vector<double> correctionFactors(maxLen, 0.0);
-            std::vector<double> vals(maxLen, 0.0);
-            std::vector<uint32_t> multiplicities(maxLen, 0);
-
-            auto valIt = jointMap.find(0);
-            if (valIt != jointMap.end()) {
-                multiplicities[0] = valIt->second;
-            } else {
-                multiplicities[0] = 0;
-            }
-
-            sfOpts.jointLog->info(
-                    "Computing effective length factors --- max length = {}", maxLen);
-            uint32_t v{0};
-            for (size_t i = 1; i < maxLen; ++i) {
-                valIt = jointMap.find(i);
-                if (valIt == jointMap.end()) {
-                    v = 0;
-                } else {
-                    v = valIt->second;
-                }
-                vals[i] = static_cast<double>(v * i) + vals[i-1];
-                multiplicities[i] = v + multiplicities[i-1];
-                if (multiplicities[i] > 0) {
-                    correctionFactors[i] = vals[i] / static_cast<double>(multiplicities[i]);
-                }
-            }
-            sfOpts.jointLog->info("finished computing effective length factors");
-            sfOpts.jointLog->info("mean fragment length = {}", correctionFactors[maxLen-1]);
-
-
-            /*
-            std::ofstream fldFile("fld.txt");
-            for (size_t i = 1; i < maxLen; ++i) {
-                fldFile << i << '\t' << correctionFactors[i] << '\n';
-            }
-            fldFile.close();
-            */
-
-
             using BlockedIndexRange =  tbb::blocked_range<size_t>;
             tbb::task_scheduler_init tbbScheduler(sfOpts.numThreads);
             sfOpts.jointLog->info("Estimating effective lengths");
@@ -426,6 +524,15 @@ void computeSmoothedEffectiveLengths(
                 });
 }
 
+std::vector<std::string> split(const std::string &s, char delim) {
+  std::stringstream ss(s);
+  std::string item;
+  std::vector<std::string> elems;
+  while (std::getline(ss, item, delim)) {
+    elems.push_back(item);
+  }
+  return elems;
+}
 
 
 void quasiMapReads(
@@ -443,8 +550,8 @@ void quasiMapReads(
     std::unique_ptr<single_parser> singleParserPtr{nullptr};
 
     // Remember the fragment lengths that we see in each thread
-    std::vector<FragLengthCountMap> flMaps(numThreads);
-
+    //std::vector<FragLengthCountMap> flMaps(numThreads);
+    FragLengthCountMap flMap(sfOpts.maxFragLen, 0);
 
     // If the read library is paired-end
     // ------ Paired-end --------
@@ -469,7 +576,8 @@ void quasiMapReads(
                 paired_parser(4 * numThreads, maxReadGroup,
                     concurrentFile, pairFileList, pairFileList+numFiles));
 
-        std::atomic<uint32_t> remainingFLOps{10000};
+        int32_t numRequiredFLDObs{10000};
+        std::atomic<int32_t> remainingFLOps{numRequiredFLDObs};
 
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
@@ -480,7 +588,7 @@ void quasiMapReads(
                         readExp,
                         rl,
                         sfOpts,
-                        flMaps[i],
+                        flMap,
                         remainingFLOps,
                         iomutex);
             };
@@ -490,13 +598,11 @@ void quasiMapReads(
         size_t totalObs{0};
         std::map<uint32_t, uint32_t> jointMap;
 
-        for(int i = 0; i < numThreads; ++i) {
-            threads[i].join();
-            auto& flMap = flMaps[i];
-            for (auto& kv : flMap) {
-                jointMap[kv.first] += kv.second;
-                totalObs += kv.second;
-            }
+        for(int i = 0; i < numThreads; ++i) { threads[i].join(); }
+
+        for (size_t i = 0; i < flMap.size(); ++i) {
+            jointMap[i] = flMap[i];
+            totalObs += flMap[i];
         }
 
         sfOpts.jointLog->info("Gathered fragment lengths from all threads");
@@ -508,21 +614,28 @@ void quasiMapReads(
         // Note: if "noEffectiveLengthCorrection" is set, so that these values
         // won't matter anyway, then don't bother computing this "expensive"
         // version.
-        const size_t numRequiredFLDObs{10000};
-        if (totalObs >= numRequiredFLDObs and !sfOpts.noEffectiveLengthCorrection) {
-
-            if (sfOpts.useUnsmoothedFLD) {
-                computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
-            } else {
-                computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
-            }
-
+        if (sfOpts.noEffectiveLengthCorrection) {
+            setEffectiveLengthsDirect(readExp, sfOpts);
         } else {
-            sfOpts.jointLog->warn("Sailfish saw fewer then {} uniquely mapped reads "
-                                  "so {} will be used as the mean fragment length for "
-                                  "effective length correction", numRequiredFLDObs,
-                                  sfOpts.fragLenDistPriorMean);
-            setEffectiveLengthsTrivial(readExp, sfOpts);
+            // We didn't have sufficient observations, use the provided
+            // values
+            if (remainingFLOps > 0) {
+                sfOpts.jointLog->warn("Sailfish saw fewer then {} uniquely mapped reads "
+                        "so {} will be used as the mean fragment length and {} as "
+                        "the standard deviation for effective length correction",
+                        numRequiredFLDObs,
+                        sfOpts.fragLenDistPriorMean,
+                        sfOpts.fragLenDistPriorSD);
+                auto correctionFactors = getNormalFragLengthDist(sfOpts);
+                computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
+            } else {
+                if (sfOpts.useUnsmoothedFLD) {
+                    computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
+                } else {
+                    auto correctionFactors = correctionFactorsFromCounts(sfOpts, jointMap);
+                    computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
+                }
+            }
         }
     } // ------ Single-end --------
     else if (rl.format().type == ReadType::SINGLE_END) {
@@ -552,7 +665,12 @@ void quasiMapReads(
             threads.emplace_back(threadFun);
         }
         for(int i = 0; i < numThreads; ++i) { threads[i].join(); }
-        setEffectiveLengthsTrivial(readExp, sfOpts);
+        if (sfOpts.noEffectiveLengthCorrection) {
+            setEffectiveLengthsDirect(readExp, sfOpts);
+        } else {
+            auto correctionFactors = getNormalFragLengthDist(sfOpts);
+            computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
+        }
     } // ------ END Single-end --------
 }
 
@@ -566,6 +684,7 @@ int mainQuantify(int argc, char* argv[]) {
     bool biasCorrect{false};
     SailfishOpts sopt;
     sopt.numThreads = std::thread::hardware_concurrency();
+    sopt.allowOrphans = true;
 
     vector<string> unmatedReadFiles;
     vector<string> mate1ReadFiles;
@@ -616,6 +735,7 @@ int mainQuantify(int argc, char* argv[]) {
             "characteristic function over each transcript")
         ("maxFragLen", po::value<uint32_t>(&(sopt.maxFragLen))->default_value(1000), "The maximum length of a fragment to consider when "
             "building the empirical fragment length distribution")
+      	//("readEqClasses", po::value<std::string>(&eqClassFile), "Read equivalence classes in directly")
         ("txpAggregationKey", po::value<std::string>(&txpAggregationKey)->default_value("gene_id"), "When generating the gene-level estimates, "
             "use the provided key for aggregating transcripts.  The default is the \"gene_id\" field, but other fields (e.g. \"gene_name\") might "
             "be useful depending on the specifics of the annotation being used.  Note: this option only affects aggregation when using a "
@@ -763,18 +883,15 @@ int mainQuantify(int argc, char* argv[]) {
         experiment.equivalenceClassBuilder().start();
 
         std::mutex ioMutex;
-        fmt::print(stderr, "\n\n");
-        quasiMapReads(experiment, sopt, ioMutex);
-        fmt::print(stderr, "Done Quasi-Mapping \n\n");
+		fmt::print(stderr, "\n\n");
+		quasiMapReads(experiment, sopt, ioMutex);
+		fmt::print(stderr, "Done Quasi-Mapping \n\n");
+		experiment.equivalenceClassBuilder().finish();
 
-        experiment.equivalenceClassBuilder().finish();
-        // Now that the streaming pass is complete, we have
-        // our initial estimates, and our rich equivalence
-        // classes.  Perform further optimization until
-        // convergence.
+        // Now that we have our reads mapped and our equivalence
+        // classes, iterate the abundance estimates to convergence.
         CollapsedEMOptimizer optimizer;
         jointLog->info("Starting optimizer");
-        //sailfish::utils::normalizeAlphas(sopt, experiment);
         optimizer.optimize(experiment, sopt, 0.01, 10000);
         jointLog->info("Finished optimizer");
 
@@ -867,7 +984,60 @@ int mainQuantify(int argc, char* argv[]) {
         std::cerr << "For usage information, try " << argv[0] << " quant --help\nExiting.\n";
         std::exit(1);
     }
-
-
     return 0;
 }
+
+
+/**
+void loadEquivClasses(const std::string& eqClassFile,
+								      ReadExperiment&  readExp) {
+
+				auto& numObservedFragments = readExp.numObservedFragmentsAtomic();
+				auto& validHits = readExp.numMappedFragmentsAtomic();
+				auto& totalHits = readExp.numFragHitsAtomic();
+				auto& upperBoundHits = readExp.upperBoundHitsAtomic();
+
+				auto& eqClassBuilder = readExp.equivalenceClassBuilder();
+
+				auto& transcripts = readExp.transcripts();
+
+				std::unordered_map<std::string, uint32_t> nameMap;
+				size_t i{0};
+				for (auto& t : transcripts) {
+				  nameMap[t.RefName] = i;
+				  i += 1;
+				}
+
+				std::ifstream ifile(eqClassFile);
+				std::string line;
+				std::cerr << "reading equivalence classes\n";
+				i = 0;
+				while (std::getline(ifile, line)) {
+				  auto toks = split(line, '\t');
+
+					std::vector<uint32_t> txpIDs;
+					for (size_t tn=0; tn < toks.size() - 1; ++tn) {
+				    txpIDs.push_back(nameMap[toks[tn]]);
+					}
+					std::sort(txpIDs.begin(), txpIDs.end());
+
+					uint32_t count = static_cast<uint32_t>(std::stoul(toks.back()));
+					numObservedFragments += count;
+					validHits += count;
+					totalHits += count;
+					upperBoundHits += count;
+					TranscriptGroup tg(txpIDs);
+					eqClassBuilder.insertGroup(tg, count);
+					if (i % 1000 == 1) {
+				    std::cerr << "read " << i << " equivalence classes\n";
+						std::cerr << "[\t";
+						for (auto txp : txpIDs) {
+								std::cerr << txp << '\t';
+						}
+						std::cerr << "] : " << count << "\n";
+					}
+					++i;
+				}
+}
+**/
+
