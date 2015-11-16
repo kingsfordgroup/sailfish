@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdio>
+#include <chrono>
 #include <iostream>
 #include <cstdlib>
 #include <fstream>
@@ -70,7 +71,12 @@ int performBiasCorrectionSalmon(boost::filesystem::path featPath,
                                 size_t numThreads);
 
 
-int32_t getMeanFragLen(FragLengthCountMap& flMap) {
+/**
+ * Compute and return the mean fragment length ---
+ * rounded down to the nearest integer --- of the fragment
+ * length distribution.
+ */
+int32_t getMeanFragLen(const FragLengthCountMap& flMap) {
     double totalCount{0.0};
     double totalLength{0.0};
     for (size_t i = 0; i < flMap.size(); ++i) {
@@ -79,8 +85,8 @@ int32_t getMeanFragLen(FragLengthCountMap& flMap) {
     }
     double ret{200.0};
     if (totalCount <= 0.0) {
-        std::cerr << "Saw no fragments; can't get mean fragment length\n";
-        std::cerr << "This appears to be a bug. Please report it on GitHub\n";
+        std::cerr << "Saw no fragments; can't compute mean fragment length.\n";
+        std::cerr << "This appears to be a bug. Please report it on GitHub.\n";
         return ret;
     }
     if (totalLength > totalCount) {
@@ -89,7 +95,14 @@ int32_t getMeanFragLen(FragLengthCountMap& flMap) {
     return static_cast<uint32_t>(ret);
 }
 
+/**
+ * For paired-end reads:
+ * Do the main work of mapping the reads and building
+ * the equivalence classes.
+ */
+template <typename IndexT>
 void processReadsQuasi(paired_parser* parser,
+               IndexT* sidx,
                ReadExperiment& readExp,
                ReadLibrary& rl,
                const SailfishOpts& sfOpts,
@@ -117,20 +130,34 @@ void processReadsQuasi(paired_parser* parser,
   auto& eqBuilder = readExp.equivalenceClassBuilder();
   auto& transcripts = readExp.transcripts();
 
-  auto sidx = readExp.getIndex();
-  SACollector hitCollector(sidx->quasiIndex());
-  SASearcher saSearcher(sidx->quasiIndex());
+  //auto sidx = readExp.getIndex();
+  SACollector<IndexT> hitCollector(sidx);
+  SASearcher<IndexT> saSearcher(sidx);
   rapmap::utils::HitCounters hctr;
 
   std::vector<QuasiAlignment> leftHits;
   std::vector<QuasiAlignment> rightHits;
   std::vector<QuasiAlignment> jointHits;
 
-  std::vector<uint32_t> txpIDs;
-  std::vector<double> auxProbs;
-  size_t txpIDsHash{0};
-  double priorFragProb{0.0};
+  std::vector<uint32_t> txpIDsAll;
+  std::vector<double> auxProbsAll;
 
+  std::vector<uint32_t> txpIDsCompat;
+  std::vector<double> auxProbsCompat;
+
+  // *Completely* ignore strandedness information
+  bool ignoreCompat = sfOpts.ignoreLibCompat;
+  // Don't *strictly* enforce compatibility --- if
+  // the only hits are incompatible with the library
+  // type then allow them.
+  bool enforceCompat = sfOpts.enforceLibCompat;
+  // True when we have compatible hits, false otherwise
+  bool haveCompat{false};
+  auto expectedLibType = rl.format();
+
+  bool canDovetail = sfOpts.allowDovetail;
+
+  bool mappedFrag{false};
   std::unique_ptr<EmpiricalDistribution> empDist{nullptr};
 
   while(true) {
@@ -143,8 +170,12 @@ void processReadsQuasi(paired_parser* parser,
         jointHits.clear();
         leftHits.clear();
         rightHits.clear();
-        txpIDs.clear();
-        auxProbs.clear();
+        txpIDsAll.clear();
+        auxProbsAll.clear();
+        txpIDsCompat.clear();
+        auxProbsCompat.clear();
+        haveCompat = false;
+        mappedFrag = false;
 
         bool lh = hitCollector(j->data[i].first.seq,
                                leftHits, saSearcher,
@@ -176,99 +207,134 @@ void processReadsQuasi(paired_parser* parser,
             // Are the jointHits paired-end quasi-mappings or orphans?
             bool isPaired = jointHits.front().mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
 
-            // This is a unique hit
-            if (jointHits.size() == 1 and isPaired and remainingFLOps > 0) {
-                auto& h = jointHits.front();
+            // If these aren't paired-end reads --- so that
+            // we have orphans --- make sure we sort the
+            // mappings so that they are in transcript order
+            if (!isPaired) {
+                // Find the end of the hits for the left read
+                auto leftHitEndIt = std::partition_point(
+                        jointHits.begin(), jointHits.end(),
+                        [](const QuasiAlignment& q) -> bool {
+                        return q.mateStatus == rapmap::utils::MateStatus::PAIRED_END_LEFT;
+                        });
+                // Merge the hits so that the entire list is in order
+                // by transcript ID.
+                std::inplace_merge(jointHits.begin(), leftHitEndIt, jointHits.end(),
+                        [](const QuasiAlignment& a, const QuasiAlignment& b) -> bool {
+                        return a.transcriptID() < b.transcriptID();
+                        });
+            }
 
-                if (h.fwd != h.mateIsFwd and h.fragLen < maxFragLen) {
+
+            double auxSumAll = 0.0;
+            double auxSumCompat = 0.0;
+            for (auto& h : jointHits) {
+                auto transcriptID = h.transcriptID();
+
+                if (!isPaired) {
+                    if (remainingFLOps <= 0 and meanFragLen < 0) {
+                        meanFragLen = getMeanFragLen(flMap);
+                    }
+
+                    int32_t pos = static_cast<int32_t>(h.pos);
+
+                    // True if the read is compatible with the
+                    // expected library type; false otherwise.
+                    bool compat = ignoreCompat;
+                    if (!compat) {
+                        compat = sailfish::utils::compatibleHit(
+                                expectedLibType, pos,
+                                h.fwd, h.mateStatus);
+                    }
+
+                    bool positionOK = (
+                            (h.fwd and (pos + meanFragLen) <= static_cast<int32_t>(transcripts[transcriptID].RefLength))
+                            or
+                            (!h.fwd and (pos - meanFragLen) >= 0 )
+                            );
+
+                    if (positionOK) {
+                        if (compat) {
+                            haveCompat = true;
+                            txpIDsCompat.push_back(transcriptID);
+                            auxProbsCompat.push_back(1.0);
+                            auxSumCompat += 1.0;
+                        }
+                        if (!haveCompat and !enforceCompat) {
+                            txpIDsAll.push_back(transcriptID);
+                            auxProbsAll.push_back(1.0);
+                            auxSumAll += 1.0;
+                        }
+                    }
+                } else {
+                    bool compat = ignoreCompat;
+                    if (!compat) {
+                        uint32_t end1Pos = (h.fwd) ? h.pos : h.pos + h.readLen;
+                        uint32_t end2Pos = (h.mateIsFwd) ? h.matePos : h.matePos + h.mateLen;
+                        auto observedLibType =
+                            sailfish::utils::hitType(end1Pos, h.fwd, h.readLen,
+                                    end2Pos, h.mateIsFwd,
+                                    h.mateLen, canDovetail);
+                        compat = sailfish::utils::compatibleHit(
+                                expectedLibType, observedLibType);
+                    }
+                    if (compat) {
+                        haveCompat = true;
+                        txpIDsCompat.push_back(transcriptID);
+                        auxProbsCompat.push_back(1.0);
+                        auxSumCompat += 1.0;
+                    }
+                    if (!haveCompat and !enforceCompat) {
+                        txpIDsAll.push_back(transcriptID);
+                        auxProbsAll.push_back(1.0);
+                        auxSumAll += 1.0;
+                    }
+                }
+            }
+
+            // NOTE: Normalize auxProbs here if we end up
+            // using these weights.
+
+            // If we have compatible hits, only use those
+            if (haveCompat) {
+                if (txpIDsCompat.size() > 0) {
+                    mappedFrag = true;
+                    TranscriptGroup tg(txpIDsCompat);
+                    eqBuilder.addGroup(std::move(tg), auxProbsCompat);
+                }
+            } else {
+                if (txpIDsAll.size() > 0) {
+                    // Otherwise, consider all hits.
+                    mappedFrag = true;
+                    TranscriptGroup tg(txpIDsAll);
+                    eqBuilder.addGroup(std::move(tg), auxProbsAll);
+                }
+            }
+        }
+
+        if (jointHits.size() == 1) {
+            auto& h = jointHits.front();
+            // Are the jointHits paired-end quasi-mappings or orphans?
+            bool isPaired = h.mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
+
+            // This is a unique hit
+            if (isPaired and remainingFLOps > 0) {
+                if (mappedFrag and h.fragLen < maxFragLen) {
                     flMap[h.fragLen]++;
                     remainingFLOps--;
                 }
 
             }
-
-
-            // If these aren't paired-end reads --- so that
-            // we have orphans --- make sure we sort the
-            // mappings so that they are in transcript order
-            if (!isPaired) {
-                 // Find the end of the hits for the left read
-                 auto leftHitEndIt = std::partition_point(
-                        jointHits.begin(), jointHits.end(),
-                        [](const QuasiAlignment& q) -> bool {
-                        return q.mateStatus == rapmap::utils::MateStatus::PAIRED_END_LEFT;
-                        });
-                 // Merge the hits so that the entire list is in order
-                 // by transcript ID.
-                 std::inplace_merge(jointHits.begin(), leftHitEndIt, jointHits.end(),
-                         [](const QuasiAlignment& a, const QuasiAlignment& b) -> bool {
-                            return a.transcriptID() < b.transcriptID();
-                         });
-            }
-
-
-            double auxSum = 0.0;
-            for (auto& h : jointHits) {
-                auto transcriptID = h.transcriptID();
-
-                if (!isPaired and remainingFLOps <= 0) {
-                    if (meanFragLen < 0) {
-                        meanFragLen = getMeanFragLen(flMap);
-                    }
-                    int32_t pos = static_cast<int32_t>(h.pos);
-                    if (h.fwd and (pos + meanFragLen) <= transcripts[transcriptID].RefLength) {
-                        txpIDs.push_back(transcriptID);
-                        auxProbs.push_back(1.0);
-                        auxSum += 1.0;
-                    } else if (!h.fwd and (pos - meanFragLen) >= 0 ) {
-                        txpIDs.push_back(transcriptID);
-                        auxProbs.push_back(1.0);
-                        auxSum += 1.0;
-                    }
-                } else {
-                    double distProb = 1.0;
-                    /* -- don't use this info for the time being
-                    if (remainingFLOps <= 0) {
-                        if (!empDist) {
-                            size_t totObs{0};
-                            std::vector<uint32_t> vals(flMap.size());
-                            std::vector<uint32_t> freq(flMap.size());
-                            for (size_t i = 0; i < flMap.size(); ++i) {
-                                vals[i] = i;
-                                freq[i] = flMap[i];
-                                totObs += freq[i];
-                            }
-                            empDist.reset(new EmpiricalDistribution(vals, freq));
-                            priorFragProb = 0.1 / totObs;
-                        }
-                        distProb = empDist->pdf(h.fragLen) + priorFragProb;
-                    }
-                    */
-                    txpIDs.push_back(transcriptID);
-                    auxProbs.push_back(distProb);
-                    auxSum += distProb;
-                }
-
-            }
-            if (txpIDs.size() > 0) {
-                /*
-                for (auto& p : auxProbs) {
-                    p /= auxSum;
-                }
-                */
-                TranscriptGroup tg(txpIDs);
-                eqBuilder.addGroup(std::move(tg), auxProbs);
-            }
         }
 
-        validHits += (jointHits.size() > 0);
+        validHits += (mappedFrag) ? 1 : 0;
         totalHits += jointHits.size();
         locRead++;
         ++numObservedFragments;
         if (numObservedFragments % 500000 == 0) {
     	    iomutex.lock();
             fmt::print(stderr, "\033[A\r\rprocessed {} fragments\n", numObservedFragments);
-            fmt::print(stderr, "hits: {}; hits per frag:  {}",
+            fmt::print(stderr, "hits: {}, hits per frag (may not be concordant):  {}",
                     totalHits,
                     totalHits / static_cast<float>(prevObservedFrags));
             iomutex.unlock();
@@ -279,8 +345,13 @@ void processReadsQuasi(paired_parser* parser,
   }
 }
 
-// SINGLE END
+/**
+ * For single-end reads:
+ * Map the reads and accumulate equivalence class counts.
+ **/
+template <typename IndexT>
 void processReadsQuasi(single_parser* parser,
+        IndexT* sidx,
         ReadExperiment& readExp,
         ReadLibrary& rl,
         const SailfishOpts& sfOpts,
@@ -301,15 +372,29 @@ void processReadsQuasi(single_parser* parser,
     auto& upperBoundHits = readExp.upperBoundHitsAtomic();
     auto& eqBuilder = readExp.equivalenceClassBuilder();
 
-    auto sidx = readExp.getIndex();
-    SACollector hitCollector(sidx->quasiIndex());
-    SASearcher saSearcher(sidx->quasiIndex());
+    //auto sidx = readExp.getIndex();
+    SACollector<IndexT> hitCollector(sidx);
+    SASearcher<IndexT> saSearcher(sidx);
     rapmap::utils::HitCounters hctr;
     std::vector<QuasiAlignment> jointHits;
 
-    std::vector<uint32_t> txpIDs;
-    std::vector<double> auxProbs;
-    size_t txpIDsHash{0};
+    // *Completely* ignore strandedness information
+    bool ignoreCompat = sfOpts.ignoreLibCompat;
+    // Don't *strictly* enforce compatibility --- if
+    // the only hits are incompatible with the library
+    // type then allow them.
+    bool enforceCompat = sfOpts.enforceLibCompat;
+    // True when we have compatible hits, false otherwise
+    bool haveCompat{false};
+    auto expectedLibType = rl.format();
+
+    bool mappedFrag{false};
+
+    std::vector<uint32_t> txpIDsAll;
+    std::vector<double> auxProbsAll;
+
+    std::vector<uint32_t> txpIDsCompat;
+    std::vector<double> auxProbsCompat;
 
     while(true) {
         typename single_parser::job j(*parser); // Get a job from the parser: a bunch of read (at most max_read_group)
@@ -320,9 +405,12 @@ void processReadsQuasi(single_parser* parser,
             tooManyHits = false;
             localUpperBoundHits = 0;
             jointHits.clear();
-            txpIDs.clear();
-            auxProbs.clear();
-            txpIDsHash = 0;
+            txpIDsAll.clear();
+            auxProbsAll.clear();
+            txpIDsCompat.clear();
+            auxProbsCompat.clear();
+            haveCompat = false;
+            mappedFrag = false;
 
             bool lh = hitCollector(j->data[i].seq,
                     jointHits, saSearcher,
@@ -334,26 +422,64 @@ void processReadsQuasi(single_parser* parser,
             if (jointHits.size() > sfOpts.maxReadOccs ) { jointHits.clear(); }
 
             if (jointHits.size() > 0) {
-                auto auxProb = 1.0 / jointHits.size();
+
+                double auxSumAll = 0.0;
+                double auxSumCompat = 0.0;
                 for (auto& h : jointHits) {
+
+                    int32_t pos = static_cast<int32_t>(h.pos);
+
+                    // True if the read is compatible with the
+                    // expected library type; false otherwise.
+                    bool compat = ignoreCompat;
+                    if (!compat) {
+                        compat = sailfish::utils::compatibleHit(
+                                expectedLibType, pos,
+                                h.fwd, h.mateStatus);
+                    }
+
                     auto transcriptID = h.transcriptID();
-                    txpIDs.push_back(transcriptID);
-                    auxProbs.push_back(auxProb);
+                    if (compat) {
+                        haveCompat = true;
+                        txpIDsCompat.push_back(transcriptID);
+                        auxProbsCompat.push_back(1.0);
+                        auxSumCompat += 1.0;
+                    }
+                    if (!haveCompat and !enforceCompat) {
+                        txpIDsAll.push_back(transcriptID);
+                        auxProbsAll.push_back(1.0);
+                        auxSumAll += 1.0;
+                    }
                 }
-                TranscriptGroup tg(txpIDs);
-                eqBuilder.addGroup(std::move(tg), auxProbs);
+
+                // If we have compatible hits, only use those
+                if (haveCompat) {
+                    if (txpIDsCompat.size() > 0) {
+                        mappedFrag = true;
+                        TranscriptGroup tg(txpIDsCompat);
+                        eqBuilder.addGroup(std::move(tg), auxProbsCompat);
+                    }
+                } else {
+                    if (txpIDsAll.size() > 0) {
+                        // Otherwise, consider all hits.
+                        mappedFrag = true;
+                        TranscriptGroup tg(txpIDsAll);
+                        eqBuilder.addGroup(std::move(tg), auxProbsAll);
+                    }
+                }
             }
 
-            validHits += (jointHits.size() > 0);
+            validHits += (mappedFrag) ? 1 : 0;
             totalHits += jointHits.size();
             locRead++;
             ++numObservedFragments;
             if (numObservedFragments % 500000 == 0) {
                 iomutex.lock();
                 fmt::print(stderr, "\033[A\r\rprocessed {} fragments\n", numObservedFragments);
-                fmt::print(stderr, "hits: {}; hits per frag:  {}",
+                fmt::print(stderr, "hits: {}, hits per frag (may not be concordant):  {}",
                         totalHits,
                         totalHits / static_cast<float>(prevObservedFrags));
+
                 iomutex.unlock();
             }
 
@@ -559,6 +685,9 @@ void quasiMapReads(
         if (rl.mates1().size() != rl.mates2().size()) {
             sfOpts.jointLog->error("The number of provided files for "
                     "-1 and -2 must be the same!");
+            sfOpts.jointLog->flush();
+            spdlog::drop_all();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             std::exit(1);
         }
 
@@ -581,17 +710,35 @@ void quasiMapReads(
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
             // change value before the lambda below is evaluated --- crazy!
-            auto threadFun = [&,i]() -> void {
-                processReadsQuasi(
-                        pairedParserPtr.get(),
-                        readExp,
-                        rl,
-                        sfOpts,
-                        flMap,
-                        remainingFLOps,
-                        iomutex);
-            };
+
+            // if we have a 64-bit index
+            if (readExp.getIndex()->is64BitQuasi()) {
+                auto threadFun = [&,i]() -> void {
+                    processReadsQuasi<RapMapSAIndex<int64_t>>(
+                            pairedParserPtr.get(),
+                            readExp.getIndex()->quasiIndex64(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            flMap,
+                            remainingFLOps,
+                            iomutex);
+                };
+                threads.emplace_back(threadFun);
+            } else {
+                auto threadFun = [&,i]() -> void {
+                    processReadsQuasi<RapMapSAIndex<int32_t>>(
+                            pairedParserPtr.get(),
+                            readExp.getIndex()->quasiIndex32(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            flMap,
+                            remainingFLOps,
+                            iomutex);
+                };
             threads.emplace_back(threadFun);
+            }
         }
         // Join the threads and collect the results from the count maps
         size_t totalObs{0};
@@ -653,15 +800,29 @@ void quasiMapReads(
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
             // change value before the lambda below is evaluated --- crazy!
-            auto threadFun = [&,i]() -> void {
-                processReadsQuasi(
-                        singleParserPtr.get(),
-                        readExp,
-                        rl,
-                        sfOpts,
-                        iomutex);
-            };
-            threads.emplace_back(threadFun);
+            if (readExp.getIndex()->is64BitQuasi()) {
+                auto threadFun = [&,i]() -> void {
+                    processReadsQuasi<RapMapSAIndex<int64_t>>(
+                            singleParserPtr.get(),
+                            readExp.getIndex()->quasiIndex64(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            iomutex);
+                };
+                threads.emplace_back(threadFun);
+            } else {
+                auto threadFun = [&,i]() -> void {
+                    processReadsQuasi<RapMapSAIndex<int32_t>>(
+                            singleParserPtr.get(),
+                            readExp.getIndex()->quasiIndex32(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            iomutex);
+                };
+                threads.emplace_back(threadFun);
+            }
         }
         for(int i = 0; i < numThreads; ++i) { threads[i].join(); }
         if (sfOpts.noEffectiveLengthCorrection) {
@@ -703,12 +864,6 @@ int mainQuantify(int argc, char* argv[]) {
          "File containing the #1 mates")
         ("mates2,2", po::value<vector<string>>(&mate2ReadFiles)->multitoken(),
          "File containing the #2 mates")
-        /*
-        ("allowOrphans", po::bool_switch(&(sopt.allowOrphans))->default_value(true), "Consider orphaned reads as valid hits when "
-         "performing lightweight-alignment.  This option will increase sensitivity (allow more reads to map and "
-         "more transcripts to be detected), but may decrease specificity as orphaned alignments are more likely "
-         "to be spurious.")
-         */
         ("threads,p", po::value<uint32_t>(&(sopt.numThreads))->default_value(sopt.numThreads), "The number of threads to use concurrently.")
         ("output,o", po::value<std::string>()->required(), "Output quantification file.")
         ("geneMap,g", po::value<string>(), "File containing a mapping of transcripts to genes.  If this file is provided "
@@ -725,10 +880,6 @@ int mainQuantify(int argc, char* argv[]) {
     po::options_description advanced("\n"
             "advanced options");
     advanced.add_options()
-        /*
-        ("fldMax" , po::value<size_t>(&(sopt.fragLenDistMax))->default_value(800), "The maximum fragment length to consider when building the empirical "
-         "distribution")
-         */
         ("unsmoothedFLD", po::bool_switch(&(sopt.useUnsmoothedFLD))->default_value(false), "Use the \"un-smoothed\" "
             "(i.e. traditional) approach to effective length correction by convolving the FLD with the "
             "characteristic function over each transcript")
@@ -739,6 +890,15 @@ int mainQuantify(int argc, char* argv[]) {
             "use the provided key for aggregating transcripts.  The default is the \"gene_id\" field, but other fields (e.g. \"gene_name\") might "
             "be useful depending on the specifics of the annotation being used.  Note: this option only affects aggregation when using a "
             "GTF annotation; not an annotation in \"simple\" format.")
+        ("ignoreLibCompat", po::bool_switch(&(sopt.ignoreLibCompat))->default_value(false), "Disables "
+             "strand-aware processing completely.  All hits are considered \"valid\".")
+        ("enforceLibCompat", po::bool_switch(&(sopt.enforceLibCompat))->default_value(false), "Enforces "
+             "\"strict\" library compatibility.  Fragments that map in a manner other than what is "
+             "specified by the expected library type will be discarded, even if there are no mappings that "
+             "agree with the expected library type.")
+        ("allowDovetail", po::bool_switch(&(sopt.allowDovetail))->default_value(false), "Allow "
+             "paired-end reads from the same fragment to \"dovetail\", such that the ends "
+             "of the mapped reads can extend past each other.")
         ("fldMean", po::value<size_t>(&(sopt.fragLenDistPriorMean))->default_value(200),
             "If single end reads are being used for quantification, or there are an insufficient "
             "number of uniquely mapping reads when performing paired-end quantification to estimate "
@@ -753,8 +913,6 @@ int mainQuantify(int argc, char* argv[]) {
          "into account when computing this probability.")
         ("useVBOpt", po::bool_switch(&(sopt.useVBOpt))->default_value(false), "Use the Variational Bayesian EM rather than the "
      			"traditional EM algorithm to estimate transcript abundances.")
-        //("useGSOpt", po::bool_switch(&(sopt.useGSOpt))->default_value(false), "[*super*-experimental]: After the initial optimization has finished, "
-        //    "use collapsed Gibbs sampling to refine estimates even further (and obtain variance)")
         ("numGibbsSamples", po::value<uint32_t>(&(sopt.numGibbsSamples))->default_value(0), "[*super*-experimental]: Number of Gibbs sampling rounds to "
             "perform.")
         ("numBootstraps", po::value<uint32_t>(&(sopt.numBootstraps))->default_value(0), "[*super*-experimental]: Number of bootstrap samples to generate. Note: "
@@ -809,16 +967,16 @@ int mainQuantify(int argc, char* argv[]) {
             if (!bfs::exists(geneMapPath)) {
                 std::cerr << "Could not find transcript <=> gene map file " << geneMapPath << "\n";
                 std::cerr << "Exiting now: please either omit the \'geneMap\' option or provide a valid file\n";
-                std::exit(1);
+                return 1;
             }
         }
 
         bfs::path outputDirectory(vm["output"].as<std::string>());
-        bfs::create_directory(outputDirectory);
+        bfs::create_directories(outputDirectory);
         if (!(bfs::exists(outputDirectory) and bfs::is_directory(outputDirectory))) {
             std::cerr << "Couldn't create output directory " << outputDirectory << "\n";
             std::cerr << "exiting\n";
-            std::exit(1);
+            return 1;
         }
 
         bfs::path indexDirectory(vm["index"].as<string>());
@@ -828,7 +986,7 @@ int mainQuantify(int argc, char* argv[]) {
         sopt.outputDirectory = outputDirectory;
 
         // Create the logger and the logging directory
-        bfs::create_directory(logDirectory);
+        bfs::create_directories(logDirectory);
         if (!(bfs::exists(logDirectory) and bfs::is_directory(logDirectory))) {
             std::cerr << "Couldn't create log directory " << logDirectory << "\n";
             std::cerr << "exiting\n";
@@ -859,12 +1017,14 @@ int mainQuantify(int argc, char* argv[]) {
         // {
         // }
 
-        jointLog->info() << "parsing read library format";
+        jointLog->info("parsing read library format");
 
         if (sopt.numGibbsSamples > 0 and sopt.numBootstraps > 0) {
             jointLog->error("You cannot perform both Gibbs sampling and bootstrapping. "
                             "Please choose one.");
-            std::exit(1);
+            jointLog->flush();
+            spdlog::drop_all();
+            return 1;
         }
 
         vector<ReadLibrary> readLibraries = sailfish::utils::extractReadLibraries(orderedOptions);
@@ -890,8 +1050,14 @@ int mainQuantify(int argc, char* argv[]) {
         // Now that we have our reads mapped and our equivalence
         // classes, iterate the abundance estimates to convergence.
         CollapsedEMOptimizer optimizer;
-        jointLog->info("Starting optimizer");
-        optimizer.optimize(experiment, sopt, 0.01, 10000);
+        jointLog->info("Starting optimizer:\n");
+        bool optSuccess = optimizer.optimize(experiment, sopt, 0.01, 10000);
+        if (!optSuccess) {
+            jointLog->error("Encountered error during optimization.\n"
+                            "This should not happen.\n"
+                            "Please file a bug report on GitHub.\n");
+            return 1;
+        }
         jointLog->info("Finished optimizer");
 
         size_t tnum{0};
@@ -926,8 +1092,16 @@ int mainQuantify(int argc, char* argv[]) {
             bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
             std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
             bsWriter->writeHeader(commentString, experiment.transcripts());
-            optimizer.gatherBootstraps(experiment, sopt,
-                      bsWriter.get(), 0.01, 10000);
+
+            bool bootstrapSuccess = optimizer.gatherBootstraps(
+                                              experiment, sopt,
+                                              bsWriter.get(), 0.01, 10000);
+            if (!bootstrapSuccess) {
+                jointLog->error("Encountered error during bootstrapping.\n"
+                                "This should not happen.\n"
+                                "Please file a bug report on GitHub.\n");
+                return 1;
+            }
         }
         /*
         // Now create a subdirectory for any parameters of interest

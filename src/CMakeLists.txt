@@ -31,7 +31,6 @@ ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapUtils.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/HitManager.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/rank9b.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/bit_array.c
-${GAT_SOURCE_DIR}/external/install/src/rapmap/sais.c
 )
 
 include_directories( 
@@ -79,6 +78,10 @@ add_library(sailfish_core STATIC ${SAILFISH_LIB_SRCS} )
 # Build the Sailfish executable
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
+# our suffix array construction libraries
+set (SUFFARRAY_LIB ${GAT_SOURCE_DIR}/external/install/lib/libdivsufsort.a)
+set (SUFFARRAY64_LIB ${GAT_SOURCE_DIR}/external/install/lib/libdivsufsort64.a)
+
 # Link the executable
 target_link_libraries(sailfish 
     sailfish_core 
@@ -86,6 +89,8 @@ target_link_libraries(sailfish
     ${Boost_LIBRARIES} 
     gff
     ${ZLIB_LIBRARY} 
+    ${SUFFARRAY_LIB}
+    ${SUFFARRAY64_LIB}
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     m
     ${TBB_LIBRARIES}

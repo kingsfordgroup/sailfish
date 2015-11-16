@@ -575,7 +575,8 @@ bool CollapsedEMOptimizer::gatherBootstraps(
 
     if (activeTranscriptIDs.size() == 0) {
         jointLog->error("It seems that no transcripts are expressed; something is likely wrong!");
-        std::exit(1);
+        jointLog->flush();
+        return false;
     }
 
     double scale = 1.0 / activeTranscriptIDs.size();
@@ -756,7 +757,8 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
 
     if (activeTranscriptIDs.size() == 0) {
         jointLog->error("It seems that no transcripts are expressed; something is likely wrong!");
-        std::exit(1);
+        jointLog->flush();
+        return false;
     }
 
     double scale = 1.0 / activeTranscriptIDs.size();

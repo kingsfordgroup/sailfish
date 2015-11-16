@@ -11,6 +11,7 @@
 #include "cereal/types/vector.hpp"
 
 #include "RapMapSAIndex.hpp"
+#include "IndexHeader.hpp"
 #include "SailfishConfig.hpp"
 #include "SailfishIndexVersionInfo.hpp"
 
@@ -20,7 +21,8 @@ int rapMapSAIndex(int argc, char* argv[]);
 class SailfishIndex{
     public:
         SailfishIndex(std::shared_ptr<spdlog::logger>& logger) :
-            loaded_(false), versionInfo_(0, 0), logger_(logger) {}
+            loaded_(false), versionInfo_(sailfish::indexVersion, 0),
+            logger_(logger) {}
 
 
         void load(const boost::filesystem::path& indexDir) {
@@ -29,11 +31,10 @@ class SailfishIndex{
             // Check if version file exists and, if so, read it.
             boost::filesystem::path versionPath = indexDir / "versionInfo.json";
             versionInfo_.load(versionPath);
-            if (versionInfo_.indexVersion() == 0) {
+            if (versionInfo_.indexVersion() < sailfish::indexVersion) {
                 fmt::MemoryWriter infostr;
-                infostr << "Error: The index version file " << versionPath.string()
-                    << " doesn't seem to exist.  Please try re-building the sailfish "
-                    "index.";
+                infostr << "[Error]: The index version appears to be too old. "
+                        << "Please re-build the sailfish index.";
                 throw std::invalid_argument(infostr.str());
             }
             // Check index version compatibility here
@@ -47,7 +48,9 @@ class SailfishIndex{
         }
 
         bool loaded() { return loaded_; }
-        RapMapSAIndex* quasiIndex() { return quasiIndex_.get(); }
+        bool is64BitQuasi() { return largeIndex_; }
+        RapMapSAIndex<int32_t>* quasiIndex32() { return quasiIndex32_.get(); }
+        RapMapSAIndex<int64_t>* quasiIndex64() { return quasiIndex64_.get(); }
 
     private:
         bool buildQuasiIndex_(boost::filesystem::path indexDir,
@@ -81,11 +84,34 @@ class SailfishIndex{
                 boost::filesystem::path indexPath = indexDir;
                 std::string indexStr = indexDir.string();
                 if (indexStr.back() != '/') { indexStr.push_back('/'); }
-                quasiIndex_.reset(new RapMapSAIndex);
-                if (!quasiIndex_->load(indexStr)) {
-                    fmt::print(stderr, "Couldn't open index [{}] --- ", indexPath);
-                    fmt::print(stderr, "Please make sure that 'sailfish index' has been run successfully\n");
-                    std::exit(1);
+
+                // Read the index header and determine
+                // the size.
+                IndexHeader h;
+                std::ifstream indexStream(indexStr + "header.json");
+                {
+                    cereal::JSONInputArchive ar(indexStream);
+                    ar(h);
+                }
+                indexStream.close();
+
+                if (h.bigSA()) {
+                    largeIndex_ = true;
+                    fmt::print(stderr, "Loading 64-bit quasi index");
+                    quasiIndex64_.reset(new RapMapSAIndex<int64_t>);
+                    if (!quasiIndex64_->load(indexStr)) {
+                        fmt::print(stderr, "Couldn't open index [{}] --- ", indexPath);
+                        fmt::print(stderr, "Please make sure that 'salmon index' has been run successfully\n");
+                        std::exit(1);
+                    }
+                } else {
+                    fmt::print(stderr, "Loading 32-bit quasi index");
+                    quasiIndex32_.reset(new RapMapSAIndex<int32_t>);
+                    if(!quasiIndex32_->load(indexStr)) {
+                        fmt::print(stderr, "Couldn't open index [{}] --- ", indexPath);
+                        fmt::print(stderr, "Please make sure that 'salmon index' has been run successfully\n");
+                        std::exit(1);
+                    }
                 }
             }
             logger_->info("done");
@@ -95,7 +121,12 @@ class SailfishIndex{
 
         bool loaded_;
         SailfishIndexVersionInfo versionInfo_;
-        std::unique_ptr<RapMapSAIndex> quasiIndex_{nullptr};
+        //std::unique_ptr<RapMapSAIndex> quasiIndex_{nullptr};
+        // Can't think of a generally better way to do this now
+        // without making the entire code-base look crazy
+        bool largeIndex_{false};
+        std::unique_ptr<RapMapSAIndex<int32_t>> quasiIndex32_{nullptr};
+        std::unique_ptr<RapMapSAIndex<int64_t>> quasiIndex64_{nullptr};
         std::shared_ptr<spdlog::logger> logger_;
 };
 
