@@ -640,6 +640,9 @@ namespace sailfish {
             using std::cerr;
             using std::max;
 
+            constexpr double minTPM = std::numeric_limits<double>::denorm_min();
+
+
             std::ifstream expFile(inputPath.string());
 
             if (!expFile.is_open()) {
@@ -685,14 +688,36 @@ namespace sailfish {
             for (auto& kv : geneExps) {
                 auto& gn = kv.first;
 
-                uint32_t geneLength{kv.second.front().length};
+                double geneLength = kv.second.front().length;
                 vector<double> expVals(kv.second.front().expVals.size(), 0);
                 const size_t NE{expVals.size()};
 
+                size_t tpmIdx{0};
+                double totalTPM{0.0};
                 for (auto& tranExp : kv.second) {
-                    geneLength = max(geneLength, tranExp.length);
+                    // expVals[0] = TPM
+                    // expVals[1] = count
                     for (size_t i = 0; i < NE; ++i) { expVals[i] += tranExp.expVals[i]; }
+                    totalTPM += expVals[tpmIdx];
                 }
+
+                // If this gene was expressed
+                if (totalTPM > minTPM) {
+                    geneLength = 0.0;
+                    for (auto& tranExp : kv.second) {
+                        double frac = tranExp.expVals[tpmIdx] / totalTPM;
+                        geneLength += tranExp.length * frac;
+                    }
+                } else {
+                    geneLength = 0.0;
+                    double frac = 1.0 / kv.second.size();
+                    for (auto& tranExp : kv.second) {
+                        geneLength += tranExp.length * frac;
+                    }
+                }
+
+                // Otherwise, if the gene wasn't expressed, the length
+                // is reported as the longest transcript length.
 
                 outFile << gn << '\t' << geneLength;
                 for (size_t i = 0; i < NE; ++i) {
