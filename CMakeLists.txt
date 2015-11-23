@@ -3,13 +3,13 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.7.6")
+set(CPACK_PACKAGE_VERSION "0.8.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "7")
-set(CPACK_PACKAGE_VERSION_PATCH "6")
+set(CPACK_PACKAGE_VERSION_MINOR "8")
+set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
-set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University / Stony Brook University")
+set(CPACK_PACKAGE_VENDOR "Stony Brook University / Carnegie Mellon University")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Sailfish - Alignment-free RNA-seq isoform quantification")
 set(CPACK_PACKAGE_NAME
   "${CMAKE_PROJECT_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
@@ -272,6 +272,21 @@ message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
 message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
 
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
+
+message("Build system will build libdivsufsort")
+message("==================================================================")
+include(ExternalProject)
+ExternalProject_Add(libdivsufsort
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL ${CMAKE_CURRENT_SOURCE_DIR}/external/libdivsufsort.zip
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libdivsufsort-master
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
+    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libdivsufsort-master/build
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -DBUILD_DIVSUFSORT64=TRUE -DUSE_OPENMP=TRUE -DBUILD_SHARED_LIBS=FALSE
+    )
+set(SUFFARRAY_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+
 
 message("Build system will fetch and build Jellyfish")
 message("==================================================================")

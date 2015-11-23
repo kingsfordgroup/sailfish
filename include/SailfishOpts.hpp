@@ -13,6 +13,9 @@ struct SailfishOpts {
     bool useVBOpt{false};
     bool useGSOpt{false};
     bool useUnsmoothedFLD{false};
+    bool ignoreLibCompat{false};
+    bool enforceLibCompat{false};
+    bool allowDovetail{false};
     uint32_t maxFragLen;
     uint32_t numGibbsSamples;
     uint32_t numBootstraps;

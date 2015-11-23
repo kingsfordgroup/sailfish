@@ -81,25 +81,35 @@ class ReadExperiment {
 
     SailfishIndex* getIndex() { return sfIndex_.get(); }
 
-    void loadTranscriptsFromQuasi() {
-	    RapMapSAIndex* idx_ = sfIndex_->quasiIndex();
-	    size_t numRecords = idx_->txpNames.size();
+    template <typename IndexT>
+    void loadTranscriptsFromQuasiIndex(IndexT* idx_) {
+        size_t numRecords = idx_->txpNames.size();
 
-	    fmt::print(stderr, "Index contained {} targets\n", numRecords);
-	    double alpha = 0.005;
-	    for (auto i : boost::irange(size_t(0), numRecords)) {
-		    uint32_t id = i;
-		    const char* name = idx_->txpNames[i].c_str();
-		    uint32_t len = idx_->txpLens[i];
-		    // copy over the length, then we're done.
-		    transcripts_.emplace_back(id, name, len);
-		    auto& txp = transcripts_.back();
-		    // The transcript sequence
-		    auto txpSeq = idx_->seq.substr(idx_->txpOffsets[i], len);
-		    txp.Sequence = txpSeq;
-	    }
-	    // ====== Done loading the transcripts from file
+        fmt::print(stderr, "Index contained {} targets\n", numRecords);
+        double alpha = 0.005;
+        for (auto i : boost::irange(size_t(0), numRecords)) {
+            uint32_t id = i;
+            const char* name = idx_->txpNames[i].c_str();
+            uint32_t len = idx_->txpLens[i];
+            // copy over the length, then we're done.
+            transcripts_.emplace_back(id, name, len);
+            auto& txp = transcripts_.back();
+            // The transcript sequence
+            auto txpSeq = idx_->seq.substr(idx_->txpOffsets[i], len);
+            txp.Sequence = txpSeq;
+        }
+        // ====== Done loading the transcripts from file
     }
+
+    void loadTranscriptsFromQuasi() {
+        if (sfIndex_->is64BitQuasi()) {
+            loadTranscriptsFromQuasiIndex<RapMapSAIndex<int64_t>>(
+                    sfIndex_->quasiIndex64());
+        } else {
+            loadTranscriptsFromQuasiIndex<RapMapSAIndex<int32_t>>(
+                    sfIndex_->quasiIndex32());
+        }
+	}
 
     std::string readFilesAsString() {
         std::stringstream sstr;

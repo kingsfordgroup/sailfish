@@ -67,7 +67,7 @@ namespace sailfish {
             fmt::print(output.get(), "{}", headerComments);
             fmt::print(output.get(), "# Name\tLength\tTPM\tNumReads\n");
 
-            double numMappedFrags = readExp.upperBoundHits();
+            double numMappedFrags = readExp.numMappedFragments();
 
             std::vector<Transcript>& transcripts_ = readExp.transcripts();
             for (auto& transcript : transcripts_) {
@@ -197,6 +197,128 @@ namespace sailfish {
             size_t numLibs = libs.size();
             std::cerr << "there " << ((numLibs > 1) ? "are " : "is ") << libs.size() << ((numLibs > 1) ? " libs\n" : " lib\n");
             return libs;
+        }
+
+
+        // for single end reads or orphans
+        bool compatibleHit(LibraryFormat expected,
+                           int32_t start, bool isForward, MateStatus ms) {
+            auto expectedStrand = expected.strandedness;
+            switch (ms) {
+                case MateStatus::SINGLE_END:
+                    if (isForward) { // U, SF
+                        return (expectedStrand == ReadStrandedness::U or
+                                expectedStrand == ReadStrandedness::S);
+                    } else { // U, SR
+                        return (expectedStrand == ReadStrandedness::U or
+                                expectedStrand == ReadStrandedness::A);
+                    }
+                    break;
+                case MateStatus::PAIRED_END_LEFT:
+                    if (isForward) { // IU, ISF, OU, OSF, MU, MSF
+                        return (expectedStrand == ReadStrandedness::U or
+                                expectedStrand == ReadStrandedness::S);
+                    } else { // IU, ISR, OU, OSR, MU, MSR
+                        return (expectedStrand == ReadStrandedness::U or
+                                expectedStrand == ReadStrandedness::A);
+                    }
+                    break;
+                case MateStatus::PAIRED_END_RIGHT:
+                    if (isForward) { // IU, ISR, OU, OSR, MU, MSR
+                        return (expectedStrand == ReadStrandedness::U or
+                                expectedStrand == ReadStrandedness::A);
+                    } else { // IU, ISF, OU, OSF, MU, MSF
+                        return (expectedStrand == ReadStrandedness::U or
+                                expectedStrand == ReadStrandedness::S);
+                    }
+                    break;
+                default:
+                    // SHOULD NOT GET HERE
+                    fmt::print(stderr, "WARNING: Could not associate known library type with read!\n");
+                    return false;
+                    break;
+            }
+            // SHOULD NOT GET HERE
+            fmt::print(stderr, "WARNING: Could not associate known library type with read!\n");
+            return false;
+        }
+
+
+        // for paired-end reads
+        bool compatibleHit(LibraryFormat expected, LibraryFormat observed) {
+            if (observed.type != ReadType::PAIRED_END) {
+                // SHOULD NOT GET HERE
+                fmt::print(stderr, "WARNING: PE compatibility function called with SE read!\n");
+                return false;
+            }
+
+            auto es = expected.strandedness;
+            auto eo = expected.orientation;
+
+            auto os = observed.strandedness;
+            auto oo = observed.orientation;
+
+            // If the orientations are different, they are incompatible
+            if (eo != oo) {
+                return false;
+            } else { // In this branch, the orientations are always compatible
+                return (es == ReadStrandedness::U or
+                        es == os);
+            }
+            // SHOULD NOT GET HERE
+            fmt::print(stderr, "WARNING: Could not determine strand compatibility!");
+            fmt::print(stderr, "please report this.\n");
+            return false;
+        }
+
+
+        // Determine the library type of paired-end reads
+        LibraryFormat hitType(int32_t end1Start, bool end1Fwd, uint32_t len1,
+                              int32_t end2Start, bool end2Fwd, uint32_t len2, bool canDovetail) {
+
+            // If the reads come from opposite strands
+            if (end1Fwd != end2Fwd) {
+                // and if read 1 comes from the forward strand
+                if (end1Fwd) {
+                    // then if read 1 start < read 2 start ==> ISF
+                    // NOTE: We can't really delineate between inward facing reads that stretch
+                    // past each other and outward facing reads --- the purpose of stretch is to help
+                    // make this determinateion.
+                    int32_t stretch = canDovetail ? len2 : 0;
+                    if (end1Start <= end2Start + stretch) {
+                        return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::SA);
+                    } // otherwise read 2 start < read 1 start ==> OSF
+                    else {
+                        return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::SA);
+                    }
+                }
+                // and if read 2 comes from the forward strand
+                if (end2Fwd) {
+                    // then if read 2 start <= read 1 start ==> ISR
+                    // NOTE: We can't really delineate between inward facing reads that stretch
+                    // past each other and outward facing reads --- the purpose of stretch is to help
+                    // make this determinateion.
+                    int32_t stretch = canDovetail ? len1 : 0;
+                    if (end2Start <= end1Start + stretch) {
+                        return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::TOWARD, ReadStrandedness::AS);
+                    } // otherwise, read 2 start > read 1 start ==> OSR
+                    else {
+                        return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::AWAY, ReadStrandedness::AS);
+                    }
+                }
+            } else { // Otherwise, the reads come from the same strand
+                if (end1Fwd) { // if it's the forward strand ==> MSF
+                    return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::S);
+                } else { // if it's the reverse strand ==> MSR
+                    return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::SAME, ReadStrandedness::A);
+                }
+            }
+            // SHOULD NOT GET HERE
+            spdlog::get("jointLog")->error("ERROR: Could not associate any known library type with read! "
+                                           "Please report this bug!\n");
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::exit(-1);
+            return LibraryFormat(ReadType::PAIRED_END, ReadOrientation::NONE, ReadStrandedness::U);
         }
 
         uint64_t encode(uint64_t tid, uint64_t offset) {
@@ -518,6 +640,9 @@ namespace sailfish {
             using std::cerr;
             using std::max;
 
+            constexpr double minTPM = std::numeric_limits<double>::denorm_min();
+
+
             std::ifstream expFile(inputPath.string());
 
             if (!expFile.is_open()) {
@@ -563,14 +688,36 @@ namespace sailfish {
             for (auto& kv : geneExps) {
                 auto& gn = kv.first;
 
-                uint32_t geneLength{kv.second.front().length};
+                double geneLength = kv.second.front().length;
                 vector<double> expVals(kv.second.front().expVals.size(), 0);
                 const size_t NE{expVals.size()};
 
+                size_t tpmIdx{0};
+                double totalTPM{0.0};
                 for (auto& tranExp : kv.second) {
-                    geneLength = max(geneLength, tranExp.length);
+                    // expVals[0] = TPM
+                    // expVals[1] = count
                     for (size_t i = 0; i < NE; ++i) { expVals[i] += tranExp.expVals[i]; }
+                    totalTPM += expVals[tpmIdx];
                 }
+
+                // If this gene was expressed
+                if (totalTPM > minTPM) {
+                    geneLength = 0.0;
+                    for (auto& tranExp : kv.second) {
+                        double frac = tranExp.expVals[tpmIdx] / totalTPM;
+                        geneLength += tranExp.length * frac;
+                    }
+                } else {
+                    geneLength = 0.0;
+                    double frac = 1.0 / kv.second.size();
+                    for (auto& tranExp : kv.second) {
+                        geneLength += tranExp.length * frac;
+                    }
+                }
+
+                // Otherwise, if the gene wasn't expressed, the length
+                // is reported as the longest transcript length.
 
                 outFile << gn << '\t' << geneLength;
                 for (size_t i = 0; i < NE; ++i) {

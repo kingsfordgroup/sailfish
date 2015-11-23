@@ -2,16 +2,20 @@
 #include <cstdint>
 
 #include "TranscriptGroup.hpp"
+#include "xxhash.h"
 
 TranscriptGroup::TranscriptGroup() : hash(0) {}
 
 TranscriptGroup::TranscriptGroup(std::vector<uint32_t> txpsIn) : txps(txpsIn),
     valid(true) {
         size_t seed{0};
+        hash = XXH64(static_cast<void*>(txps.data()), txps.size() * sizeof(uint32_t), seed);
+        /*
         for (auto e : txps) {
             boost::hash_combine(seed, e);
         }
         hash = seed;
+        */
     }
 
 TranscriptGroup::TranscriptGroup(
