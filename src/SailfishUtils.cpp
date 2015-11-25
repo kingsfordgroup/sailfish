@@ -215,7 +215,14 @@ namespace sailfish {
                     }
                     break;
                 case MateStatus::PAIRED_END_LEFT:
-                    if (isForward) { // IU, ISF, OU, OSF, MU, MSF
+                    // "M"atching or same orientation is a special case
+                    if (expected.orientation == ReadOrientation::SAME) {
+                        return (expectedStrand == ReadStrandedness::U
+                                or
+                                (expectedStrand == ReadStrandedness::S and isForward)
+                                or
+                                (expectedStrand == ReadStrandedness::A and !isForward));
+                    } else if (isForward) { // IU, ISF, OU, OSF, MU, MSF
                         return (expectedStrand == ReadStrandedness::U or
                                 expectedStrand == ReadStrandedness::S);
                     } else { // IU, ISR, OU, OSR, MU, MSR
@@ -224,7 +231,14 @@ namespace sailfish {
                     }
                     break;
                 case MateStatus::PAIRED_END_RIGHT:
-                    if (isForward) { // IU, ISR, OU, OSR, MU, MSR
+                    // "M"atching or same orientation is a special case
+                    if (expected.orientation == ReadOrientation::SAME) {
+                        return (expectedStrand == ReadStrandedness::U
+                                or
+                                (expectedStrand == ReadStrandedness::S and isForward)
+                                or
+                                (expectedStrand == ReadStrandedness::A and !isForward));
+                    } else if (isForward) { // IU, ISR, OU, OSR, MU, MSR
                         return (expectedStrand == ReadStrandedness::U or
                                 expectedStrand == ReadStrandedness::A);
                     } else { // IU, ISF, OU, OSF, MU, MSF

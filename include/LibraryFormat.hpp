@@ -98,4 +98,12 @@ public:
     }
 };
 
+
+inline bool operator==(const LibraryFormat& lhs,
+                       const LibraryFormat& rhs) {
+    return ((lhs.type == rhs.type) and
+            (lhs.orientation == rhs.orientation) and
+            (lhs.strandedness == rhs.strandedness));
+}
+
 #endif // LIBRARY_FORMAT_HPP
