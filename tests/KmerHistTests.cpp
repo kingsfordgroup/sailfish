@@ -27,12 +27,13 @@ std::vector<std::string> getAllWords(int length) {
   }
 }
 
+#include <atomic>
 
 SCENARIO("Kmer histogram encodes and decodes k-mers correctly") {
 
     GIVEN("All 6-mers") {
         std::vector<std::string> kmers = getAllWords(6);
-        KmerDist<6> kh;
+        KmerDist<6, std::atomic<uint32_t>> kh;
         for (auto& k : kmers) {
             auto i = kh.indexForKmer(k.c_str());
             auto kp = kh.kmerForIndex(i);

@@ -36,7 +36,7 @@ constexpr int64_t constExprPow(int64_t base, unsigned int exp, int64_t result = 
 }
 
 // templatized on the k-mer length
-template <unsigned int K>
+template <unsigned int K, typename CountT=uint32_t>
 class KmerDist {
 	using Bias = double;
 	using Offset = size_t;
@@ -44,7 +44,7 @@ class KmerDist {
 public:
 	// The number of k-mers we'll have to store given the k-mer size
 	//constexpr const uint64_t numKmers{constExprPow(4, K)};
-	std::array<uint32_t, constExprPow(4,K)> counts;
+	std::array<CountT, constExprPow(4,K)> counts;
 
 	KmerDist() : haveBias_(false) {
 	    // set a pseudo-count for each k-mer
