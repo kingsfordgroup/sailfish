@@ -65,7 +65,7 @@ namespace sailfish {
             std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(fname.c_str(), "w"), std::fclose);
 
             fmt::print(output.get(), "{}", headerComments);
-            fmt::print(output.get(), "# Name\tLength\tTPM\tNumReads\n");
+            fmt::print(output.get(), "Name\tLength\tEffectiveLength\tTPM\tNumReads\n");
 
             double numMappedFrags = readExp.numMappedFragments();
 
@@ -86,18 +86,15 @@ namespace sailfish {
             double million = 1000000.0;
             // Now posterior has the transcript fraction
             for (auto& transcript : transcripts_) {
-                double refLength = sopt.noEffectiveLengthCorrection ?
+                auto effLen = sopt.noEffectiveLengthCorrection ?
                     transcript.RefLength :
                     transcript.EffectiveLength;
                 double count = transcript.projectedCounts;
                 double npm = (transcript.projectedCounts / numMappedFrags);
-                double tfrac = (npm / refLength) / tfracDenom;
+                double tfrac = (npm / effLen) / tfracDenom;
                 double tpm = tfrac * million;
-                auto effLen = sopt.noEffectiveLengthCorrection ?
-                    transcript.RefLength :
-                    transcript.EffectiveLength;
-                fmt::print(output.get(), "{}\t{}\t{}\t{}\n",
-                        transcript.RefName, transcript.RefLength, //effLen,
+                fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
+                        transcript.RefName, transcript.RefLength, effLen,
                         tpm, count);
             }
 
@@ -599,13 +596,14 @@ namespace sailfish {
 
         class ExpressionRecord {
             public:
-                ExpressionRecord(const std::string& targetIn, uint32_t lengthIn,
+                ExpressionRecord(const std::string& targetIn, uint32_t lengthIn, double effLengthIn,
                         std::vector<double>& expValsIn) :
-                    target(targetIn), length(lengthIn), expVals(expValsIn) {}
+                    target(targetIn), length(lengthIn), effLength(effLengthIn), expVals(expValsIn) {}
 
                 ExpressionRecord( ExpressionRecord&& other ) {
                     std::swap(target, other.target);
                     length = other.length;
+		    effLength = other.effLength;
                     std::swap(expVals, other.expVals);
                 }
 
@@ -617,6 +615,7 @@ namespace sailfish {
                         auto it = inputLine.begin();
                         target = *it; ++it;
                         length = std::stoi(*it); ++it;
+			effLength = std::stod(*it); ++it;
                         for (; it != inputLine.end(); ++it) {
                             expVals.push_back(std::stod(*it));
                         }
@@ -625,6 +624,7 @@ namespace sailfish {
 
                 std::string target;
                 uint32_t length;
+		double effLength;
                 std::vector<double> expVals;
         };
 
@@ -669,6 +669,7 @@ namespace sailfish {
             string l;
             size_t ln{0};
 
+	    bool headerLine{true};
             while (getline(expFile, l)) {
                 if (++ln % 1000 == 0) {
                     cerr << "\r\rParsed " << ln << " expression lines";
@@ -679,11 +680,17 @@ namespace sailfish {
                     if (*it == '#') {
                         comments.push_back(l);
                     } else {
-                        vector<string> toks = split(l);
-                        ExpressionRecord er(toks);
-                        auto gn = tgm.geneName(er.target);
-                        geneExps[gn].push_back(move(er));
-                    }
+		      // If this isn't the first non-comment line
+		      if (!headerLine) {
+			vector<string> toks = split(l);
+			ExpressionRecord er(toks);
+			auto gn = tgm.geneName(er.target);
+			geneExps[gn].push_back(move(er));
+		      } else { // treat the header line as a comment
+			comments.push_back(l);
+			headerLine = false;
+		      }
+		    }
                 }
             }
             cerr << "\ndone\n";
@@ -703,6 +710,7 @@ namespace sailfish {
                 auto& gn = kv.first;
 
                 double geneLength = kv.second.front().length;
+                double geneEffLength = kv.second.front().effLength;
                 vector<double> expVals(kv.second.front().expVals.size(), 0);
                 const size_t NE{expVals.size()};
 
@@ -718,22 +726,26 @@ namespace sailfish {
                 // If this gene was expressed
                 if (totalTPM > minTPM) {
                     geneLength = 0.0;
+		    geneEffLength = 0.0;
                     for (auto& tranExp : kv.second) {
                         double frac = tranExp.expVals[tpmIdx] / totalTPM;
                         geneLength += tranExp.length * frac;
+                        geneEffLength += tranExp.effLength * frac;
                     }
                 } else {
                     geneLength = 0.0;
+		    geneEffLength = 0.0;
                     double frac = 1.0 / kv.second.size();
                     for (auto& tranExp : kv.second) {
                         geneLength += tranExp.length * frac;
+                        geneEffLength += tranExp.effLength * frac;
                     }
                 }
 
                 // Otherwise, if the gene wasn't expressed, the length
                 // is reported as the longest transcript length.
 
-                outFile << gn << '\t' << geneLength;
+                outFile << gn << '\t' << geneLength << '\t' << geneEffLength;
                 for (size_t i = 0; i < NE; ++i) {
                     outFile << '\t' << expVals[i];
                 }

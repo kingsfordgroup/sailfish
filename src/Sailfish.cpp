@@ -45,7 +45,7 @@
 #include <boost/range/irange.hpp>
 #include <boost/filesystem.hpp>
 
-#include "BiasIndex.hpp"
+//#include "KmerDist.hpp"
 #include "SailfishUtils.hpp"
 #include "GenomicFeature.hpp"
 //#include "CountDBNew.hpp"

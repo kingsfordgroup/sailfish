@@ -18,6 +18,7 @@ struct header_sequence_qual {
   std::string seq;
   std::string qual;
 };
+
 struct sequence_list {
   size_t nb_filled;
   std::vector<std::pair<header_sequence_qual, header_sequence_qual> > data;
@@ -96,28 +97,61 @@ protected:
     }
   }
 
+  template <bool> struct istream_type_tag{};
+  // For iterators over istreams directly
+  template<typename StreamT>
+  void resetStreams(stream_status& st, StreamT& p1, StreamT& p2, istream_type_tag<true>,
+          typename std::enable_if<std::is_base_of<std::istream,
+                    typename std::iterator_traits<StreamT>::value_type>::value>::type* = nullptr) {
+    st.stream1.reset(*p1);
+    st.stream2.reset(*p2);
+  }
+
+  // For iterators over other types (e.g. strings / paths / etc.).
+  template<typename StreamT>
+  void resetStreams(stream_status& st, StreamT p1, StreamT p2, istream_type_tag<false>,
+                    typename std::enable_if<!std::is_base_of<std::istream,
+                             decltype(**p1)>::value>::type* = nullptr) {
+    //st.stream1.reset(*p1);
+    //st.stream2.reset(*p2);
+    st.stream1.reset(new std::ifstream(*p1));
+    st.stream2.reset(new std::ifstream(*p2));
+  }
+
+
   void open_next_files(stream_status& st) {
     st.stream1.reset();
     st.stream2.reset();
-    const char *p1 = 0, *p2 = 0;
+
+    PathIterator p1, p2;
+    bool p1Valid{false};
+    bool p2Valid{false};
+    //const char *p1 = 0, *p2 = 0;
     {
       std::lock_guard<std::mutex> lck(path_mutex_);
       if(path_begin_ < path_end_) {
-        p1 = *path_begin_;
+        p1 = path_begin_;
+        p1Valid = true;
         ++path_begin_;
       }
       if(path_begin_ < path_end_) {
-        p2 = *path_begin_;
+        p2 = path_begin_;
+        p2Valid = true;
         ++path_begin_;
       }
     }
 
-    if(!p1 || !p2) {
+    if(!(p1Valid and p2Valid)) {
       st.type = DONE_TYPE;
       return;
     }
-    st.stream1.reset(new std::ifstream(p1));
-    st.stream2.reset(new std::ifstream(p2));
+
+    resetStreams(st, p1, p2,
+            istream_type_tag<
+            std::is_base_of<std::istream,
+             typename std::iterator_traits<PathIterator>::value_type>::value>());
+//    st.stream1.reset(new std::ifstream(p1));
+//    st.stream2.reset(new std::ifstream(p2));
     if(!*st.stream1 || !*st.stream2) {
       st.type = DONE_TYPE;
       return;
@@ -130,9 +164,9 @@ protected:
     if(type1 == DONE_TYPE || type2 == DONE_TYPE)
       return open_next_files(st);
     if(type1 != type2)
-       throw std::runtime_error("Paired files are of different format");
+      throw std::runtime_error("Paired files are of different format");
     if(type1 == ERROR_TYPE || type2 == ERROR_TYPE)
-       throw std::runtime_error("Unsupported format");
+      throw std::runtime_error("Unsupported format");
     st.type = type1;
   }
 
@@ -165,7 +199,7 @@ protected:
       hsq.seq.append(tmp);             // two lines avoiding copying
     }
     if(!is.good())
-      throw std::runtime_error("Truncated fastq file");
+      std::runtime_error("Truncated fastq file");
     is.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     hsq.qual.clear();
     while(hsq.qual.size() < hsq.seq.size() && is.good()) {

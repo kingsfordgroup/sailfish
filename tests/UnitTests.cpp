@@ -6,3 +6,4 @@
 #include "SailfishUtils.hpp"
 
 #include "LibraryTypeTests.cpp"
+#include "KmerHistTests.cpp"

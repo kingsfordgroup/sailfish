@@ -55,7 +55,8 @@ using QuasiAlignment = rapmap::utils::QuasiAlignment;
 /****** QUASI MAPPING DECLARATIONS  *******/
 
 /****** Parser aliases ***/
-using paired_parser = pair_sequence_parser<char**>;
+//using paired_parser = pair_sequence_parser<std::vector<std::ifstream*>::iterator>;
+using paired_parser = pair_sequence_parser<char**>;//std::vector<std::ifstream*>::iterator>;
 using stream_manager = jellyfish::stream_manager<std::vector<std::string>::const_iterator>;
 using single_parser = jellyfish::whole_sequence_parser<stream_manager>;
 /****** Parser aliases ***/
@@ -698,16 +699,22 @@ void quasiMapReads(
 
         size_t numFiles = rl.mates1().size() + rl.mates2().size();
         char** pairFileList = new char*[numFiles];
+        //std::vector<std::ifstream*> pairFileList(numFiles);
+        //pairFileList.reserve(numFiles);
         for (size_t i = 0; i < rl.mates1().size(); ++i) {
             pairFileList[2*i] = const_cast<char*>(rl.mates1()[i].c_str());
             pairFileList[2*i+1] = const_cast<char*>(rl.mates2()[i].c_str());
+            //pairFileList[2*i] = new std::ifstream(rl.mates1()[i]);
+            //pairFileList[2*i+1] = new std::ifstream(rl.mates2()[i]);
         }
 
         size_t maxReadGroup{readGroupSize}; // Number of reads in each "job"
         size_t concurrentFile{2}; // Number of files to read simultaneously
         pairedParserPtr.reset(new
                 paired_parser(4 * numThreads, maxReadGroup,
-                    concurrentFile, pairFileList, pairFileList+numFiles));
+                    concurrentFile,
+                    pairFileList, pairFileList+numFiles));
+                    //pairFileList.begin(), pairFileList.end()));
 
         int32_t numRequiredFLDObs{10000};
         std::atomic<int32_t> remainingFLOps{numRequiredFLDObs};
@@ -1040,7 +1047,6 @@ int mainQuantify(int argc, char* argv[]) {
 
         ReadExperiment experiment(readLibraries, indexDirectory, sopt);
         // end parameter validation
-
 
         // This will be the class in charge of maintaining our
         // rich equivalence classes
