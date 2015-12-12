@@ -36,8 +36,10 @@ public:
 	// The number of k-mers we'll have to store given the k-mer size
 	//constexpr const uint64_t numKmers{constExprPow(4, K)};
 	std::array<CountT, constExprPow(4,K)> counts;
-	std::map<int64_t,bool> hexamers;
-	std::vector<int64_t> hexamerList;
+	std::map<uint64_t,bool> hexamers;
+	
+	const uint64_t numPossKmers = constExprPow(4,K);
+	
 	KmerDist() : haveBias_(false) {
 		// set a pseudo-count for each k-mer
 		for (size_t i = 0; i < counts.size(); ++i) { counts[i] = 0; }
