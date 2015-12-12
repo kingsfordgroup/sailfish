@@ -20,6 +20,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <vector>
+#include <map>
 #include <algorithm>
 #include <cstdint>
 // from http://stackoverflow.com/questions/17719674/c11-fast-constexpr-integer-powers
@@ -35,16 +36,18 @@ public:
 	// The number of k-mers we'll have to store given the k-mer size
 	//constexpr const uint64_t numKmers{constExprPow(4, K)};
 	std::array<CountT, constExprPow(4,K)> counts;
+	std::map<int64_t,bool> hexamers;
+	std::vector<int64_t> hexamerList;
 	KmerDist() : haveBias_(false) {
 		// set a pseudo-count for each k-mer
-		for (size_t i = 0; i < counts.size(); ++i) { counts[i] = 1; }
+		for (size_t i = 0; i < counts.size(); ++i) { counts[i] = 0; }
 	}
-	inline uint32_t indexForKmer(const char* s, bool reverseComplement) {
+	inline uint64_t indexForKmer(const char* s, bool reverseComplement) {
 		// The index we'll return
-		uint32_t idx{0};
+		uint64_t idx{0};
 		// The number of bits we need to shift the
 		// current mask to the left.
-		uint32_t pos{0};
+		uint64_t pos{0};
 		if(!reverseComplement)
 		{
 			for (size_t i = 0; i < K; ++i) {
@@ -100,11 +103,32 @@ public:
 		}
 		return idx;
 	}
-	inline uint32_t nextKmerIndex(uint32_t idx, char next)
+	
+	inline uint64_t nextKmerIndex(uint64_t idx, const char *next,bool reverseComplement)
 	{
 		idx = idx & (0x3FF);
 		idx = idx << 2;
-		switch(next)
+		char n=*next;
+		if(reverseComplement)
+		{
+			switch(n)
+			{
+				case 'A':
+				case 'a': n='T' 
+					 break;
+				case 'C':
+				case 'c': n='G';break;
+				case 'g':
+				case 'G': n='C';break;
+				case 'T':
+				case 't':
+				case 'U':
+				case 'u': n='A';break;
+					
+				
+			}
+		}
+		switch(n)
 		{
 			case 'A':
 			case 'a': break;
@@ -123,11 +147,12 @@ public:
 		}
 		return idx;
 	}
-	inline std::string kmerForIndex(uint32_t idx) {
+	
+	inline std::string kmerForIndex(uint64_t idx) {
 		std::string kmer(K, 'X');
 		// The number of bits we need to shift the
 		// current mask to the left.
-		uint32_t pos{0};
+		uint64_t pos{0};
 		for (size_t i = 0; i < K; ++i) {
 			uint8_t c = (idx >> pos) & 0x3;
 			switch (c) {
@@ -150,13 +175,54 @@ public:
 		}
 		return kmer;
 	}
-	inline bool addKmer(const char* s, const char* end, bool reverseComplement) {
+		
+	inline void addKmers(const char* s, const char* end, bool reverseComplement) {
 		// Make sure there are at least k bases left
-		if (std::distance(s, end) >= K) {
-			auto idx = indexForKmer(s,reverseComplement);
+
+/*		auto idx = indexForKmer(start,reverseComplement);
+		char *it = start+1;
+		while(std::distance(start, end) >= K) {
+			auto idx = indexForKmer(start,reverseComplement);
+			auto it = hexamers.find(idx);
+			if(it==hexamers.end())
+				hexamers[idx] = true;
 			counts[idx]++;
-		} else {
-			return false;
+		}
+		return true;
+*/
+		if(!reverseComplement)
+		{
+			auto idx = indexForKmer(start,false);
+			hexamers[idx]=true;
+			counts[idx]++;
+			uint32_t i=1;
+			while(std::distance(start+i,end)>=K) {
+				
+				idx = nextKmerIndex(idx,start+i,false);
+				auto it = hexamers.find(idx);
+				if(it==hexamers.end())
+					hexamers[idx] = true;
+				counts[idx]++;
+				i++;
+				
+			}
+		}
+		else
+		{
+			auto idx = indexForKmer(end-1,true);
+			hexamers[idx]=true;
+			counts[idx]++;
+			uint32_t i=2;
+			while(end-i>=start)
+			{
+				idx = nextKmerIndex(idx,end-i,true);
+				auto it = hexamers.find(idx);
+				if(it==hexamers.end())
+					hexamers[idx] = true;
+				counts[idx]++;
+				i--;
+				
+			}
 		}
 	}
 private:

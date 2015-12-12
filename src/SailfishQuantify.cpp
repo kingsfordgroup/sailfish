@@ -49,6 +49,10 @@
 
 #include "spdlog/spdlog.h"
 
+//S_AYUSH_CODE
+#include "ReadKmerDist.hpp"
+//T_AYUSH_CODE
+
 /****** QUASI MAPPING DECLARATIONS *********/
 using MateStatus = rapmap::utils::MateStatus;
 using QuasiAlignment = rapmap::utils::QuasiAlignment;
@@ -126,6 +130,8 @@ void processReadsQuasi(paired_parser* parser,
   bool tooManyHits{false};
   size_t maxNumHits{sfOpts.maxReadOccs};
   size_t readLen{0};
+  
+  
 
   auto& numObservedFragments = readExp.numObservedFragmentsAtomic();
   auto& validHits = readExp.numMappedFragmentsAtomic();
@@ -234,9 +240,9 @@ void processReadsQuasi(paired_parser* parser,
 
             double auxSumAll = 0.0;
             double auxSumCompat = 0.0;
-            for (auto& h : jointHits) {
+	    for (auto& h : jointHits) {
                 auto transcriptID = h.transcriptID();
-
+		
                 if (!isPaired) {
                     if (remainingFLOps <= 0 and meanFragLen < 0) {
                         meanFragLen = getMeanFragLen(flMap);
@@ -244,6 +250,7 @@ void processReadsQuasi(paired_parser* parser,
 
                     int32_t pos = static_cast<int32_t>(h.pos);
 
+		    
                     // True if the read is compatible with the
                     // expected library type; false otherwise.
                     bool compat = ignoreCompat;
@@ -367,7 +374,10 @@ void processReadsQuasi(single_parser* parser,
 
     size_t locRead{0};
     uint64_t localUpperBoundHits{0};
-
+    //S_AYUSH_CODE
+    ReadKmerDist<6> readBias;
+    //T_AYUSH_CODE
+    
     bool tooManyHits{false};
     size_t readLen{0};
     size_t maxNumHits{sfOpts.maxReadOccs};
@@ -431,11 +441,31 @@ void processReadsQuasi(single_parser* parser,
 
                 double auxSumAll = 0.0;
                 double auxSumCompat = 0.0;
-                for (auto& h : jointHits) {
+		//S_AYUSH_CODE
+		bool biasCountFlag = true;
+		//T_AYUSH_CODE
+		for (auto& h : jointHits) {
 
                     int32_t pos = static_cast<int32_t>(h.pos);
-
-                    // True if the read is compatible with the
+		    
+		    //S_AYUSH_CODE
+		    // Note: sidx is a pointer to type IndexT, not RapMapSAIndex! 
+		    if(biasCountFlag){
+			char *start = sidx->seq.c_str() + sidx->txpOffsets[h.tid] + pos; // is this correct?
+			char *end = sidx->seq.c_str() + sidx->txpOffsets[h.tid] + sidx->txpLens[h.tid]; //??
+			if(h.fwd)
+			{
+				readBias.updateReadCount(start,end,true);
+			}
+			else
+			{
+				readBias.updateReadCount(start,end,false);
+			}
+			biasCountFlag = false;
+		    }
+		    //T_AYUSH_CODE
+                    
+		    // True if the read is compatible with the
                     // expected library type; false otherwise.
                     bool compat = ignoreCompat;
                     if (!compat) {

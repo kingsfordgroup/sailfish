@@ -43,6 +43,11 @@
 #include "SailfishUtils.hpp"
 #include "ReadExperiment.hpp"
 
+//S_AYUSH_CODE
+#include "ReadKmerDist.hpp"
+#include "KmerDist.hpp"
+//T_AYUSH_CODE
+
 namespace sailfish {
     namespace utils {
 
@@ -644,6 +649,71 @@ namespace sailfish {
             return result;
         }
 
+
+        //S_AYUSH_CODE
+        constexpr int64_t constExprPow(int64_t base, unsigned int exp, int64_t result = 1) {
+		return (exp == 0) ? result : constExprPow(base*base, exp/2, (exp % 2) ? result*base : result);
+	}
+	
+ 
+        void getTranscriptKmerCounts(IndexT *sidx, ReadExperiment& readExp, std::vector<KmerDist<6> > &txpCount)
+	{
+		vector<Transcript> &transcript = readExp.transcripts();
+		for(size_t it=0;it<(size_t)transcript.size();++it)
+		{
+			char *start = sidx->seq.c_str() + sidx->txpOffsets[it];
+			char *end = sidx->seq.c_str() + sidx->txpOffsets[it] + sidx->txpLens[it];
+			txpCount[it].addKmers(start,end,false);
+			txpCount[it].addKmers(start,end,true);
+		}
+	}
+        //T_AYUSH_CODE
+        
+        
+        
+        //S_AYUSH_CODE
+        
+        void updateEffectiveLengths(ReadExperiment& readExp, ReadKmerDist<6>& readBias, std::vector<KmerDist<6> > &txpCount,CollapsedEMOptimizer::SerialVecType &alphas)
+	{
+		using std::vector
+		KmerDist<6,double> txpDist;
+		double alphaNormFactor = 0.0;
+		double readNormFactor = 0.0;
+		// calculate read bias normalization factor
+		for(size_t it=0;it<readBias.size;it++)
+			readNormFactor = readNormFactor + readCounts[it];
+		
+		// calculate(and store) the transcripts estimation of reads starting with a particular hexamer
+		vector<Transcript> &transcript = readExp.transcripts();
+		vector<double> transcriptKmerDist(constExprPow(4,6));
+		
+		for(size_t it=0;it<(size_t)transcript.size();++it)
+		{
+			double contribution = 0.5*(alphas[i]/transcript[i].EffectiveLength);
+			
+			for(auto jt = txpCount[it].hexamers.begin();jt!=txpCount[it].hexamers.end();jt++)
+				transcriptKmerDist[jt->first] += contribution*(txpCount[it].counts[jt->first]);
+			
+		}
+		
+		for(size_t it=0;it<(size_t)transcriptKmerDist.size();++it)
+			alphaNormFactor += transcriptKmerDist[it];
+		
+		for(size_t it=0;it<(size_t)transcript.size();++it)
+		{
+			double effLength = 0.0;
+			for(auto jt = txpCount[it].hexamers.begin();jt!=txpCount[jt].hexamers.end();jt++)
+				effLength += (txpCount[it].counts[jt->first])*(readCounts[jt->first]/transcriptKmerDist[jt->first]);
+			
+			effLength *=alphaNormFactor/readNormFactor;
+			
+			if(effLength > (trascript[it].RefLength - transcript[it].EffectiveLength))
+				transcript[it].EffectiveLength = effLength;
+		}
+	}
+        //T_AYUSH_CODE
+        
+        
         void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::path& inputPath) {
 
             using std::vector;
