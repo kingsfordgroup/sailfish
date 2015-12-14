@@ -11,6 +11,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
+#include "tbb/atomic.h"
+
 #include "spdlog/details/format.h"
 
 #include "SailfishOpts.hpp"
@@ -19,7 +21,6 @@
 #include "LibraryFormat.hpp"
 #include "ReadLibrary.hpp"
 #include "TranscriptGeneMap.hpp"
-#include "GenomicFeature.hpp"
 #include "RapMapUtils.hpp"
 #include "Eigen/Dense"
 
@@ -69,9 +70,6 @@ namespace sailfish{
         LibraryFormat parseLibraryFormatString(std::string& fmt);
 
         size_t numberOfReadsInFastaFile(const std::string& fname);
-
-        template< typename T >
-        TranscriptGeneMap transcriptToGeneMapFromFeatures( std::vector<GenomicFeature<T>> &feats );
 
         TranscriptGeneMap transcriptGeneMapFromGTF(const std::string& fname, std::string key="gene_id");
 

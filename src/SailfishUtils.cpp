@@ -39,7 +39,6 @@
 #include "jellyfish/mer_dna.hpp"
 
 #include "TranscriptGeneMap.hpp"
-#include "GenomicFeature.hpp"
 #include "SailfishUtils.hpp"
 #include "ReadExperiment.hpp"
 

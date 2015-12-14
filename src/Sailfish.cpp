@@ -47,9 +47,6 @@
 
 //#include "KmerDist.hpp"
 #include "SailfishUtils.hpp"
-#include "GenomicFeature.hpp"
-//#include "CountDBNew.hpp"
-//#include "CollapsedIterativeOptimizer.hpp"
 #include "SailfishConfig.hpp"
 #include "VersionChecker.hpp"
 

@@ -35,7 +35,6 @@
 #include "SailfishConfig.hpp"
 #include "SailfishUtils.hpp"
 #include "SailfishIndex.hpp"
-#include "GenomicFeature.hpp"
 #include "TranscriptGeneMap.hpp"
 #include "CollapsedEMOptimizer.hpp"
 #include "CollapsedGibbsSampler.hpp"

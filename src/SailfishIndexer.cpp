@@ -60,15 +60,8 @@
 #include "RapMapSAIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "SailfishIndex.hpp"
-#include "GenomicFeature.hpp"
 #include "spdlog/spdlog.h"
 #include "spdlog/details/format.h"
-
-int computeBiasFeatures(
-    std::vector<std::string>& transcriptFiles,
-    boost::filesystem::path outFilePath,
-    bool useStreamingParser,
-    size_t numThreads);
 
 int mainIndex( int argc, char *argv[] ) {
     using std::string;

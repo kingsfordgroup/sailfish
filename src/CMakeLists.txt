@@ -11,13 +11,11 @@ set ( UNIT_TESTS_SRCS
 # them into a single executable was causing 
 # multiple symbold definition errors).
 set (SAILFISH_LIB_SRCS
-GenomicFeature.cpp
 VersionChecker.cpp
 SailfishIndexer.cpp
 SailfishQuantify.cpp
 SailfishUtils.cpp
 SailfishStringUtils.cpp
-StreamingSequenceParser.cpp
 LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
