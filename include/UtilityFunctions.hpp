@@ -112,8 +112,6 @@ inline uint32_t indexForKmer(const char* s,
                     idx += 3;
                     break;
                 default:
-                    std::cerr << "i = " << i << ", K = " << K << '\n';
-                    std::cerr << "char = " << s[i] << "\n";
                     return std::numeric_limits<uint32_t>::max();
             }
             if (i < K - 1) {idx = idx << 2;}
@@ -135,9 +133,7 @@ inline uint32_t indexForKmer(const char* s,
                 case 'a': idx += 3;
                           break;
                 default:
-                          std::cerr << "i = " << i << ", K = " << K << '\n';
-                          std::cerr << "char = " << s[i] << "\n";
-                          return std::numeric_limits<uint32_t>::max();
+                    return std::numeric_limits<uint32_t>::max();
             }
             if (i > 0) {idx = idx << 2;}
         }

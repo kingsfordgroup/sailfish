@@ -42,16 +42,7 @@ public:
                 // If the read matches in the forward direction, we take
                 // the RC sequence.
                 auto idx = indexForKmer(p, K, true);
-                if (idx > counts.size()) {
-                    std::cerr << "start! = " << *start << '\n';
-                    std::cerr << "p = " << *p << '\n';
-                    std::cerr << "p+1 = " << *(p+1) << '\n';
-                    std::cerr << "p+2 = " << *(p+2) << '\n';
-                    std::cerr << "p+3 = " << *(p+3) << '\n';
-                    std::cerr << "p+4 = " << *(p+4) << '\n';
-                    std::cerr << "p+5 = " << *(p+5) << '\n';
-                    std::cerr << "idx = " << idx << ", size = " << counts.size() << '\n';
-                }
+                if (idx > counts.size()) { return false; }
                 counts[idx]++;
                 success = true;
             }
@@ -60,16 +51,7 @@ public:
                 ((p - posAfterHit + K) < end) ) {
                 p -= posAfterHit;
                 auto idx = indexForKmer(p, K, false);
-                if (idx > counts.size()) {
-                    std::cerr << "start! = " << *start << '\n';
-                    std::cerr << "p = " << *p << '\n';
-                    std::cerr << "p+1 = " << *(p+1) << '\n';
-                    std::cerr << "p+2 = " << *(p+2) << '\n';
-                    std::cerr << "p+3 = " << *(p+3) << '\n';
-                    std::cerr << "p+4 = " << *(p+4) << '\n';
-                    std::cerr << "p+5 = " << *(p+5) << '\n';
-                    std::cerr << "idx = " << idx << ", size = " << counts.size() << '\n';
-                }
+                if (idx > counts.size()) { return false; }
                 counts[idx]++;
                 success = true;
             }

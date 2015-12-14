@@ -814,16 +814,15 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
 
         // Recompute the effective lengths to account for sequence-specific
         // bias.  Consider a better metric here.
-        if (doBiasCorrect and (itNum == minIter or (itNum  == minIter + 500))) {
+        if (doBiasCorrect and (itNum == minIter or (itNum + minIter % 500 == 0))) {
             effLens = sailfish::utils::updateEffectiveLengths(
                         readExp,
                         effLens,
                         alphas);
-            // CHECK FOR STRANGENESS
+            // Check for strangeness with the lengths.
             for (size_t i = 0; i < effLens.size(); ++i) {
                 if (effLens(i) <= 0.0) {
-                    std::cerr << "Transcript " << i << " had length "
-                              << effLens(i) << '\n';
+                    jointLog->warn("Transcript {} had length {}", i, effLens(i));
                 }
             }
             updateEqClassWeights(eqVec, effLens);
