@@ -171,6 +171,7 @@ Builds a Sailfish index
 
         std::cerr << "writing log to " << logPath.string() << "\n";
 
+        /** No more of this bias correction method!
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
@@ -182,6 +183,7 @@ Builds a Sailfish index
    	    std::string txpBiasFileName = transcriptBiasFile.string();
         jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads);
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
+        */
 
         bfs::path headerPath = outputPath / "header.json";
         mustRecompute = (force or !boost::filesystem::exists(headerPath));

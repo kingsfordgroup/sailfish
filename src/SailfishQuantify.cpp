@@ -73,10 +73,12 @@ using std::string;
 
 constexpr uint32_t readGroupSize{1000};
 
+/* No more of this bias correction
 int performBiasCorrectionSalmon(boost::filesystem::path featPath,
                                 boost::filesystem::path expPath,
                                 boost::filesystem::path outPath,
                                 size_t numThreads);
+*/
 
 
 /**
@@ -1219,8 +1221,7 @@ int mainQuantify(int argc, char* argv[]) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                         outputDirectory,
-                        txpAggregationKey,
-                        biasCorrect);
+                        txpAggregationKey);
             } catch (std::invalid_argument& e) {
                 fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
                         "estimates. The gene-level file(s) may not exist",

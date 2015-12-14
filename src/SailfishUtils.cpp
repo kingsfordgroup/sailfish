@@ -932,8 +932,7 @@ namespace sailfish {
 
         void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
                 boost::filesystem::path& estDir,
-                std::string aggKey,
-                bool haveBiasCorrectedFile) {
+                std::string aggKey) {
             namespace bfs = boost::filesystem;
             std::cerr << "Computing gene-level abundance estimates\n";
             bfs::path gtfExtension(".gtf");
@@ -964,6 +963,7 @@ namespace sailfish {
             }
 
             /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
+            /** No more of this bias correction
             if (haveBiasCorrectedFile) {
                 bfs::path biasCorrectEstFilePath = estDir / "quant_bias_corrected.sf";
                 if (!bfs::exists(biasCorrectEstFilePath)) {
@@ -975,6 +975,7 @@ namespace sailfish {
                     sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, biasCorrectEstFilePath);
                 }
             }
+            */
         }
 
         // === Explicit instantiations

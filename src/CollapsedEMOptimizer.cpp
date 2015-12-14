@@ -814,7 +814,8 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
 
         // Recompute the effective lengths to account for sequence-specific
         // bias.  Consider a better metric here.
-        if (doBiasCorrect and (itNum == minIter or (itNum + minIter % 500 == 0))) {
+        if (doBiasCorrect and (itNum == minIter or ((itNum + minIter) % 500) == 0)) {
+            jointLog->info("iteration {}, recomputing effective lengths", itNum);
             effLens = sailfish::utils::updateEffectiveLengths(
                         readExp,
                         effLens,
