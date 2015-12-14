@@ -1116,6 +1116,23 @@ int mainQuantify(int argc, char* argv[]) {
         // {
         // }
 
+        // Write out information about the command / run
+        {
+            bfs::path cmdInfoPath = outputDirectory / "cmd_info.json";
+            std::ofstream os(cmdInfoPath.string());
+            cereal::JSONOutputArchive oa(os);
+            oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
+            for (auto& opt : orderedOptions.options) {
+                if (opt.value.size() == 1) {
+                    oa(cereal::make_nvp(opt.string_key, opt.value.front()));
+                } else {
+                    oa(cereal::make_nvp(opt.string_key, opt.value));
+                }
+            }
+
+            //os.close();
+        }
+
         jointLog->info("parsing read library format");
 
         if (sopt.numGibbsSamples > 0 and sopt.numBootstraps > 0) {
