@@ -17,15 +17,12 @@ SailfishIndexer.cpp
 SailfishQuantify.cpp
 SailfishUtils.cpp
 SailfishStringUtils.cpp
-ComputeBiasFeatures.cpp
-PerformBiasCorrection.cpp
 StreamingSequenceParser.cpp
 LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
 CollapsedGibbsSampler.cpp
 EmpiricalDistribution.cpp
-cokus.cpp
 xxhash.c
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapFileSystem.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAIndexer.cpp
