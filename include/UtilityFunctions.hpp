@@ -13,7 +13,7 @@ inline std::string kmerForIndex(uint32_t idx, uint32_t K) {
     // The number of bits we need to shift the
     // current mask to the left.
     uint32_t pos{0};
-    for (size_t i = 0; i < K; ++i) {
+    for (int32_t i = K - 1; i >= 0; --i) {
         uint8_t c = (idx >> pos) & 0x3;
         switch (c) {
             case 0:

@@ -669,6 +669,11 @@ namespace sailfish {
 
 
         //S_AYUSH_CODE
+        /**
+         * Computes (and returns) new effective lengths for the transcripts
+         * based on the current abundance estimates (alphas) and the current
+         * effective lengths (effLensIn).
+         */
         template <typename AbundanceVecT>
         Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
                                     Eigen::VectorXd& effLensIn,
@@ -683,22 +688,25 @@ namespace sailfish {
             int32_t K = readBias.getK();
             double readNormFactor = static_cast<double>(readBias.totalCount());
 
-            // calculate(and store) the transcripts estimation of reads starting with a particular hexamer
-            auto& transcripts = readExp.transcripts();
+            // Make this const so there are no shenanigans
+            const auto& transcripts = readExp.transcripts();
 
             // The effective lengths adjusted for bias
             Eigen::VectorXd effLensOut(effLensIn.size());
 
-            // The k-mer distribution
+            // The abundance-scaled k-mer distribution of the transcripts;
+            // starts with a pseudo-count of 1.
             vector<double> transcriptKmerDist(constExprPow(4,K), 1.0);
 
             for(size_t it=0; it < transcripts.size(); ++it) {
 
+                // First in the forward direction
+                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
+                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+
                 // How much of this transcript (beginning and end) should
                 // not be considered
-                int32_t unprocessedLen =
-                    static_cast<int32_t>(transcripts[it].RefLength -
-                                         transcripts[it].EffectiveLength);
+                int32_t unprocessedLen = std::max(0, refLen - elen);
 
                 // Skip transcripts with trivial expression or that are too
                 // short.
@@ -713,18 +721,17 @@ namespace sailfish {
                 // kmer.
                 bool firstKmer{true};
                 uint32_t idx{0};
+
                 // This transcript's sequence
                 const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
 
-                // First in the forward direction
-                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
-                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+                // From the start of the transcript through the effective length
                 for (int32_t i = 0; i < elen - K; ++i) {
                     if (firstKmer) {
                         idx = indexForKmer(tseq, K, false);
                         firstKmer = false;
                     } else {
-                        idx = nextKmerIndex(idx, tseq[i], K, false);
+                        idx = nextKmerIndex(idx, tseq[i-1+K], K, false);
                     }
                     transcriptKmerDist[idx] += contribution;
                 }
@@ -732,7 +739,9 @@ namespace sailfish {
                 // Then in the reverse complement direction
                 firstKmer = true;
                 idx = 0;
-                for (int32_t i = elen - K; i >= 0; --i) {
+                // Start from the end and go until the fragment length
+                // distribution says we should stop
+                for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
                     if (firstKmer) {
                         idx = indexForKmer(tseq + i, K, true);
                         firstKmer = false;
@@ -753,10 +762,14 @@ namespace sailfish {
                 // Starts out as 0
                 double effLength = 0.0;
 
+                // First in the forward direction, from the start of the
+                // transcript up until the last valid kmer.
+                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
+                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+
                 // How much of this transcript (beginning and end) should
                 // not be considered
-                int32_t unprocessedLen =
-                    transcripts[it].RefLength - transcripts[it].EffectiveLength;
+                int32_t unprocessedLen = std::max(0, refLen - elen);
 
                 if (alphas[it] >= minAlpha and unprocessedLen > 0) {
                     bool firstKmer{true};
@@ -764,16 +777,12 @@ namespace sailfish {
                     // This transcript's sequence
                     const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
 
-                    // First in the forward direction, from the start of the
-                    // transcript up until the last valid kmer.
-                    int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
-                    int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
                     for (int32_t i = 0; i < elen - K; ++i) {
                         if (firstKmer) {
                             idx = indexForKmer(tseq, K, false);
                             firstKmer = false;
                         } else {
-                            idx = nextKmerIndex(idx, tseq[i], K, false);
+                            idx = nextKmerIndex(idx, tseq[i-1+K], K, false);
                         }
                         effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
                     }
@@ -781,16 +790,16 @@ namespace sailfish {
                     // Then in the reverse complement direction
                     firstKmer = true;
                     idx = 0;
-                    if ((refLen - unprocessedLen - K) > 0) {
-                        for (int32_t i = elen - K; i >= 0; --i) {
-                            if (firstKmer) {
-                                idx = indexForKmer(tseq + i, K, true);
-                                firstKmer = false;
-                            } else {
-                                idx = nextKmerIndex(idx, tseq[i], K, true);
-                            }
-                            effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+                    // Start from the end and go until the fragment length
+                    // distribution says we should stop
+                    for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
+                        if (firstKmer) {
+                            idx = indexForKmer(tseq + i, K, true);
+                            firstKmer = false;
+                        } else {
+                            idx = nextKmerIndex(idx, tseq[i], K, true);
                         }
+                        effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
                     }
 
                     effLength *= 0.5 * (txomeNormFactor / readNormFactor);
@@ -798,14 +807,6 @@ namespace sailfish {
 
                 if(unprocessedLen > 0.0 and effLength > unprocessedLen) {
                     effLensOut(it) = effLength;
-                    if (effLensOut(it) <= 0) {
-                        std::cerr << "it = " << it
-                                  << ", effLensOut(" << it << ") = "
-                                  << effLensOut(it) << ", unprocessedLen = "
-                                  << unprocessedLen << ", ref len = "
-                                  << transcripts[it].RefLength << ", eff len = "
-                                  << transcripts[it].EffectiveLength << '\n';
-                    }
                 } else {
                     effLensOut(it) = effLensIn(it);
                 }

@@ -29,7 +29,7 @@ std::vector<std::string> getAllWords(int length) {
 
 #include <atomic>
 
-SCENARIO("Kmer histogram encodes and decodes k-mers correctly") {
+SCENARIO("Kmers encode and decode correctly") {
 
     GIVEN("All 6-mers") {
         std::vector<std::string> kmers = getAllWords(6);
@@ -45,3 +45,69 @@ SCENARIO("Kmer histogram encodes and decodes k-mers correctly") {
         }
     }
 }
+
+
+SCENARIO("The next k-mer index function works correctly") {
+    const uint32_t K = 6;
+    std::string s = "ATTCTCCACATAGTTGTCATCGAACCAGTACCCCGTAAGCGCCAACATAT";
+
+    GIVEN("The string " + s) {
+        auto idx = indexForKmer(s.c_str(), 6, false);
+        std::string k = s.substr(0, 6);
+        WHEN("kmer is [" + k + "]") {
+            auto kp = kmerForIndex(idx, 6);
+            THEN("decodes as [" + kp + "]") {
+                REQUIRE(k == kp);
+            }
+        }
+        for (size_t i = 0; i < s.size() - K; ++i) {
+            idx = nextKmerIndex(idx, s[i+K], 6, false);
+            k = s.substr(i+1, 6);
+            WHEN("kmer is [" + k + "]") {
+                auto kp = kmerForIndex(idx, 6);
+                THEN("decodes as [" + kp + "]") {
+                    REQUIRE(k == kp);
+                }
+            }
+        }
+    }
+
+    auto rc = [](std::string s) -> std::string {
+        std::string rc;
+        for (int32_t i = s.size() - 1; i >= 0; --i) {
+            switch(s[i]) {
+                case 'A': rc += 'T'; break;
+                case 'C': rc += 'G'; break;
+                case 'G': rc += 'C'; break;
+                case 'T': rc += 'A'; break;
+            }
+        }
+        return rc;
+    };
+
+    auto rcs = rc(s);
+
+    GIVEN("The string " + s + " in the reverse complement direction") {
+        auto idx = indexForKmer(s.c_str() + s.size() - K - 1, 6, true);
+        std::string k = rc(s.substr(s.size() - K - 1, 6));
+        WHEN("kmer is [" + k + "]") {
+            auto kp = kmerForIndex(idx, 6);
+            THEN("decodes as [" + kp + "]") {
+                REQUIRE(k == kp);
+            }
+        }
+        for (int32_t i = s.size() - K - 2; i >= 0; --i) {
+            idx = nextKmerIndex(idx, s[i], 6, true);
+            k = rc(s.substr(i, 6));
+            WHEN("kmer is [" + k + "]") {
+                auto kp = kmerForIndex(idx, 6);
+                THEN("decodes as [" + kp + "]") {
+                    REQUIRE(k == kp);
+                }
+            }
+        }
+    }
+
+}
+
+
