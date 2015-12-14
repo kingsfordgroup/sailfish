@@ -88,8 +88,9 @@ int32_t getMeanFragLen(const FragLengthCountMap& flMap) {
     double totalCount{0.0};
     double totalLength{0.0};
     for (size_t i = 0; i < flMap.size(); ++i) {
-        totalLength += i * flMap[i];
-        totalCount += flMap[i];
+        auto c = flMap[i];
+        totalLength += i * c;
+        totalCount += c;
     }
     double ret{200.0};
     if (totalCount <= 0.0) {
@@ -113,7 +114,7 @@ void processReadsQuasi(paired_parser* parser,
                IndexT* sidx,
                ReadExperiment& readExp,
                ReadLibrary& rl,
-               const SailfishOpts& sfOpts,
+               SailfishOpts& sfOpts,
                FragLengthCountMap& flMap,
                std::atomic<int32_t>& remainingFLOps,
 	           std::mutex& iomutex) {
@@ -130,8 +131,6 @@ void processReadsQuasi(paired_parser* parser,
   bool tooManyHits{false};
   size_t maxNumHits{sfOpts.maxReadOccs};
   size_t readLen{0};
-  
-  
 
   auto& numObservedFragments = readExp.numObservedFragmentsAtomic();
   auto& validHits = readExp.numMappedFragmentsAtomic();
@@ -140,7 +139,11 @@ void processReadsQuasi(paired_parser* parser,
   auto& eqBuilder = readExp.equivalenceClassBuilder();
   auto& transcripts = readExp.transcripts();
 
-  //auto sidx = readExp.getIndex();
+  //S_AYUSH_CODE
+  auto& readBias = readExp.readBias();
+  const char* txomeStr = sidx->seq.c_str();
+  //T_AYUSH_CODE
+
   SACollector<IndexT> hitCollector(sidx);
   SASearcher<IndexT> saSearcher(sidx);
   rapmap::utils::HitCounters hctr;
@@ -218,6 +221,7 @@ void processReadsQuasi(paired_parser* parser,
         if (jointHits.size() > 0) {
             // Are the jointHits paired-end quasi-mappings or orphans?
             bool isPaired = jointHits.front().mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
+            bool bothEndsMap = isPaired;
 
             // If these aren't paired-end reads --- so that
             // we have orphans --- make sure we sort the
@@ -229,6 +233,8 @@ void processReadsQuasi(paired_parser* parser,
                         [](const QuasiAlignment& q) -> bool {
                         return q.mateStatus == rapmap::utils::MateStatus::PAIRED_END_LEFT;
                         });
+                bothEndsMap = (leftHitEndIt > jointHits.begin()) and
+                              (leftHitEndIt < jointHits.end());
                 // Merge the hits so that the entire list is in order
                 // by transcript ID.
                 std::inplace_merge(jointHits.begin(), leftHitEndIt, jointHits.end(),
@@ -240,17 +246,46 @@ void processReadsQuasi(paired_parser* parser,
 
             double auxSumAll = 0.0;
             double auxSumCompat = 0.0;
+            //S_AYUSH_CODE
+            bool needBiasSample = sfOpts.biasCorrect;
+            //T_AYUSH_CODE
+
+
 	    for (auto& h : jointHits) {
                 auto transcriptID = h.transcriptID();
-		
+
+                int32_t pos = static_cast<int32_t>(h.pos);
+
+                //S_AYUSH_CODE
+                // Note: sidx is a pointer to type IndexT, not RapMapSAIndex!
+
+                // If bias correction is turned on, and we haven't sampled a mapping
+                // for this read yet, and we haven't collected the required number of
+                // samples overall.
+                if(needBiasSample and sfOpts.numBiasSamples > 0){
+                    // the "start" position is the leftmost position if
+                    // we hit the forward strand, and the leftmost
+                    // position + the read length if we hit the reverse complement
+                    int32_t startPos = h.fwd ? pos : pos + h.readLen;
+
+                    if (startPos > 0 and startPos < sidx->txpLens[h.tid]) {
+                        const char* txpStart = txomeStr + sidx->txpOffsets[h.tid];
+                        const char* readStart = txpStart + startPos; // is this correct?
+                        const char* txpEnd = txpStart + sidx->txpLens[h.tid]; //??
+                        bool success = readBias.update(txpStart, readStart, txpEnd, h.fwd);
+                        if (success) {
+                            sfOpts.numBiasSamples -= 1;
+                            needBiasSample = false;
+                        }
+                    }
+                }
+                //T_AYUSH_CODE
+
+
                 if (!isPaired) {
                     if (remainingFLOps <= 0 and meanFragLen < 0) {
                         meanFragLen = getMeanFragLen(flMap);
                     }
-
-                    int32_t pos = static_cast<int32_t>(h.pos);
-
-		    
                     // True if the read is compatible with the
                     // expected library type; false otherwise.
                     bool compat = ignoreCompat;
@@ -260,11 +295,21 @@ void processReadsQuasi(paired_parser* parser,
                                 h.fwd, h.mateStatus);
                     }
 
-                    bool positionOK = (
-                            (h.fwd and (pos + meanFragLen) <= static_cast<int32_t>(transcripts[transcriptID].RefLength))
-                            or
-                            (!h.fwd and (pos - meanFragLen) >= 0 )
-                            );
+
+                    bool positionOK = true;
+                    /** TODO: Consider how best to filter orphans in the future **/
+                    /*
+                    if (meanFragLen > 0 and positionOK) {
+                        int32_t startPos = h.fwd ? pos : pos + h.readLen;
+                        if (h.fwd) {
+                            positionOK =
+                                (startPos + meanFragLen) <= static_cast<int32_t>(transcripts[transcriptID].RefLength);
+                        } else {
+                            positionOK = (startPos - meanFragLen) >= 0.0;
+                        }
+
+                    }
+                    */
 
                     if (positionOK) {
                         if (compat) {
@@ -367,7 +412,7 @@ void processReadsQuasi(single_parser* parser,
         IndexT* sidx,
         ReadExperiment& readExp,
         ReadLibrary& rl,
-        const SailfishOpts& sfOpts,
+        SailfishOpts& sfOpts,
         std::mutex& iomutex) {
 
     uint64_t prevObservedFrags{1};
@@ -375,9 +420,10 @@ void processReadsQuasi(single_parser* parser,
     size_t locRead{0};
     uint64_t localUpperBoundHits{0};
     //S_AYUSH_CODE
-    ReadKmerDist<6> readBias;
+    auto& readBias = readExp.readBias();
+    const char* txomeStr = sidx->seq.c_str();
     //T_AYUSH_CODE
-    
+
     bool tooManyHits{false};
     size_t readLen{0};
     size_t maxNumHits{sfOpts.maxReadOccs};
@@ -441,31 +487,42 @@ void processReadsQuasi(single_parser* parser,
 
                 double auxSumAll = 0.0;
                 double auxSumCompat = 0.0;
-		//S_AYUSH_CODE
-		bool biasCountFlag = true;
-		//T_AYUSH_CODE
-		for (auto& h : jointHits) {
+
+                //S_AYUSH_CODE
+                bool needBiasSample = sfOpts.biasCorrect;
+                //T_AYUSH_CODE
+
+                for (auto& h : jointHits) {
 
                     int32_t pos = static_cast<int32_t>(h.pos);
-		    
-		    //S_AYUSH_CODE
-		    // Note: sidx is a pointer to type IndexT, not RapMapSAIndex! 
-		    if(biasCountFlag){
-			char *start = sidx->seq.c_str() + sidx->txpOffsets[h.tid] + pos; // is this correct?
-			char *end = sidx->seq.c_str() + sidx->txpOffsets[h.tid] + sidx->txpLens[h.tid]; //??
-			if(h.fwd)
-			{
-				readBias.updateReadCount(start,end,true);
-			}
-			else
-			{
-				readBias.updateReadCount(start,end,false);
-			}
-			biasCountFlag = false;
-		    }
-		    //T_AYUSH_CODE
-                    
-		    // True if the read is compatible with the
+
+
+                    //S_AYUSH_CODE
+                    // Note: sidx is a pointer to type IndexT, not RapMapSAIndex!
+
+                    // If bias correction is turned on, and we haven't sampled a mapping
+                    // for this read yet, and we haven't collected the required number of
+                    // samples overall.
+                    if(needBiasSample and sfOpts.numBiasSamples > 0){
+                        // the "start" position is the leftmost position if
+                        // we hit the forward strand, and the leftmost
+                        // position + the read length if we hit the reverse complement
+                        int32_t startPos = h.fwd ? pos : pos + h.readLen;
+
+                        if (startPos > 0 and startPos < sidx->txpLens[h.tid]) {
+                            const char* txpStart = txomeStr + sidx->txpOffsets[h.tid];
+                            const char* readStart = txpStart + startPos; // is this correct?
+                            const char* txpEnd = txpStart + sidx->txpLens[h.tid]; //??
+                            bool success = readBias.update(txpStart, readStart, txpEnd, h.fwd);
+                            if (success) {
+                                sfOpts.numBiasSamples -= 1;
+                                needBiasSample = false;
+                            }
+                        }
+                    }
+                    //T_AYUSH_CODE
+
+                    // True if the read is compatible with the
                     // expected library type; false otherwise.
                     bool compat = ignoreCompat;
                     if (!compat) {
@@ -486,7 +543,7 @@ void processReadsQuasi(single_parser* parser,
                         auxProbsAll.push_back(1.0);
                         auxSumAll += 1.0;
                     }
-                }
+        }
 
                 // If we have compatible hits, only use those
                 if (haveCompat) {
@@ -698,7 +755,7 @@ std::vector<std::string> split(const std::string &s, char delim) {
 
 void quasiMapReads(
         ReadExperiment& readExp,
-        const SailfishOpts& sfOpts,
+        SailfishOpts& sfOpts,
         std::mutex& iomutex){
 
     std::vector<std::thread> threads;
@@ -916,8 +973,7 @@ int mainQuantify(int argc, char* argv[]) {
          "separated by a tab.  The extension of the file is used to determine how the file "
          "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
          "format; files with any other extension are assumed to be in the simple format.")
-       ("biasCorrect", po::value(&biasCorrect)->zero_tokens(), "[Experimental]: Output both bias-corrected and non-bias-corrected "
-         "qunatification estimates.");
+       ("biasCorrect", po::value(&(sopt.biasCorrect))->zero_tokens(), "Perform sequence-specific bias correction");
 
     po::options_description advanced("\n"
             "advanced options");
@@ -1157,17 +1213,6 @@ int mainQuantify(int argc, char* argv[]) {
         }
         }
         */
-
-        if (biasCorrect) {
-            auto origExpressionFile = estFilePath;
-
-            auto outputDirectory = estFilePath;
-            outputDirectory.remove_filename();
-
-            auto biasFeatPath = indexDirectory / "bias_feats.txt";
-            auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
-            performBiasCorrectionSalmon(biasFeatPath, estFilePath, biasCorrectedFile, sopt.numThreads);
-        }
 
         /** If the user requested gene-level abundances, then compute those now **/
         if (vm.count("geneMap")) {

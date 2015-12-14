@@ -22,6 +22,10 @@
 #include <memory>
 #include <fstream>
 
+//S_AYUSH_CODE
+#include "ReadKmerDist.hpp"
+//T_AYUSH_CODE
+
 /**
   *  This class represents a library of reads used to quantify
   *  a set of target transcripts.
@@ -139,6 +143,10 @@ class ReadExperiment {
     std::vector<ReadLibrary>& readLibraries() { return readLibraries_; }
     //FragmentLengthDistribution* fragmentLengthDistribution() { return fragLengthDist_.get(); }
 
+    //S_AYUSH_CODE
+    ReadKmerDist<6, std::atomic<uint32_t>>& readBias() { return readBias_; }
+    //T_AYUSH_CODE
+
     private:
     /**
      * The file from which the alignments will be read.
@@ -167,6 +175,12 @@ class ReadExperiment {
     double effectiveMappingRate_{0.0};
     //std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
     EquivalenceClassBuilder eqBuilder_;
+
+    //S_AYUSH_CODE
+    // Since multiple threads can touch this dist, we
+    // need atomic counters.
+    ReadKmerDist<6, std::atomic<uint32_t>> readBias_;
+    //T_AYUSH_CODE
 };
 
 #endif // EXPERIMENT_HPP

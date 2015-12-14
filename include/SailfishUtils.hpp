@@ -21,6 +21,11 @@
 #include "TranscriptGeneMap.hpp"
 #include "GenomicFeature.hpp"
 #include "RapMapUtils.hpp"
+#include "Eigen/Dense"
+
+// S_AYUSH_CODE
+#include "ReadKmerDist.hpp"
+// T_AYUSH_CODE
 
 class ReadExperiment;
 class LibraryFormat;
@@ -139,6 +144,13 @@ namespace sailfish{
                 ReadExperiment& alnLib,
                 boost::filesystem::path& fname,
                 std::string headerComments="");
+
+        // S_AYUSH_CODE
+        template <typename AbundanceVecT>
+        Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
+                                    Eigen::VectorXd& effLensIn,
+                                    AbundanceVecT& alphas);
+        // T_AYUSH_CODE
 
 
         //double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected, double incompatPrior);

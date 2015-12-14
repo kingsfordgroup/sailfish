@@ -1,4 +1,4 @@
-#include "KmerDist.hpp"
+#include "UtilityFunctions.hpp"
 
 // from http://stackoverflow.com/questions/2380962/generate-all-combinations-of-arbitrary-alphabet-up-to-arbitrary-length
 std::vector<std::string> getAllWords(int length) {
@@ -33,10 +33,10 @@ SCENARIO("Kmer histogram encodes and decodes k-mers correctly") {
 
     GIVEN("All 6-mers") {
         std::vector<std::string> kmers = getAllWords(6);
-        KmerDist<6, std::atomic<uint32_t>> kh;
+        //KmerDist<6, std::atomic<uint32_t>> kh;
         for (auto& k : kmers) {
-            auto i = kh.indexForKmer(k.c_str());
-            auto kp = kh.kmerForIndex(i);
+            auto i = indexForKmer(k.c_str(), 6, false);
+            auto kp = kmerForIndex(i, 6);
             WHEN("kmer is [" + k + "]") {
                 THEN("decodes as [" + kp + "]") {
                     REQUIRE(k == kp);

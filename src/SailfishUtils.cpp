@@ -45,7 +45,7 @@
 
 //S_AYUSH_CODE
 #include "ReadKmerDist.hpp"
-#include "KmerDist.hpp"
+#include "UtilityFunctions.hpp"
 //T_AYUSH_CODE
 
 namespace sailfish {
@@ -651,69 +651,171 @@ namespace sailfish {
 
 
         //S_AYUSH_CODE
-        constexpr int64_t constExprPow(int64_t base, unsigned int exp, int64_t result = 1) {
-		return (exp == 0) ? result : constExprPow(base*base, exp/2, (exp % 2) ? result*base : result);
-	}
-	
- 
+        /*
         void getTranscriptKmerCounts(IndexT *sidx, ReadExperiment& readExp, std::vector<KmerDist<6> > &txpCount)
-	{
-		vector<Transcript> &transcript = readExp.transcripts();
-		for(size_t it=0;it<(size_t)transcript.size();++it)
-		{
-			char *start = sidx->seq.c_str() + sidx->txpOffsets[it];
-			char *end = sidx->seq.c_str() + sidx->txpOffsets[it] + sidx->txpLens[it];
-			txpCount[it].addKmers(start,end,false);
-			txpCount[it].addKmers(start,end,true);
-		}
-	}
+        {
+            vector<Transcript> &transcript = readExp.transcripts();
+            for(size_t it=0;it<(size_t)transcript.size();++it)
+            {
+                char *start = sidx->seq.c_str() + sidx->txpOffsets[it];
+                char *end = sidx->seq.c_str() + sidx->txpOffsets[it] + sidx->txpLens[it];
+                txpCount[it].addKmers(start,end,false);
+                txpCount[it].addKmers(start,end,true);
+            }
+        }
+        */
         //T_AYUSH_CODE
-        
-        
-        
+
+
+
         //S_AYUSH_CODE
-        
-        void updateEffectiveLengths(ReadExperiment& readExp, ReadKmerDist<6>& readBias, std::vector<KmerDist<6> > &txpCount,CollapsedEMOptimizer::SerialVecType &alphas)
-	{
-		using std::vector
-		KmerDist<6,double> txpDist;
-		double alphaNormFactor = 0.0;
-		double readNormFactor = 0.0;
-		// calculate read bias normalization factor
-		for(size_t it=0;it<readBias.size;it++)
-			readNormFactor = readNormFactor + readCounts[it];
-		
-		// calculate(and store) the transcripts estimation of reads starting with a particular hexamer
-		vector<Transcript> &transcript = readExp.transcripts();
-		vector<double> transcriptKmerDist(constExprPow(4,6));
-		
-		for(size_t it=0;it<(size_t)transcript.size();++it)
-		{
-			double contribution = 0.5*(alphas[i]/transcript[i].EffectiveLength);
-			
-			for(auto jt = txpCount[it].hexamers.begin();jt!=txpCount[it].hexamers.end();jt++)
-				transcriptKmerDist[jt->first] += contribution*(txpCount[it].counts[jt->first]);
-			
-		}
-		
-		for(size_t it=0;it<(size_t)transcriptKmerDist.size();++it)
-			alphaNormFactor += transcriptKmerDist[it];
-		
-		for(size_t it=0;it<(size_t)transcript.size();++it)
-		{
-			double effLength = 0.0;
-			for(auto jt = txpCount[it].hexamers.begin();jt!=txpCount[jt].hexamers.end();jt++)
-				effLength += (txpCount[it].counts[jt->first])*(readCounts[jt->first]/transcriptKmerDist[jt->first]);
-			
-			effLength *=alphaNormFactor/readNormFactor;
-			
-			if(effLength > (trascript[it].RefLength - transcript[it].EffectiveLength))
-				transcript[it].EffectiveLength = effLength;
-		}
-	}
+        template <typename AbundanceVecT>
+        Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
+                                    Eigen::VectorXd& effLensIn,
+                                    AbundanceVecT& alphas) {
+            using std::vector;
+            double minAlpha = 1e-8;
+            auto sfIndex = readExp.getIndex();
+            const char* txomeStr = sfIndex->transcriptomeSeq();
+            // calculate read bias normalization factor -- total count in read
+            // distribution.
+            auto& readBias = readExp.readBias();
+            int32_t K = readBias.getK();
+            double readNormFactor = static_cast<double>(readBias.totalCount());
+
+            // calculate(and store) the transcripts estimation of reads starting with a particular hexamer
+            auto& transcripts = readExp.transcripts();
+
+            // The effective lengths adjusted for bias
+            Eigen::VectorXd effLensOut(effLensIn.size());
+
+            // The k-mer distribution
+            vector<double> transcriptKmerDist(constExprPow(4,K), 1.0);
+
+            for(size_t it=0; it < transcripts.size(); ++it) {
+
+                // How much of this transcript (beginning and end) should
+                // not be considered
+                int32_t unprocessedLen =
+                    static_cast<int32_t>(transcripts[it].RefLength -
+                                         transcripts[it].EffectiveLength);
+
+                // Skip transcripts with trivial expression or that are too
+                // short.
+                if (alphas[it] < minAlpha or unprocessedLen <= 0) {
+                    continue;
+                }
+
+                // Otherwise, proceed with the following weight.
+                double contribution = 0.5*(alphas[it]/effLensIn(it));
+
+                // From the start of the transcript up until the last valid
+                // kmer.
+                bool firstKmer{true};
+                uint32_t idx{0};
+                // This transcript's sequence
+                const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
+
+                // First in the forward direction
+                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
+                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+                for (int32_t i = 0; i < elen - K; ++i) {
+                    if (firstKmer) {
+                        idx = indexForKmer(tseq, K, false);
+                        firstKmer = false;
+                    } else {
+                        idx = nextKmerIndex(idx, tseq[i], K, false);
+                    }
+                    transcriptKmerDist[idx] += contribution;
+                }
+
+                // Then in the reverse complement direction
+                firstKmer = true;
+                idx = 0;
+                for (int32_t i = elen - K; i >= 0; --i) {
+                    if (firstKmer) {
+                        idx = indexForKmer(tseq + i, K, true);
+                        firstKmer = false;
+                    } else {
+                        idx = nextKmerIndex(idx, tseq[i], K, true);
+                    }
+                    transcriptKmerDist[idx] += contribution;
+                }
+            }
+
+            // The total mass of the transcript distribution
+            double txomeNormFactor = 0.0;
+            for(auto m : transcriptKmerDist) { txomeNormFactor += m; }
+
+            // Now, compute the effective length of each transcript using
+            // the k-mer biases
+            for(size_t it = 0; it < transcripts.size(); ++it) {
+                // Starts out as 0
+                double effLength = 0.0;
+
+                // How much of this transcript (beginning and end) should
+                // not be considered
+                int32_t unprocessedLen =
+                    transcripts[it].RefLength - transcripts[it].EffectiveLength;
+
+                if (alphas[it] >= minAlpha and unprocessedLen > 0) {
+                    bool firstKmer{true};
+                    uint32_t idx{0};
+                    // This transcript's sequence
+                    const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
+
+                    // First in the forward direction, from the start of the
+                    // transcript up until the last valid kmer.
+                    int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
+                    int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+                    for (int32_t i = 0; i < elen - K; ++i) {
+                        if (firstKmer) {
+                            idx = indexForKmer(tseq, K, false);
+                            firstKmer = false;
+                        } else {
+                            idx = nextKmerIndex(idx, tseq[i], K, false);
+                        }
+                        effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+                    }
+
+                    // Then in the reverse complement direction
+                    firstKmer = true;
+                    idx = 0;
+                    if ((refLen - unprocessedLen - K) > 0) {
+                        for (int32_t i = elen - K; i >= 0; --i) {
+                            if (firstKmer) {
+                                idx = indexForKmer(tseq + i, K, true);
+                                firstKmer = false;
+                            } else {
+                                idx = nextKmerIndex(idx, tseq[i], K, true);
+                            }
+                            effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+                        }
+                    }
+
+                    effLength *= 0.5 * (txomeNormFactor / readNormFactor);
+                }
+
+                if(unprocessedLen > 0.0 and effLength > unprocessedLen) {
+                    effLensOut(it) = effLength;
+                    if (effLensOut(it) <= 0) {
+                        std::cerr << "it = " << it
+                                  << ", effLensOut(" << it << ") = "
+                                  << effLensOut(it) << ", unprocessedLen = "
+                                  << unprocessedLen << ", ref len = "
+                                  << transcripts[it].RefLength << ", eff len = "
+                                  << transcripts[it].EffectiveLength << '\n';
+                    }
+                } else {
+                    effLensOut(it) = effLensIn(it);
+                }
+            }
+
+            return effLensOut;
+        }
         //T_AYUSH_CODE
-        
-        
+
+
         void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::path& inputPath) {
 
             using std::vector;
@@ -874,6 +976,16 @@ namespace sailfish {
             }
         }
 
+        // === Explicit instantiations
+        template Eigen::VectorXd updateEffectiveLengths<std::vector<tbb::atomic<double>>>(
+                ReadExperiment& readExp,
+                Eigen::VectorXd& effLensIn,
+                std::vector<tbb::atomic<double>>& alphas);
+
+        template Eigen::VectorXd updateEffectiveLengths<std::vector<double>>(
+                ReadExperiment& readExp,
+                Eigen::VectorXd& effLensIn,
+                std::vector<double>& alphas);
     }
 }
 
