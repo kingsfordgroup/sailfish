@@ -308,9 +308,9 @@ void processReadsQuasi(paired_parser* parser,
                         } else {
                             positionOK = (startPos - meanFragLen) >= 0.0;
                         }
-
                     }
                     */
+
 
                     if (positionOK) {
                         if (compat) {

@@ -55,7 +55,7 @@ int help(int argc, char* argv[]) {
   ===============
 
   Please invoke sailfish with one of the following commands {index, quant, sf}.
-  For more inforation on the options for theses particular methods, use the -h
+  For more information on the options for theses particular methods, use the -h
   flag along with the method name.  For example:
 
   sailfish index -h
