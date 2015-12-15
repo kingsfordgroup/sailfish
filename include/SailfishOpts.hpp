@@ -3,6 +3,7 @@
 
 #include "spdlog/spdlog.h"
 #include <boost/filesystem.hpp>
+#include <atomic>
 #include <memory>
 
 struct SailfishOpts {
@@ -16,6 +17,8 @@ struct SailfishOpts {
     bool ignoreLibCompat{false};
     bool enforceLibCompat{false};
     bool allowDovetail{false};
+    bool biasCorrect{false};
+    std::atomic<int32_t> numBiasSamples{1000000};
     uint32_t maxFragLen;
     uint32_t numGibbsSamples;
     uint32_t numBootstraps;

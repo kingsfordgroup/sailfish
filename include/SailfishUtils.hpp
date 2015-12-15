@@ -11,6 +11,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
+#include "tbb/atomic.h"
+
 #include "spdlog/details/format.h"
 
 #include "SailfishOpts.hpp"
@@ -19,8 +21,8 @@
 #include "LibraryFormat.hpp"
 #include "ReadLibrary.hpp"
 #include "TranscriptGeneMap.hpp"
-#include "GenomicFeature.hpp"
 #include "RapMapUtils.hpp"
+#include "Eigen/Dense"
 
 class ReadExperiment;
 class LibraryFormat;
@@ -33,6 +35,15 @@ namespace sailfish{
         using IndexVector = std::vector<size_t>;
         using KmerVector = std::vector<uint64_t>;
         using MateStatus = rapmap::utils::MateStatus;
+
+        // An enum class for direction to avoid potential errors
+        // with keeping everything as a bool
+        enum class Direction { FORWARD = 0, REVERSE_COMPLEMENT = 1 };
+
+        // Returns FORWARD if isFwd is true and REVERSE_COMPLEMENT otherwise
+        constexpr inline Direction boolToDirection(bool isFwd) {
+            return isFwd ? Direction::FORWARD : Direction::REVERSE_COMPLEMENT;
+        }
 
         // Returns a uint64_t where the upper 32-bits
         // contain tid and the lower 32-bits contain offset
@@ -64,9 +75,6 @@ namespace sailfish{
         LibraryFormat parseLibraryFormatString(std::string& fmt);
 
         size_t numberOfReadsInFastaFile(const std::string& fname);
-
-        template< typename T >
-        TranscriptGeneMap transcriptToGeneMapFromFeatures( std::vector<GenomicFeature<T>> &feats );
 
         TranscriptGeneMap transcriptGeneMapFromGTF(const std::string& fname, std::string key="gene_id");
 
@@ -130,8 +138,7 @@ namespace sailfish{
         // not exist!
         void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
                 boost::filesystem::path& estDir,
-                std::string aggKey,
-                bool haveBiasCorrectedFile = false);
+                std::string aggKey);
 
         enum class OrphanStatus: uint8_t { LeftOrphan = 0, RightOrphan = 1, Paired = 2 };
 
@@ -139,6 +146,13 @@ namespace sailfish{
                 ReadExperiment& alnLib,
                 boost::filesystem::path& fname,
                 std::string headerComments="");
+
+        // S_AYUSH_CODE
+        template <typename AbundanceVecT>
+        Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
+                                    Eigen::VectorXd& effLensIn,
+                                    AbundanceVecT& alphas);
+        // T_AYUSH_CODE
 
 
         //double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected, double incompatPrior);

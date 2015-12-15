@@ -11,21 +11,16 @@ set ( UNIT_TESTS_SRCS
 # them into a single executable was causing 
 # multiple symbold definition errors).
 set (SAILFISH_LIB_SRCS
-GenomicFeature.cpp
 VersionChecker.cpp
 SailfishIndexer.cpp
 SailfishQuantify.cpp
 SailfishUtils.cpp
 SailfishStringUtils.cpp
-ComputeBiasFeatures.cpp
-PerformBiasCorrection.cpp
-StreamingSequenceParser.cpp
 LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
 CollapsedGibbsSampler.cpp
 EmpiricalDistribution.cpp
-cokus.cpp
 xxhash.c
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapFileSystem.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAIndexer.cpp

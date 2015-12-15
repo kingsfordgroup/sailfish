@@ -60,15 +60,8 @@
 #include "RapMapSAIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "SailfishIndex.hpp"
-#include "GenomicFeature.hpp"
 #include "spdlog/spdlog.h"
 #include "spdlog/details/format.h"
-
-int computeBiasFeatures(
-    std::vector<std::string>& transcriptFiles,
-    boost::filesystem::path outFilePath,
-    bool useStreamingParser,
-    size_t numThreads);
 
 int mainIndex( int argc, char *argv[] ) {
     using std::string;
@@ -171,6 +164,7 @@ Builds a Sailfish index
 
         std::cerr << "writing log to " << logPath.string() << "\n";
 
+        /** No more of this bias correction method!
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
@@ -182,6 +176,7 @@ Builds a Sailfish index
    	    std::string txpBiasFileName = transcriptBiasFile.string();
         jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads);
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
+        */
 
         bfs::path headerPath = outputPath / "header.json";
         mustRecompute = (force or !boost::filesystem::exists(headerPath));
