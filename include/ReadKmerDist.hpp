@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "UtilityFunctions.hpp"
+#include "SailfishUtils.hpp"
 
 template <uint32_t K, typename CountT = uint32_t>
 class ReadKmerDist {
@@ -30,32 +31,43 @@ public:
 
     // update the k-mer context for the hit at position p.
     // The underlying transcript is from [start, end)
-	inline bool update(const char* start, const char *p, const char *end, bool isForward) {
+	inline bool update(const char* start, const char *p, const char *end,
+                       sailfish::utils::Direction dir) {
+        using sailfish::utils::Direction;
         int posBeforeHit = 2;
         int posAfterHit = 4;
         bool success{false};
-        if (isForward) {
-            // If we can fit the window before and after the read
-            if ((p - start) >= posBeforeHit and
-                ((p - posBeforeHit + K) < end) ) {
-                p -= posBeforeHit;
-                // If the read matches in the forward direction, we take
-                // the RC sequence.
-                auto idx = indexForKmer(p, K, true);
-                if (idx > counts.size()) { return false; }
-                counts[idx]++;
-                success = true;
-            }
-        } else {
-            if ((p - start) >= posAfterHit and
-                ((p - posAfterHit + K) < end) ) {
-                p -= posAfterHit;
-                auto idx = indexForKmer(p, K, false);
-                if (idx > counts.size()) { return false; }
-                counts[idx]++;
-                success = true;
-            }
-		}
+        switch (dir) {
+            case Direction::FORWARD :
+                {
+                    // If we can fit the window before and after the read
+                    if ((p - start) >= posBeforeHit and
+                            ((p - posBeforeHit + K) < end) ) {
+                        p -= posBeforeHit;
+                        // If the read matches in the forward direction, we take
+                        // the RC sequence.
+                        auto idx = indexForKmer(p, K, Direction::REVERSE_COMPLEMENT);
+                        if (idx > counts.size()) { return false; }
+                        counts[idx]++;
+                        success = true;
+                    }
+                }
+                break;
+            case Direction::REVERSE_COMPLEMENT :
+                {
+                    if ((p - start) >= posAfterHit and
+                            ((p - posAfterHit + K) < end) ) {
+                        p -= posAfterHit;
+                        auto idx = indexForKmer(p, K, Direction::FORWARD);
+                        if (idx > counts.size()) { return false; }
+                        counts[idx]++;
+                        success = true;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
         return success;
 	}
 

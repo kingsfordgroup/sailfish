@@ -727,10 +727,10 @@ namespace sailfish {
                 // From the start of the transcript through the effective length
                 for (int32_t i = 0; i < elen - K; ++i) {
                     if (firstKmer) {
-                        idx = indexForKmer(tseq, K, false);
+                        idx = indexForKmer(tseq, K, Direction::FORWARD);
                         firstKmer = false;
                     } else {
-                        idx = nextKmerIndex(idx, tseq[i-1+K], K, false);
+                        idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
                     }
                     transcriptKmerDist[idx] += contribution;
                 }
@@ -742,10 +742,10 @@ namespace sailfish {
                 // distribution says we should stop
                 for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
                     if (firstKmer) {
-                        idx = indexForKmer(tseq + i, K, true);
+                        idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
                         firstKmer = false;
                     } else {
-                        idx = nextKmerIndex(idx, tseq[i], K, true);
+                        idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
                     }
                     transcriptKmerDist[idx] += contribution;
                 }
@@ -778,10 +778,10 @@ namespace sailfish {
 
                     for (int32_t i = 0; i < elen - K; ++i) {
                         if (firstKmer) {
-                            idx = indexForKmer(tseq, K, false);
+                            idx = indexForKmer(tseq, K, Direction::FORWARD);
                             firstKmer = false;
                         } else {
-                            idx = nextKmerIndex(idx, tseq[i-1+K], K, false);
+                            idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
                         }
                         effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
                     }
@@ -793,10 +793,10 @@ namespace sailfish {
                     // distribution says we should stop
                     for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
                         if (firstKmer) {
-                            idx = indexForKmer(tseq + i, K, true);
+                            idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
                             firstKmer = false;
                         } else {
-                            idx = nextKmerIndex(idx, tseq[i], K, true);
+                            idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
                         }
                         effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
                     }

@@ -2,6 +2,7 @@
 #define UTILITY_FUNCTIONS_HPP
 
 #include <limits>
+#include "SailfishUtils.hpp"
 
 // from http://stackoverflow.com/questions/17719674/c11-fast-constexpr-integer-powers
 constexpr int64_t constExprPow(int64_t base, unsigned int exp, int64_t result = 1) {
@@ -36,10 +37,11 @@ inline std::string kmerForIndex(uint32_t idx, uint32_t K) {
     return kmer;
 }
 
-inline uint32_t nextKmerIndex(uint32_t idx, char n, uint32_t K, bool reverseComplement) {
-
+inline uint32_t nextKmerIndex(uint32_t idx, char n, uint32_t K,
+                              sailfish::utils::Direction dir) {
+    using sailfish::utils::Direction;
     idx = idx << 2;
-    if(reverseComplement) {
+    if(dir == Direction::REVERSE_COMPLEMENT) {
         switch(n) {
             case 'A':
             case 'a':
@@ -86,12 +88,13 @@ inline uint32_t nextKmerIndex(uint32_t idx, char n, uint32_t K, bool reverseComp
 
 inline uint32_t indexForKmer(const char* s,
         uint32_t K,
-        bool reverseComplement) {
+        sailfish::utils::Direction dir) {
+    using sailfish::utils::Direction;
     // The index we'll return
     uint32_t idx{0};
     // The number of bits we need to shift the
     // current mask to the left.
-    if(!reverseComplement) {
+    if(dir == Direction::FORWARD) {
         for (int32_t i = 0; i < K; ++i) {
             switch (s[i]) {
                 case 'A':

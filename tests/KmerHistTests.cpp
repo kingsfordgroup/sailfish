@@ -30,12 +30,12 @@ std::vector<std::string> getAllWords(int length) {
 #include <atomic>
 
 SCENARIO("Kmers encode and decode correctly") {
-
+    using sailfish::utils::Direction;
     GIVEN("All 6-mers") {
         std::vector<std::string> kmers = getAllWords(6);
         //KmerDist<6, std::atomic<uint32_t>> kh;
         for (auto& k : kmers) {
-            auto i = indexForKmer(k.c_str(), 6, false);
+            auto i = indexForKmer(k.c_str(), 6, Direction::FORWARD);
             auto kp = kmerForIndex(i, 6);
             WHEN("kmer is [" + k + "]") {
                 THEN("decodes as [" + kp + "]") {
@@ -48,11 +48,12 @@ SCENARIO("Kmers encode and decode correctly") {
 
 
 SCENARIO("The next k-mer index function works correctly") {
+    using sailfish::utils::Direction;
     const uint32_t K = 6;
     std::string s = "ATTCTCCACATAGTTGTCATCGAACCAGTACCCCGTAAGCGCCAACATAT";
 
     GIVEN("The string " + s) {
-        auto idx = indexForKmer(s.c_str(), 6, false);
+        auto idx = indexForKmer(s.c_str(), 6, Direction::FORWARD);
         std::string k = s.substr(0, 6);
         WHEN("kmer is [" + k + "]") {
             auto kp = kmerForIndex(idx, 6);
@@ -61,7 +62,7 @@ SCENARIO("The next k-mer index function works correctly") {
             }
         }
         for (size_t i = 0; i < s.size() - K; ++i) {
-            idx = nextKmerIndex(idx, s[i+K], 6, false);
+            idx = nextKmerIndex(idx, s[i+K], 6, Direction::FORWARD);
             k = s.substr(i+1, 6);
             WHEN("kmer is [" + k + "]") {
                 auto kp = kmerForIndex(idx, 6);
@@ -88,7 +89,8 @@ SCENARIO("The next k-mer index function works correctly") {
     auto rcs = rc(s);
 
     GIVEN("The string " + s + " in the reverse complement direction") {
-        auto idx = indexForKmer(s.c_str() + s.size() - K - 1, 6, true);
+        auto idx = indexForKmer(s.c_str() + s.size() - K - 1, 6,
+                                Direction::REVERSE_COMPLEMENT);
         std::string k = rc(s.substr(s.size() - K - 1, 6));
         WHEN("kmer is [" + k + "]") {
             auto kp = kmerForIndex(idx, 6);
@@ -97,7 +99,7 @@ SCENARIO("The next k-mer index function works correctly") {
             }
         }
         for (int32_t i = s.size() - K - 2; i >= 0; --i) {
-            idx = nextKmerIndex(idx, s[i], 6, true);
+            idx = nextKmerIndex(idx, s[i], 6, Direction::REVERSE_COMPLEMENT);
             k = rc(s.substr(i, 6));
             WHEN("kmer is [" + k + "]") {
                 auto kp = kmerForIndex(idx, 6);

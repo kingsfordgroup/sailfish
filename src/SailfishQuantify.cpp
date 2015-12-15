@@ -256,6 +256,7 @@ void processReadsQuasi(paired_parser* parser,
                 auto transcriptID = h.transcriptID();
 
                 int32_t pos = static_cast<int32_t>(h.pos);
+                auto dir = sailfish::utils::boolToDirection(h.fwd);
 
                 //S_AYUSH_CODE
                 // Note: sidx is a pointer to type IndexT, not RapMapSAIndex!
@@ -273,7 +274,7 @@ void processReadsQuasi(paired_parser* parser,
                         const char* txpStart = txomeStr + sidx->txpOffsets[h.tid];
                         const char* readStart = txpStart + startPos; // is this correct?
                         const char* txpEnd = txpStart + sidx->txpLens[h.tid]; //??
-                        bool success = readBias.update(txpStart, readStart, txpEnd, h.fwd);
+                        bool success = readBias.update(txpStart, readStart, txpEnd, dir);
                         if (success) {
                             sfOpts.numBiasSamples -= 1;
                             needBiasSample = false;
@@ -496,7 +497,7 @@ void processReadsQuasi(single_parser* parser,
                 for (auto& h : jointHits) {
 
                     int32_t pos = static_cast<int32_t>(h.pos);
-
+                    auto dir = sailfish::utils::boolToDirection(h.fwd);
 
                     //S_AYUSH_CODE
                     // Note: sidx is a pointer to type IndexT, not RapMapSAIndex!
@@ -514,7 +515,7 @@ void processReadsQuasi(single_parser* parser,
                             const char* txpStart = txomeStr + sidx->txpOffsets[h.tid];
                             const char* readStart = txpStart + startPos; // is this correct?
                             const char* txpEnd = txpStart + sidx->txpLens[h.tid]; //??
-                            bool success = readBias.update(txpStart, readStart, txpEnd, h.fwd);
+                            bool success = readBias.update(txpStart, readStart, txpEnd, dir);
                             if (success) {
                                 sfOpts.numBiasSamples -= 1;
                                 needBiasSample = false;

@@ -25,7 +25,7 @@
 #include "Eigen/Dense"
 
 // S_AYUSH_CODE
-#include "ReadKmerDist.hpp"
+// #include "ReadKmerDist.hpp"
 // T_AYUSH_CODE
 
 class ReadExperiment;
@@ -39,6 +39,15 @@ namespace sailfish{
         using IndexVector = std::vector<size_t>;
         using KmerVector = std::vector<uint64_t>;
         using MateStatus = rapmap::utils::MateStatus;
+
+        // An enum class for direction to avoid potential errors
+        // with keeping everything as a bool
+        enum class Direction { FORWARD = 0, REVERSE_COMPLEMENT = 1 };
+
+        // Returns FORWARD if isFwd is true and REVERSE_COMPLEMENT otherwise
+        constexpr inline Direction boolToDirection(bool isFwd) {
+            return isFwd ? Direction::FORWARD : Direction::REVERSE_COMPLEMENT;
+        }
 
         // Returns a uint64_t where the upper 32-bits
         // contain tid and the lower 32-bits contain offset
