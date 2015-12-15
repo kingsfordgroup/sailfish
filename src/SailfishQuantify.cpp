@@ -1202,7 +1202,19 @@ int mainQuantify(int argc, char* argv[]) {
         if (sopt.numGibbsSamples > 0) {
             jointLog->info("Starting Gibbs Sampler");
             CollapsedGibbsSampler sampler;
-            sampler.sample(experiment, sopt, sopt.numGibbsSamples);
+            bfs::path bspath = outputDirectory / "quant_gibbs.sf";
+            std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
+            bsWriter->writeHeader(commentString, experiment.transcripts());
+
+            bool sampleSuccess = sampler.sample(experiment, sopt,
+                                                bsWriter.get(),
+                                                sopt.numGibbsSamples);
+            if (!sampleSuccess) {
+                jointLog->error("Encountered error during Gibb sampling .\n"
+                                "This should not happen.\n"
+                                "Please file a bug report on GitHub.\n");
+                return 1;
+            }
             jointLog->info("Finished Gibbs Sampler");
         } else if (sopt.numBootstraps > 0) {
             bfs::path bspath = outputDirectory / "quant_bootstraps.sf";

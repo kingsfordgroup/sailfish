@@ -16,6 +16,8 @@
 
 #include "cuckoohash_map.hh"
 
+class BootstrapWriter;
+
 class CollapsedGibbsSampler {
     public:
         using VecType = std::vector<double>;
@@ -24,6 +26,7 @@ class CollapsedGibbsSampler {
         template <typename ExpT>
         bool sample(ExpT& readExp,
                     SailfishOpts& sopt,
+                    BootstrapWriter* bsw,
                     uint32_t numSamples = 500);
 
 };

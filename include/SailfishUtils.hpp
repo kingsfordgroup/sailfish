@@ -24,10 +24,6 @@
 #include "RapMapUtils.hpp"
 #include "Eigen/Dense"
 
-// S_AYUSH_CODE
-// #include "ReadKmerDist.hpp"
-// T_AYUSH_CODE
-
 class ReadExperiment;
 class LibraryFormat;
 
