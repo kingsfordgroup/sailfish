@@ -23,6 +23,7 @@
 #include <fstream>
 
 //S_AYUSH_CODE
+#include "UtilityFunctions.hpp"
 #include "ReadKmerDist.hpp"
 //T_AYUSH_CODE
 
@@ -144,8 +145,34 @@ class ReadExperiment {
     std::vector<ReadLibrary>& readLibraries() { return readLibraries_; }
     //FragmentLengthDistribution* fragmentLengthDistribution() { return fragLengthDist_.get(); }
 
+    void setFragLengthDist(const std::vector<int32_t>& fldIn) {
+        fld_ = fldIn;
+    }
+
+    std::vector<int32_t>& fragLengthDist() {
+        return fld_;
+    }
+
+    const std::vector<int32_t>& fragLengthDist() const {
+        return fld_;
+    }
+
+
+    void setExpectedBias(const std::vector<double>& expectedBiasIn) {
+        expectedBias_ = expectedBiasIn;
+    }
+
+    std::vector<double>& expectedBias() {
+        return expectedBias_;
+    }
+
+    const std::vector<double>& expectedBias() const {
+        return expectedBias_;
+    }
+
     //S_AYUSH_CODE
     ReadKmerDist<6, std::atomic<uint32_t>>& readBias() { return readBias_; }
+    const ReadKmerDist<6, std::atomic<uint32_t>>& readBias() const { return readBias_; }
     //T_AYUSH_CODE
 
     private:
@@ -181,7 +208,10 @@ class ReadExperiment {
     // Since multiple threads can touch this dist, we
     // need atomic counters.
     ReadKmerDist<6, std::atomic<uint32_t>> readBias_;
+    std::vector<double> expectedBias_;
     //T_AYUSH_CODE
+
+    std::vector<int32_t> fld_;
 };
 
 #endif // EXPERIMENT_HPP

@@ -151,7 +151,8 @@ namespace sailfish{
         template <typename AbundanceVecT>
         Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
                                     Eigen::VectorXd& effLensIn,
-                                    AbundanceVecT& alphas);
+                                    AbundanceVecT& alphas,
+                                    std::vector<double>& transcriptKmerDist);
         // T_AYUSH_CODE
 
 

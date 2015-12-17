@@ -45,8 +45,8 @@
 #include "SACollector.hpp"
 #include "EmpiricalDistribution.hpp"
 #include "TextBootstrapWriter.hpp"
-#include "HDF5Writer.hpp"
 #include "GZipWriter.hpp"
+//#include "HDF5Writer.hpp"
 
 #include "spdlog/spdlog.h"
 
@@ -601,17 +601,49 @@ std::vector<double> getNormalFragLengthDist(
     };
 
     double cumulativeMass{0.0};
-    double cumulativeDenisty{0.0};
+    double cumulativeDensity{0.0};
     for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
         auto d = kernel(static_cast<double>(i));
         cumulativeMass += i * d;
-        cumulativeDenisty += d;
-        if (cumulativeDenisty > 0) {
-            correctionFactors[i] = cumulativeMass / cumulativeDenisty;
+        cumulativeDensity += d;
+        if (cumulativeDensity > 0) {
+            correctionFactors[i] = cumulativeMass / cumulativeDensity;
         }
     }
     return correctionFactors;
 }
+
+std::vector<int32_t> getNormalFragLengthCounts(
+        const SailfishOpts& sfOpts) {
+
+    std::vector<int> dist(sfOpts.maxFragLen, 0);
+    int32_t totalCount = sfOpts.numFragSamples;
+    auto maxLen = sfOpts.maxFragLen;
+    auto mean = sfOpts.fragLenDistPriorMean;
+    auto sd = sfOpts.fragLenDistPriorSD;
+
+    auto kernel = [mean, sd](double p) -> double {
+        double invStd = 1.0 / sd;
+        double x = invStd * (p - mean);
+        return std::exp(-0.5 * x * x) * invStd;
+    };
+
+    double totalMass{0.0};
+    for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
+        totalMass += kernel(static_cast<double>(i));
+    }
+
+    double currentDensity{0.0};
+    if (totalMass > 0) {
+        for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
+            currentDensity = kernel(static_cast<double>(i));
+            dist[i] = static_cast<int>(
+                    std::round(currentDensity * totalCount / totalMass));
+        }
+    }
+    return dist;
+}
+
 
 void setEffectiveLengthsDirect(ReadExperiment& readExp,
         const SailfishOpts& sfOpts) {
@@ -807,8 +839,7 @@ void quasiMapReads(
                     pairFileList, pairFileList+numFiles));
                     //pairFileList.begin(), pairFileList.end()));
 
-        int32_t numRequiredFLDObs{10000};
-        std::atomic<int32_t> remainingFLOps{numRequiredFLDObs};
+        std::atomic<int32_t> remainingFLOps{sfOpts.numFragSamples};
 
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
@@ -872,12 +903,21 @@ void quasiMapReads(
                 sfOpts.jointLog->warn("Sailfish saw fewer then {} uniquely mapped reads "
                         "so {} will be used as the mean fragment length and {} as "
                         "the standard deviation for effective length correction",
-                        numRequiredFLDObs,
+                        sfOpts.numFragSamples,
                         sfOpts.fragLenDistPriorMean,
                         sfOpts.fragLenDistPriorSD);
+                // Set the fragment length distribution in the ReadExperiment
+                readExp.setFragLengthDist(getNormalFragLengthCounts(sfOpts));
                 auto correctionFactors = getNormalFragLengthDist(sfOpts);
                 computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
             } else {
+                // Set the fragment length distribution in the ReadExperiment
+                std::vector<int32_t> fld(flMap.size(), 0);
+                for (size_t i = 0; i < flMap.size(); ++i) {
+                    fld[i] = static_cast<int32_t>(flMap[i]);
+                }
+                readExp.setFragLengthDist(fld);
+
                 if (sfOpts.useUnsmoothedFLD) {
                     computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
                 } else {
@@ -931,6 +971,9 @@ void quasiMapReads(
         if (sfOpts.noEffectiveLengthCorrection) {
             setEffectiveLengthsDirect(readExp, sfOpts);
         } else {
+            // Set the fragment length distribution in the ReadExperiment
+            readExp.setFragLengthDist(getNormalFragLengthCounts(sfOpts));
+
             auto correctionFactors = getNormalFragLengthDist(sfOpts);
             computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
         }
@@ -1001,6 +1044,9 @@ int mainQuantify(int argc, char* argv[]) {
         ("allowDovetail", po::bool_switch(&(sopt.allowDovetail))->default_value(false), "Allow "
              "paired-end reads from the same fragment to \"dovetail\", such that the ends "
              "of the mapped reads can extend past each other.")
+        ("numFragSamples", po::value<int32_t>(&(sopt.numFragSamples))->default_value(10000),
+            "Number of fragments from unique alignments to sample when building the fragment "
+            "length distribution")
         ("fldMean", po::value<size_t>(&(sopt.fragLenDistPriorMean))->default_value(200),
             "If single end reads are being used for quantification, or there are an insufficient "
             "number of uniquely mapping reads when performing paired-end quantification to estimate "
@@ -1217,7 +1263,7 @@ int mainQuantify(int argc, char* argv[]) {
             //bfs::path bspath = outputDirectory / "quant_gibbs.sf";
             //std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
             //bsWriter->writeHeader(commentString, experiment.transcripts());
-	    std::function<bool(const std::vector<int>&)> bsWriter = 
+	    std::function<bool(const std::vector<int>&)> bsWriter =
 		[&gzw](const std::vector<int>& alphas) -> bool {
 		    return gzw.writeBootstrap(alphas);
 	    	};
@@ -1236,7 +1282,7 @@ int mainQuantify(int argc, char* argv[]) {
             //bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
 	    //std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
             //bsWriter->writeHeader(commentString, experiment.transcripts());
-	    std::function<bool(const std::vector<double>&)> bsWriter = 
+	    std::function<bool(const std::vector<double>&)> bsWriter =
 		[&gzw](const std::vector<double>& alphas) -> bool {
 		    return gzw.writeBootstrap(alphas);
 	    	};

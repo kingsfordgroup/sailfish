@@ -21,7 +21,7 @@ public:
         }
 	}
 
-    inline uint32_t getK() { return K; }
+    inline constexpr uint32_t getK() { return K; }
 
     inline uint64_t totalCount() {
         CountT c{0};

@@ -676,26 +676,28 @@ namespace sailfish {
         template <typename AbundanceVecT>
         Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
                                     Eigen::VectorXd& effLensIn,
-                                    AbundanceVecT& alphas) {
+                                    AbundanceVecT& alphas,
+                                    std::vector<double>& transcriptKmerDist) {
             using std::vector;
             double minAlpha = 1e-8;
             auto sfIndex = readExp.getIndex();
             const char* txomeStr = sfIndex->transcriptomeSeq();
+
             // calculate read bias normalization factor -- total count in read
             // distribution.
             auto& readBias = readExp.readBias();
             int32_t K = readBias.getK();
             double readNormFactor = static_cast<double>(readBias.totalCount());
 
+            // Reset the transcript (normalized) counts
+            transcriptKmerDist.clear();
+            transcriptKmerDist.resize(constExprPow(4, K), 1.0);
+
             // Make this const so there are no shenanigans
             const auto& transcripts = readExp.transcripts();
 
             // The effective lengths adjusted for bias
             Eigen::VectorXd effLensOut(effLensIn.size());
-
-            // The abundance-scaled k-mer distribution of the transcripts;
-            // starts with a pseudo-count of 1.
-            vector<double> transcriptKmerDist(constExprPow(4,K), 1.0);
 
             for(size_t it=0; it < transcripts.size(); ++it) {
 
@@ -981,12 +983,16 @@ namespace sailfish {
         template Eigen::VectorXd updateEffectiveLengths<std::vector<tbb::atomic<double>>>(
                 ReadExperiment& readExp,
                 Eigen::VectorXd& effLensIn,
-                std::vector<tbb::atomic<double>>& alphas);
+                std::vector<tbb::atomic<double>>& alphas,
+                std::vector<double>& expectedBias
+                );
 
         template Eigen::VectorXd updateEffectiveLengths<std::vector<double>>(
                 ReadExperiment& readExp,
                 Eigen::VectorXd& effLensIn,
-                std::vector<double>& alphas);
+                std::vector<double>& alphas,
+                std::vector<double>& expectedBias
+                );
     }
 }
 

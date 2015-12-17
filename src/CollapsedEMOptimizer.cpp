@@ -716,6 +716,8 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     uint32_t minIter = 50;
     bool doBiasCorrect = sopt.biasCorrect;
 
+    auto& expectedDist = readExp.expectedBias();
+
     tbb::task_scheduler_init tbbScheduler(sopt.numThreads);
     std::vector<Transcript>& transcripts = readExp.transcripts();
 
@@ -819,7 +821,9 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
             effLens = sailfish::utils::updateEffectiveLengths(
                         readExp,
                         effLens,
-                        alphas);
+                        alphas,
+                        expectedDist
+                        );
             // Check for strangeness with the lengths.
             for (size_t i = 0; i < effLens.size(); ++i) {
                 if (effLens(i) <= 0.0) {
