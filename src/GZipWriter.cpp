@@ -201,7 +201,7 @@ bool GZipWriter::writeBootstrap(const std::vector<T>& abund) {
 	    if (!bsStream_) {
 	      bsStream_.reset(new boost::iostreams::filtering_ostream);
 	      bsStream_->push(boost::iostreams::gzip_compressor(6));
-	      auto bsFilename = bsPath_ / "bootstraps.tsv.gz";
+	      auto bsFilename = bsPath_ / "bootstraps.gz";
 	      bsStream_->push(
                   boost::iostreams::file_sink(bsFilename.string(),
                                               std::ios_base::out | std::ios_base::binary));
