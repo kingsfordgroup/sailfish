@@ -445,7 +445,7 @@ bool doBootstrap(
         double uniformTxpWeight,
         std::atomic<uint32_t>& bsNum,
         SailfishOpts& sopt,
-        BootstrapWriter* bootstrapWriter,
+        std::function<bool(const std::vector<double>&)>& writeBootstrap,
         double relDiffTolerance,
         uint32_t maxIter) {
 
@@ -519,7 +519,7 @@ bool doBootstrap(
             return false;
         }
 
-        bootstrapWriter->writeBootstrap(alphas);
+        writeBootstrap(alphas);//bootstrapWriter->writeBootstrap(alphas);
     }
     return true;
 }
@@ -557,7 +557,7 @@ void updateEqClassWeights(std::vector<std::pair<const TranscriptGroup, TGValue>>
 bool CollapsedEMOptimizer::gatherBootstraps(
         ReadExperiment& readExp,
         SailfishOpts& sopt,
-        BootstrapWriter* bootstrapWriter,
+        std::function<bool(const std::vector<double>&)>& writeBootstrap,
         double relDiffTolerance,
         uint32_t maxIter) {
 
@@ -697,7 +697,7 @@ bool CollapsedEMOptimizer::gatherBootstraps(
                 scale,
                 std::ref(bsCounter),
                 std::ref(sopt),
-                bootstrapWriter,
+                std::ref(writeBootstrap),
                 relDiffTolerance,
                 maxIter);
     }

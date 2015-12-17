@@ -45,6 +45,8 @@
 #include "SACollector.hpp"
 #include "EmpiricalDistribution.hpp"
 #include "TextBootstrapWriter.hpp"
+#include "HDF5Writer.hpp"
+#include "GZipWriter.hpp"
 
 #include "spdlog/spdlog.h"
 
@@ -1188,6 +1190,16 @@ int mainQuantify(int argc, char* argv[]) {
         sailfish::utils::writeAbundancesFromCollapsed(
                 sopt, experiment, estFilePath, commentString);
 
+	/*
+	bfs::path hdfFilePath = outputDirectory / "quant.h5";
+	HDF5Writer h5w(hdfFilePath, jointLog);
+	h5w.writeMeta(sopt, experiment);
+	h5w.writeAbundances(sopt, experiment);
+	*/
+
+	GZipWriter gzw(outputDirectory, jointLog);
+	gzw.writeMeta(sopt, experiment);
+
         {
           bfs::path statPath = outputDirectory / "stats.tsv";
           std::ofstream statStream(statPath.string(), std::ofstream::out);
@@ -1202,12 +1214,16 @@ int mainQuantify(int argc, char* argv[]) {
         if (sopt.numGibbsSamples > 0) {
             jointLog->info("Starting Gibbs Sampler");
             CollapsedGibbsSampler sampler;
-            bfs::path bspath = outputDirectory / "quant_gibbs.sf";
-            std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
-            bsWriter->writeHeader(commentString, experiment.transcripts());
+            //bfs::path bspath = outputDirectory / "quant_gibbs.sf";
+            //std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
+            //bsWriter->writeHeader(commentString, experiment.transcripts());
+	    std::function<bool(const std::vector<int>&)> bsWriter = 
+		[&gzw](const std::vector<int>& alphas) -> bool {
+		    return gzw.writeBootstrap(alphas);
+	    	};
 
             bool sampleSuccess = sampler.sample(experiment, sopt,
-                                                bsWriter.get(),
+                                                bsWriter,//bsWriter.get(),
                                                 sopt.numGibbsSamples);
             if (!sampleSuccess) {
                 jointLog->error("Encountered error during Gibb sampling .\n"
@@ -1217,13 +1233,17 @@ int mainQuantify(int argc, char* argv[]) {
             }
             jointLog->info("Finished Gibbs Sampler");
         } else if (sopt.numBootstraps > 0) {
-            bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
-            std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
-            bsWriter->writeHeader(commentString, experiment.transcripts());
-
+            //bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
+	    //std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
+            //bsWriter->writeHeader(commentString, experiment.transcripts());
+	    std::function<bool(const std::vector<double>&)> bsWriter = 
+		[&gzw](const std::vector<double>& alphas) -> bool {
+		    return gzw.writeBootstrap(alphas);
+	    	};
             bool bootstrapSuccess = optimizer.gatherBootstraps(
                                               experiment, sopt,
-                                              bsWriter.get(), 0.01, 10000);
+					      bsWriter, 0.01, 10000);
+                                              //bsWriter.get(), 0.01, 10000);
             if (!bootstrapSuccess) {
                 jointLog->error("Encountered error during bootstrapping.\n"
                                 "This should not happen.\n"

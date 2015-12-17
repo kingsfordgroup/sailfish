@@ -21,6 +21,8 @@ TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
 CollapsedGibbsSampler.cpp
 EmpiricalDistribution.cpp
+#HDF5Writer.cpp
+GZipWriter.cpp
 xxhash.c
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapFileSystem.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAIndexer.cpp
@@ -30,6 +32,7 @@ ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapUtils.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/HitManager.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/rank9b.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/bit_array.c
+${GAT_SOURCE_DIR}/external/install/src/EasyH5Utils.cpp
 )
 
 include_directories( 
@@ -99,6 +102,7 @@ target_link_libraries(sailfish
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} 
     ${NON_APPLECLANG_LIBS}
+    #${HDF5_LIBRARIES}
     ${FAST_MALLOC_LIB}
 )
 

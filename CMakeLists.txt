@@ -354,6 +354,24 @@ ExternalProject_Add_Step(libtbb reconfigure
 )
 endif()
 
+## 
+#  Find HDF5, and prefer the static libs
+##
+#set(HDF5_USE_STATIC_LIBRARIES TRUE)
+#find_package(HDF5 REQUIRED)
+
+#if (HDF5_FOUND)
+#    include_directories(${HDF5_INCLUDE_DIRS})
+#    #set(CMAKE_EXE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
+#    set(CMAKE_EXE_LINKER_FLAGS "-Wl,--no-as-needed -ldl")
+#    #set_target_properties(sailfish sailfish_core PROPERTIES LINK_SEARCH_END_STATIC 1)
+#else()
+#    message(FATAL_ERROR "HDF5 libraries are required but were not found!")
+#endif()
+##
+# Done with HDF5
+##
+
 ##
 # If we're fetching tbb, we need to have dummy paths for these variables
 # so that CMake won't complain

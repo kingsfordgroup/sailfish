@@ -1,6 +1,7 @@
 #ifndef COLLAPSED_GIBBS_SAMPLER_HPP
 #define COLLAPSED_GIBBS_SAMPLER_HPP
 
+#include <functional>
 #include <unordered_map>
 
 #include "tbb/atomic.h"
@@ -26,7 +27,7 @@ class CollapsedGibbsSampler {
         template <typename ExpT>
         bool sample(ExpT& readExp,
                     SailfishOpts& sopt,
-                    BootstrapWriter* bsw,
+                    std::function<bool(const std::vector<int>&)>& writeSample, 
                     uint32_t numSamples = 500);
 
 };

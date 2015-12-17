@@ -198,7 +198,7 @@ class DistStats {
 template <typename ExpT>
 bool CollapsedGibbsSampler::sample(ExpT& readExp,
         SailfishOpts& sopt,
-        BootstrapWriter* bootstrapWriter,
+        std::function<bool(const std::vector<int>&)>& writeSample, 
         uint32_t numSamples) {
 
     namespace bfs = boost::filesystem;
@@ -221,7 +221,7 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
     }
 
     tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(numSamples)),
-                [&eqVec, &transcripts, priorAlpha, bootstrapWriter,
+                [&eqVec, &transcripts, priorAlpha, &writeSample,
                  &allSamples]( const BlockedIndexRange& range) -> void {
 
                 std::random_device rd;
@@ -258,12 +258,13 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
                         sampleRound_(eqVec, countMap, probMap, priorAlpha,
                                 allSamples[sampleID], ms);
                     }
-
+		    /*
                     for (size_t tn = 0; tn < numTranscripts; ++tn) {
                         alphas[tn] = static_cast<double>(allSamples[sampleID][tn]);
                     }
-
-                    bootstrapWriter->writeBootstrap(alphas);
+		    */
+                    //writeSample(alphas);//bootstrapWriter->writeBootstrap(alphas);
+		    writeSample(allSamples[sampleID]);
                     isFirstSample = false;
                 }
             });
@@ -292,5 +293,5 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
 template
 bool CollapsedGibbsSampler::sample<ReadExperiment>(ReadExperiment& readExp,
         SailfishOpts& sopt,
-        BootstrapWriter* bsw,
+        std::function<bool(const std::vector<int>&)>& writeSample,
         uint32_t maxIter);

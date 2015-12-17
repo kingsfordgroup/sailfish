@@ -62,6 +62,7 @@ class ReadExperiment {
 
     std::vector<Transcript>& transcripts() { return transcripts_; }
 
+    const std::vector<Transcript>& transcripts() const { return transcripts_; }
 
     uint64_t numFragHits() { return numFragHits_; }
     std::atomic<uint64_t>& numFragHitsAtomic() { return numFragHits_; }
@@ -72,7 +73,7 @@ class ReadExperiment {
     std::atomic<uint64_t>& upperBoundHitsAtomic() { return upperBoundHits_; }
     void setUpperBoundHits(uint64_t ubh) { upperBoundHits_.store(ubh); }
 
-    uint64_t numObservedFragments() { return numObservedFragments_; }
+    uint64_t numObservedFragments() const { return numObservedFragments_; }
     std::atomic<uint64_t>& numObservedFragmentsAtomic() { return numObservedFragments_; }
 
     std::atomic<uint64_t>& numMappedFragmentsAtomic() { return numMappedFragments_; }
