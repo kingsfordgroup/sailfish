@@ -71,6 +71,7 @@ bool GZipWriter::writeMeta(
                   nameOut << '\t';
               }
           }
+          nameOut << '\n';
           nameOut.reset();
       }
 

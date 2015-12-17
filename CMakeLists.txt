@@ -202,7 +202,7 @@ if (BOOST_RECONFIGURE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.53.0 COMPONENTS filesystem system thread timer chrono program_options REQUIRED)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options REQUIRED)
     set(FETCH_BOOST FALSE)
 endif()
 
@@ -223,7 +223,7 @@ elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
     set (BOOST_LIB_SUBSET --with-atomic --with-chrono --with-container --with-date_time --with-exception
                           --with-filesystem --with-graph --with-graph_parallel --with-math
-                          --with-program_options --with-system --with-thread
+                          --with-program_options --with-system --with-thread --with-iostreams
                           --with-timer)
     set (BOOST_WILL_RECONFIGURE TRUE)
     set (FETCH_BOOST FALSE)

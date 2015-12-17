@@ -99,7 +99,6 @@ target_link_libraries(sailfish
     ${SUFFARRAY64_LIB}
     ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
     m
-    z
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} 
     ${NON_APPLECLANG_LIBS}
