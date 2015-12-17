@@ -32,7 +32,7 @@ ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapUtils.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/HitManager.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/rank9b.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/bit_array.c
-${GAT_SOURCE_DIR}/external/install/src/EasyH5Utils.cpp
+#${GAT_SOURCE_DIR}/external/install/src/EasyH5Utils.cpp
 )
 
 include_directories( 
