@@ -671,7 +671,9 @@ namespace sailfish {
         /**
          * Computes (and returns) new effective lengths for the transcripts
          * based on the current abundance estimates (alphas) and the current
-         * effective lengths (effLensIn).
+         * effective lengths (effLensIn).  This approach is based on the one 
+	 * taken in Kallisto, and seems to work well given its low computational
+	 * requirements.
          */
         template <typename AbundanceVecT>
         Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
