@@ -22,7 +22,9 @@ class GZipWriter {
 
     bool writeMeta(
 	const SailfishOpts& opts, 
-	const ReadExperiment& experiment);
+	const ReadExperiment& experiment,
+        const std::string& tstring  = "now"  // the start time of the run
+	);
 
     bool writeAbundances(
       const SailfishOpts& sopt,

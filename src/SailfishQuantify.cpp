@@ -885,6 +885,9 @@ void quasiMapReads(
             totalObs += flMap[i];
         }
 
+	// we need an extra newline here.
+	fmt::print(stderr, "\n");
+
         sfOpts.jointLog->info("Gathered fragment lengths from all threads");
 
         /** If we have a sufficient number of observations for the empirical
@@ -1107,6 +1110,12 @@ int mainQuantify(int argc, char* argv[]) {
         std::string commentString = commentStream.str();
         fmt::print(stderr, "{}", commentString);
 
+	// Get the time at the start of the run
+	std::time_t result = std::time(NULL);
+	std::string runStartTime(std::asctime(std::localtime(&result)));
+	runStartTime.pop_back(); // remove the newline
+
+
         // Verify the geneMap before we start doing any real work.
         bfs::path geneMapPath;
         if (vm.count("geneMap")) {
@@ -1233,43 +1242,33 @@ int mainQuantify(int argc, char* argv[]) {
         commentStream << "# [ mapping rate ] => { " << experiment.mappingRate() * 100.0 << "\% }\n";
         commentString = commentStream.str();
 
-        sailfish::utils::writeAbundancesFromCollapsed(
-                sopt, experiment, estFilePath, commentString);
 
 	/*
 	bfs::path hdfFilePath = outputDirectory / "quant.h5";
 	HDF5Writer h5w(hdfFilePath, jointLog);
 	h5w.writeMeta(sopt, experiment);
 	h5w.writeAbundances(sopt, experiment);
+        sailfish::utils::writeAbundancesFromCollapsed(
+                sopt, experiment, estFilePath, commentString);
 	*/
 
 	GZipWriter gzw(outputDirectory, jointLog);
-	gzw.writeMeta(sopt, experiment);
-
-        {
-          bfs::path statPath = outputDirectory / "stats.tsv";
-          std::ofstream statStream(statPath.string(), std::ofstream::out);
-          statStream << "numObservedFragments\t" << experiment.numObservedFragments() << '\n';
-          for (auto& t : experiment.transcripts()) {
-              auto l = (sopt.noEffectiveLengthCorrection) ? t.RefLength : t.EffectiveLength;
-              statStream << t.RefName << '\t' << l << '\n';
-          }
-          statStream.close();
-        }
+	// Write the main results 
+	gzw.writeAbundances(sopt, experiment);
+	// Write meta-information about the run
+	gzw.writeMeta(sopt, experiment, runStartTime);
 
         if (sopt.numGibbsSamples > 0) {
             jointLog->info("Starting Gibbs Sampler");
             CollapsedGibbsSampler sampler;
-            //bfs::path bspath = outputDirectory / "quant_gibbs.sf";
-            //std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
-            //bsWriter->writeHeader(commentString, experiment.transcripts());
+	    // The function we'll use as a callback to write samples
 	    std::function<bool(const std::vector<int>&)> bsWriter =
 		[&gzw](const std::vector<int>& alphas) -> bool {
 		    return gzw.writeBootstrap(alphas);
 	    	};
 
             bool sampleSuccess = sampler.sample(experiment, sopt,
-                                                bsWriter,//bsWriter.get(),
+                                                bsWriter,
                                                 sopt.numGibbsSamples);
             if (!sampleSuccess) {
                 jointLog->error("Encountered error during Gibb sampling .\n"
@@ -1279,9 +1278,7 @@ int mainQuantify(int argc, char* argv[]) {
             }
             jointLog->info("Finished Gibbs Sampler");
         } else if (sopt.numBootstraps > 0) {
-            //bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
-	    //std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
-            //bsWriter->writeHeader(commentString, experiment.transcripts());
+	    // The function we'll use as a callback to write samples
 	    std::function<bool(const std::vector<double>&)> bsWriter =
 		[&gzw](const std::vector<double>& alphas) -> bool {
 		    return gzw.writeBootstrap(alphas);
@@ -1289,7 +1286,6 @@ int mainQuantify(int argc, char* argv[]) {
             bool bootstrapSuccess = optimizer.gatherBootstraps(
                                               experiment, sopt,
 					      bsWriter, 0.01, 10000);
-                                              //bsWriter.get(), 0.01, 10000);
             if (!bootstrapSuccess) {
                 jointLog->error("Encountered error during bootstrapping.\n"
                                 "This should not happen.\n"
@@ -1297,19 +1293,6 @@ int mainQuantify(int argc, char* argv[]) {
                 return 1;
             }
         }
-        /*
-        // Now create a subdirectory for any parameters of interest
-        bfs::path paramsDir = outputDirectory / "libParams";
-        if (!boost::filesystem::exists(paramsDir)) {
-        if (!boost::filesystem::create_directory(paramsDir)) {
-        fmt::print(stderr, "{}ERROR{}: Could not create "
-        "output directory for experimental parameter "
-        "estimates [{}]. exiting.", ioutils::SET_RED,
-        ioutils::RESET_COLOR, paramsDir);
-        std::exit(-1);
-        }
-        }
-        */
 
         /** If the user requested gene-level abundances, then compute those now **/
         if (vm.count("geneMap")) {

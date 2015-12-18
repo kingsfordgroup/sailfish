@@ -40,9 +40,9 @@ class ReadExperiment {
 		           SailfishOpts& sopt) :
         readLibraries_(readLibraries),
         transcripts_(std::vector<Transcript>()),
-        //fragStartDists_(5),
-        //seqBiasModel_(1.0),
-    	eqBuilder_(sopt.jointLog) {
+    	eqBuilder_(sopt.jointLog),
+	expectedBias_(constExprPow(4, readBias_.getK()), 1.0)
+	{
             namespace bfs = boost::filesystem;
 
             // Make sure the read libraries are valid.
@@ -68,7 +68,7 @@ class ReadExperiment {
     uint64_t numFragHits() { return numFragHits_; }
     std::atomic<uint64_t>& numFragHitsAtomic() { return numFragHits_; }
 
-    uint64_t numMappedFragments() { return numMappedFragments_; }
+    uint64_t numMappedFragments() const { return numMappedFragments_; }
 
     uint64_t upperBoundHits() { return upperBoundHits_; }
     std::atomic<uint64_t>& upperBoundHitsAtomic() { return upperBoundHits_; }
@@ -81,7 +81,7 @@ class ReadExperiment {
 
     void setNumObservedFragments(uint64_t numObserved) { numObservedFragments_ = numObserved; }
 
-    double mappingRate() {
+    double mappingRate() const {
         return static_cast<double>(numMappedFragments_) / numObservedFragments_;
     }
 

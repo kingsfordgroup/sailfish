@@ -42,10 +42,18 @@ bool writeVectorToFile(boost::filesystem::path path,
     return true;
 }
 
-
+/**
+ * Write the ``main'' metadata to file.  Currently this includes:
+ *   -- Names of the target id's if bootstrapping / gibbs is performed
+ *   -- The fragment length distribution
+ *   -- The expected and observed bias values
+ *   -- A json file with information about the run
+ */
 bool GZipWriter::writeMeta(
     const SailfishOpts& opts,
-    const ReadExperiment& experiment) {
+    const ReadExperiment& experiment,
+    const std::string& tstring // the start time of the run
+    ) {
 
   namespace bfs = boost::filesystem;
 
@@ -56,7 +64,6 @@ bool GZipWriter::writeMeta(
   auto numSamples = (numBootstraps > 0) ? numBootstraps : opts.numGibbsSamples;
   if (numSamples > 0) {
       bsPath_ = auxDir / "bootstrap";
-      //bfs::path bsDir = auxDir / "bootstrap";
       bool bsSuccess = boost::filesystem::create_directories(bsPath_);
       {
 
@@ -111,16 +118,14 @@ bool GZipWriter::writeMeta(
       oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
       oa(cereal::make_nvp("samp_type", sampType));
       oa(cereal::make_nvp("frag_dist_length", experiment.fragLengthDist().size()));
+      oa(cereal::make_nvp("bias_correct", opts.biasCorrect));
       oa(cereal::make_nvp("num_bias_bins", bcounts.size()));
       oa(cereal::make_nvp("num_targets", transcripts.size()));
       oa(cereal::make_nvp("num_bootstraps", numBootstraps));
       oa(cereal::make_nvp("num_processed", experiment.numObservedFragments()));
+      oa(cereal::make_nvp("num_mapped", experiment.numMappedFragments()));
+      oa(cereal::make_nvp("percent_mapped", experiment.mappingRate() * 100.0));
       oa(cereal::make_nvp("call", std::string("quant")));
-
-      std::time_t result = std::time(NULL);
-      std::string tstring(std::asctime(std::localtime(&result)));
-      tstring.pop_back(); // remove the newline
-
       oa(cereal::make_nvp("start_time", tstring));
   }
   // For spoofing kallisto version
@@ -135,9 +140,25 @@ bool GZipWriter::writeMeta(
 bool GZipWriter::writeAbundances(
     const SailfishOpts& sopt,
     ReadExperiment& readExp) {
-  return false;
-  /*
+  
+  using sailfish::math::LOG_0;
+  using sailfish::math::LOG_1;
+  namespace bfs = boost::filesystem;
+
   bool useScaledCounts = (sopt.allowOrphans == false);
+  bfs::path fname = path_ / "quant.sf";
+
+  std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(fname.c_str(), "w"), std::fclose);
+
+  /* No comments for now
+  if (headerComments.length() > 0) {
+    fmt::print(output.get(), "{}", headerComments);
+  }
+  */
+
+  // The header
+  fmt::print(output.get(), "Name\tLength\tEffectiveLength\tTPM\tNumReads\n");
+
   double numMappedFrags = readExp.numMappedFragments();
 
   std::vector<Transcript>& transcripts_ = readExp.transcripts();
@@ -151,50 +172,25 @@ bool GZipWriter::writeAbundances(
     double refLength = sopt.noEffectiveLengthCorrection ?
       transcript.RefLength :
       transcript.EffectiveLength;
-      tfracDenom += (transcript.projectedCounts / numMappedFrags) / refLength;
+    tfracDenom += (transcript.projectedCounts / numMappedFrags) / refLength;
   }
 
   double million = 1000000.0;
-
-  std::vector<double> estCounts;
-  estCounts.reserve(transcripts_.size());
-
-  std::vector<std::string> names;
-  names.reserve(transcripts_.size());
-
-  std::vector<double> effectiveLengths;
-  effectiveLengths.reserve(transcripts_.size());
-
-  std::vector<uint32_t> lengths;
-  lengths.reserve(transcripts_.size());
-
-  std::vector<double> tpms;
-  tpms.reserve(transcripts_.size());
-
-  for (auto& txp : transcripts_) {
-    double count = txp.projectedCounts;
-    double effLen = sopt.noEffectiveLengthCorrection ?
-	txp.RefLength : txp.EffectiveLength;
-    double npm = (count / numMappedFrags);
+  // Now posterior has the transcript fraction
+  for (auto& transcript : transcripts_) {
+    auto effLen = sopt.noEffectiveLengthCorrection ?
+      transcript.RefLength :
+      transcript.EffectiveLength;
+    double count = transcript.projectedCounts;
+    double npm = (transcript.projectedCounts / numMappedFrags);
     double tfrac = (npm / effLen) / tfracDenom;
     double tpm = tfrac * million;
-
-    estCounts.push_back(count);
-    lengths.push_back(txp.RefLength);
-    effectiveLengths.push_back(txp.EffectiveLength);
-    names.push_back(txp.RefName);
-
-
-    tpms.push_back(tpm);
+    fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
+	transcript.RefName, transcript.RefLength, effLen,
+	tpm, count);
   }
 
-  file_->writeVectorToGroup(estCounts, "/", "est_counts");
-  file_->writeVectorToGroup(names, "/aux", "est_counts");
-  file_->writeVectorToGroup(effectiveLengths, "/aux", "eff_lengths");
-  file_->writeVectorToGroup(lengths, "/aux", "lengths");
-  file_->writeVectorToGroup(tpms, "/aux", "tpms");
   return true;
-  */
 }
 
 template <typename T>
