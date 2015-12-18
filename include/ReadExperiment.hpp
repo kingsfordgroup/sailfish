@@ -22,6 +22,11 @@
 #include <memory>
 #include <fstream>
 
+//S_AYUSH_CODE
+#include "UtilityFunctions.hpp"
+#include "ReadKmerDist.hpp"
+//T_AYUSH_CODE
+
 /**
   *  This class represents a library of reads used to quantify
   *  a set of target transcripts.
@@ -35,9 +40,9 @@ class ReadExperiment {
 		           SailfishOpts& sopt) :
         readLibraries_(readLibraries),
         transcripts_(std::vector<Transcript>()),
-        //fragStartDists_(5),
-        //seqBiasModel_(1.0),
-    	eqBuilder_(sopt.jointLog) {
+    	eqBuilder_(sopt.jointLog),
+	expectedBias_(constExprPow(4, readBias_.getK()), 1.0)
+	{
             namespace bfs = boost::filesystem;
 
             // Make sure the read libraries are valid.
@@ -58,24 +63,25 @@ class ReadExperiment {
 
     std::vector<Transcript>& transcripts() { return transcripts_; }
 
+    const std::vector<Transcript>& transcripts() const { return transcripts_; }
 
     uint64_t numFragHits() { return numFragHits_; }
     std::atomic<uint64_t>& numFragHitsAtomic() { return numFragHits_; }
 
-    uint64_t numMappedFragments() { return numMappedFragments_; }
+    uint64_t numMappedFragments() const { return numMappedFragments_; }
 
     uint64_t upperBoundHits() { return upperBoundHits_; }
     std::atomic<uint64_t>& upperBoundHitsAtomic() { return upperBoundHits_; }
     void setUpperBoundHits(uint64_t ubh) { upperBoundHits_.store(ubh); }
 
-    uint64_t numObservedFragments() { return numObservedFragments_; }
+    uint64_t numObservedFragments() const { return numObservedFragments_; }
     std::atomic<uint64_t>& numObservedFragmentsAtomic() { return numObservedFragments_; }
 
     std::atomic<uint64_t>& numMappedFragmentsAtomic() { return numMappedFragments_; }
 
     void setNumObservedFragments(uint64_t numObserved) { numObservedFragments_ = numObserved; }
 
-    double mappingRate() {
+    double mappingRate() const {
         return static_cast<double>(numMappedFragments_) / numObservedFragments_;
     }
 
@@ -139,6 +145,36 @@ class ReadExperiment {
     std::vector<ReadLibrary>& readLibraries() { return readLibraries_; }
     //FragmentLengthDistribution* fragmentLengthDistribution() { return fragLengthDist_.get(); }
 
+    void setFragLengthDist(const std::vector<int32_t>& fldIn) {
+        fld_ = fldIn;
+    }
+
+    std::vector<int32_t>& fragLengthDist() {
+        return fld_;
+    }
+
+    const std::vector<int32_t>& fragLengthDist() const {
+        return fld_;
+    }
+
+
+    void setExpectedBias(const std::vector<double>& expectedBiasIn) {
+        expectedBias_ = expectedBiasIn;
+    }
+
+    std::vector<double>& expectedBias() {
+        return expectedBias_;
+    }
+
+    const std::vector<double>& expectedBias() const {
+        return expectedBias_;
+    }
+
+    //S_AYUSH_CODE
+    ReadKmerDist<6, std::atomic<uint32_t>>& readBias() { return readBias_; }
+    const ReadKmerDist<6, std::atomic<uint32_t>>& readBias() const { return readBias_; }
+    //T_AYUSH_CODE
+
     private:
     /**
      * The file from which the alignments will be read.
@@ -167,6 +203,15 @@ class ReadExperiment {
     double effectiveMappingRate_{0.0};
     //std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
     EquivalenceClassBuilder eqBuilder_;
+
+    //S_AYUSH_CODE
+    // Since multiple threads can touch this dist, we
+    // need atomic counters.
+    ReadKmerDist<6, std::atomic<uint32_t>> readBias_;
+    std::vector<double> expectedBias_;
+    //T_AYUSH_CODE
+
+    std::vector<int32_t> fld_;
 };
 
 #endif // EXPERIMENT_HPP

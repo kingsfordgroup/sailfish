@@ -445,7 +445,7 @@ bool doBootstrap(
         double uniformTxpWeight,
         std::atomic<uint32_t>& bsNum,
         SailfishOpts& sopt,
-        BootstrapWriter* bootstrapWriter,
+        std::function<bool(const std::vector<double>&)>& writeBootstrap,
         double relDiffTolerance,
         uint32_t maxIter) {
 
@@ -519,15 +519,45 @@ bool doBootstrap(
             return false;
         }
 
-        bootstrapWriter->writeBootstrap(alphas);
+        writeBootstrap(alphas);//bootstrapWriter->writeBootstrap(alphas);
     }
     return true;
+}
+
+void updateEqClassWeights(std::vector<std::pair<const TranscriptGroup, TGValue>>& eqVec,
+                          Eigen::VectorXd& effLens) {
+    tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(eqVec.size())),
+            [&eqVec, &effLens]( const BlockedIndexRange& range) -> void {
+                // For each index in the equivalence class vector
+                for (auto eqID : boost::irange(range.begin(), range.end())) {
+                    // The vector entry
+                    auto& kv = eqVec[eqID];
+                    // The label of the equivalence class
+                    const TranscriptGroup& k = kv.first;
+                    // The size of the label
+                    size_t classSize = k.txps.size();
+                    // The weights of the label
+                    TGValue& v = kv.second;
+
+                    // Iterate over each weight and set it equal to
+                    // 1 / effLen of the corresponding transcript
+                    double wsum{0.0};
+                    for (size_t i = 0; i < classSize; ++i) {
+                        v.weights[i] = (kv.second.count / effLens(k.txps[i]));
+                        wsum += v.weights[i];
+                    }
+                    double wnorm = 1.0 / wsum;
+                    for (size_t i = 0; i < classSize; ++i) {
+                        v.weights[i] *= wnorm;
+                    }
+                }
+            });
 }
 
 bool CollapsedEMOptimizer::gatherBootstraps(
         ReadExperiment& readExp,
         SailfishOpts& sopt,
-        BootstrapWriter* bootstrapWriter,
+        std::function<bool(const std::vector<double>&)>& writeBootstrap,
         double relDiffTolerance,
         uint32_t maxIter) {
 
@@ -667,7 +697,7 @@ bool CollapsedEMOptimizer::gatherBootstraps(
                 scale,
                 std::ref(bsCounter),
                 std::ref(sopt),
-                bootstrapWriter,
+                std::ref(writeBootstrap),
                 relDiffTolerance,
                 maxIter);
     }
@@ -682,6 +712,11 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
         SailfishOpts& sopt,
         double relDiffTolerance,
         uint32_t maxIter) {
+
+    uint32_t minIter = 50;
+    bool doBiasCorrect = sopt.biasCorrect;
+
+    auto& expectedDist = readExp.expectedBias();
 
     tbb::task_scheduler_init tbbScheduler(sopt.numThreads);
     std::vector<Transcript>& transcripts = readExp.transcripts();
@@ -775,9 +810,34 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     double alphaCheckCutoff = 1e-2;
     double cutoff = (useVBEM) ? (priorAlpha + minAlpha) : minAlpha;
 
+    // Iterations in which we will allow re-computing the effective lengths
+    // if bias-correction is enabled.
+    std::vector<uint32_t> recomputeIt{50, 500, 1000};
+
     bool converged{false};
     double maxRelDiff = -std::numeric_limits<double>::max();
-    while (itNum < maxIter and !converged) {
+    while (itNum < minIter or (itNum < maxIter and !converged)) {
+
+        // Recompute the effective lengths to account for sequence-specific
+        // bias.  Consider a better metric here.
+        if (doBiasCorrect and
+             (find(recomputeIt.begin(), recomputeIt.end(), itNum) != recomputeIt.end())) {
+
+            jointLog->info("iteration {}, recomputing effective lengths", itNum);
+            effLens = sailfish::utils::updateEffectiveLengths(
+                        readExp,
+                        effLens,
+                        alphas,
+                        expectedDist
+                        );
+            // Check for strangeness with the lengths.
+            for (size_t i = 0; i < effLens.size(); ++i) {
+                if (effLens(i) <= 0.0) {
+                    jointLog->warn("Transcript {} had length {}", i, effLens(i));
+                }
+            }
+            updateEqClassWeights(eqVec, effLens);
+        }
 
         if (useVBEM) {
             VBEMUpdate_(eqVec, transcripts, effLens,
@@ -825,6 +885,7 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     for (size_t i = 0; i < transcripts.size(); ++i) {
         // Set the mass to the normalized (after truncation)
         // relative abundance
+        if (doBiasCorrect) { transcripts[i].EffectiveLength = effLens(i); }
         transcripts[i].setEstCount(alphas[i]);
         transcripts[i].setMass(alphas[i] / alphaSum);
     }

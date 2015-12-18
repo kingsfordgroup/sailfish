@@ -60,15 +60,8 @@
 #include "RapMapSAIndex.hpp"
 #include "SailfishUtils.hpp"
 #include "SailfishIndex.hpp"
-#include "GenomicFeature.hpp"
 #include "spdlog/spdlog.h"
 #include "spdlog/details/format.h"
-
-int computeBiasFeatures(
-    std::vector<std::string>& transcriptFiles,
-    boost::filesystem::path outFilePath,
-    bool useStreamingParser,
-    size_t numThreads);
 
 int mainIndex( int argc, char *argv[] ) {
     using std::string;
@@ -116,6 +109,22 @@ Builds a Sailfish index
         // Check to make sure that the specified output directory either doesn't exist, or is
         // a valid path (e.g. not a file)
         namespace bfs = boost::filesystem;
+
+        // Ensure that the transcript file provided by the user exists
+        auto txpFile = transcriptFiles.front();
+        if (!bfs::exists(txpFile)) {
+            std::cerr << "The provided transcript file [" << txpFile << "] does not seem to exist!\n";
+            std::cerr << "Please check that the correct path was provided.\n";
+            std::exit(1);
+        }
+        // and that it is, in fact, a file
+        if (bfs::is_directory(txpFile)) {
+            std::cerr << "The provided transcript file [" << txpFile << "] appears to be a directory!\n";
+            std::cerr << "Please check that the correct path was provided.\n";
+            std::exit(1);
+        }
+
+        // Check that the output path doesn't exist yet (or at least is not a file)
         if (bfs::exists(outputStem) and !bfs::is_directory(outputStem)) {
             std::cerr << "The provided output path [" << outputStem << "] " <<
                          "already exists and is not a directory\n.";
@@ -155,6 +164,7 @@ Builds a Sailfish index
 
         std::cerr << "writing log to " << logPath.string() << "\n";
 
+        /** No more of this bias correction method!
         // First, compute the transcript features in case the user
         // ever wants to bias-correct his / her results
         bfs::path transcriptBiasFile(outputPath); transcriptBiasFile /= "bias_feats.txt";
@@ -166,6 +176,7 @@ Builds a Sailfish index
    	    std::string txpBiasFileName = transcriptBiasFile.string();
         jointLog->info(", {}, {}, {}\n", txpBiasFileName, useStreamingParser, numThreads);
         computeBiasFeatures(transcriptFiles, transcriptBiasFile, useStreamingParser, numThreads);
+        */
 
         bfs::path headerPath = outputPath / "header.json";
         mustRecompute = (force or !boost::filesystem::exists(headerPath));

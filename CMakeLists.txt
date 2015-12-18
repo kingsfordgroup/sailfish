@@ -3,9 +3,9 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.8.0")
+set(CPACK_PACKAGE_VERSION "0.9.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "8")
+set(CPACK_PACKAGE_VERSION_MINOR "9")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
@@ -202,7 +202,7 @@ if (BOOST_RECONFIGURE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.53.0 COMPONENTS filesystem system thread timer chrono program_options REQUIRED)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options REQUIRED)
     set(FETCH_BOOST FALSE)
 endif()
 
@@ -223,7 +223,7 @@ elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
     set (BOOST_LIB_SUBSET --with-atomic --with-chrono --with-container --with-date_time --with-exception
                           --with-filesystem --with-graph --with-graph_parallel --with-math
-                          --with-program_options --with-system --with-thread
+                          --with-program_options --with-system --with-thread --with-iostreams
                           --with-timer)
     set (BOOST_WILL_RECONFIGURE TRUE)
     set (FETCH_BOOST FALSE)
@@ -353,6 +353,24 @@ ExternalProject_Add_Step(libtbb reconfigure
         DEPENDEES install
 )
 endif()
+
+## 
+#  Find HDF5, and prefer the static libs
+##
+#set(HDF5_USE_STATIC_LIBRARIES TRUE)
+#find_package(HDF5 REQUIRED)
+
+#if (HDF5_FOUND)
+#    include_directories(${HDF5_INCLUDE_DIRS})
+#    #set(CMAKE_EXE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
+#    set(CMAKE_EXE_LINKER_FLAGS "-Wl,--no-as-needed -ldl")
+#    #set_target_properties(sailfish sailfish_core PROPERTIES LINK_SEARCH_END_STATIC 1)
+#else()
+#    message(FATAL_ERROR "HDF5 libraries are required but were not found!")
+#endif()
+##
+# Done with HDF5
+##
 
 ##
 # If we're fetching tbb, we need to have dummy paths for these variables

@@ -39,9 +39,13 @@
 #include "jellyfish/mer_dna.hpp"
 
 #include "TranscriptGeneMap.hpp"
-#include "GenomicFeature.hpp"
 #include "SailfishUtils.hpp"
 #include "ReadExperiment.hpp"
+
+//S_AYUSH_CODE
+#include "ReadKmerDist.hpp"
+#include "UtilityFunctions.hpp"
+//T_AYUSH_CODE
 
 namespace sailfish {
     namespace utils {
@@ -65,7 +69,7 @@ namespace sailfish {
             std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(fname.c_str(), "w"), std::fclose);
 
             fmt::print(output.get(), "{}", headerComments);
-            fmt::print(output.get(), "# Name\tLength\tTPM\tNumReads\n");
+            fmt::print(output.get(), "Name\tLength\tEffectiveLength\tTPM\tNumReads\n");
 
             double numMappedFrags = readExp.numMappedFragments();
 
@@ -86,18 +90,15 @@ namespace sailfish {
             double million = 1000000.0;
             // Now posterior has the transcript fraction
             for (auto& transcript : transcripts_) {
-                double refLength = sopt.noEffectiveLengthCorrection ?
+                auto effLen = sopt.noEffectiveLengthCorrection ?
                     transcript.RefLength :
                     transcript.EffectiveLength;
                 double count = transcript.projectedCounts;
                 double npm = (transcript.projectedCounts / numMappedFrags);
-                double tfrac = (npm / refLength) / tfracDenom;
+                double tfrac = (npm / effLen) / tfracDenom;
                 double tpm = tfrac * million;
-                auto effLen = sopt.noEffectiveLengthCorrection ?
-                    transcript.RefLength :
-                    transcript.EffectiveLength;
-                fmt::print(output.get(), "{}\t{}\t{}\t{}\n",
-                        transcript.RefName, transcript.RefLength, //effLen,
+                fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
+                        transcript.RefName, transcript.RefLength, effLen,
                         tpm, count);
             }
 
@@ -215,7 +216,14 @@ namespace sailfish {
                     }
                     break;
                 case MateStatus::PAIRED_END_LEFT:
-                    if (isForward) { // IU, ISF, OU, OSF, MU, MSF
+                    // "M"atching or same orientation is a special case
+                    if (expected.orientation == ReadOrientation::SAME) {
+                        return (expectedStrand == ReadStrandedness::U
+                                or
+                                (expectedStrand == ReadStrandedness::S and isForward)
+                                or
+                                (expectedStrand == ReadStrandedness::A and !isForward));
+                    } else if (isForward) { // IU, ISF, OU, OSF, MU, MSF
                         return (expectedStrand == ReadStrandedness::U or
                                 expectedStrand == ReadStrandedness::S);
                     } else { // IU, ISR, OU, OSR, MU, MSR
@@ -224,7 +232,14 @@ namespace sailfish {
                     }
                     break;
                 case MateStatus::PAIRED_END_RIGHT:
-                    if (isForward) { // IU, ISR, OU, OSR, MU, MSR
+                    // "M"atching or same orientation is a special case
+                    if (expected.orientation == ReadOrientation::SAME) {
+                        return (expectedStrand == ReadStrandedness::U
+                                or
+                                (expectedStrand == ReadStrandedness::S and isForward)
+                                or
+                                (expectedStrand == ReadStrandedness::A and !isForward));
+                    } else if (isForward) { // IU, ISR, OU, OSR, MU, MSR
                         return (expectedStrand == ReadStrandedness::U or
                                 expectedStrand == ReadStrandedness::A);
                     } else { // IU, ISF, OU, OSF, MU, MSF
@@ -585,13 +600,14 @@ namespace sailfish {
 
         class ExpressionRecord {
             public:
-                ExpressionRecord(const std::string& targetIn, uint32_t lengthIn,
+                ExpressionRecord(const std::string& targetIn, uint32_t lengthIn, double effLengthIn,
                         std::vector<double>& expValsIn) :
-                    target(targetIn), length(lengthIn), expVals(expValsIn) {}
+                    target(targetIn), length(lengthIn), effLength(effLengthIn), expVals(expValsIn) {}
 
                 ExpressionRecord( ExpressionRecord&& other ) {
                     std::swap(target, other.target);
                     length = other.length;
+		    effLength = other.effLength;
                     std::swap(expVals, other.expVals);
                 }
 
@@ -603,6 +619,7 @@ namespace sailfish {
                         auto it = inputLine.begin();
                         target = *it; ++it;
                         length = std::stoi(*it); ++it;
+			effLength = std::stod(*it); ++it;
                         for (; it != inputLine.end(); ++it) {
                             expVals.push_back(std::stod(*it));
                         }
@@ -611,6 +628,7 @@ namespace sailfish {
 
                 std::string target;
                 uint32_t length;
+		double effLength;
                 std::vector<double> expVals;
         };
 
@@ -629,6 +647,176 @@ namespace sailfish {
             }
             return result;
         }
+
+
+        //S_AYUSH_CODE
+        /*
+        void getTranscriptKmerCounts(IndexT *sidx, ReadExperiment& readExp, std::vector<KmerDist<6> > &txpCount)
+        {
+            vector<Transcript> &transcript = readExp.transcripts();
+            for(size_t it=0;it<(size_t)transcript.size();++it)
+            {
+                char *start = sidx->seq.c_str() + sidx->txpOffsets[it];
+                char *end = sidx->seq.c_str() + sidx->txpOffsets[it] + sidx->txpLens[it];
+                txpCount[it].addKmers(start,end,false);
+                txpCount[it].addKmers(start,end,true);
+            }
+        }
+        */
+        //T_AYUSH_CODE
+
+
+
+        //S_AYUSH_CODE
+        /**
+         * Computes (and returns) new effective lengths for the transcripts
+         * based on the current abundance estimates (alphas) and the current
+         * effective lengths (effLensIn).
+         */
+        template <typename AbundanceVecT>
+        Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
+                                    Eigen::VectorXd& effLensIn,
+                                    AbundanceVecT& alphas,
+                                    std::vector<double>& transcriptKmerDist) {
+            using std::vector;
+            double minAlpha = 1e-8;
+            auto sfIndex = readExp.getIndex();
+            const char* txomeStr = sfIndex->transcriptomeSeq();
+
+            // calculate read bias normalization factor -- total count in read
+            // distribution.
+            auto& readBias = readExp.readBias();
+            int32_t K = readBias.getK();
+            double readNormFactor = static_cast<double>(readBias.totalCount());
+
+            // Reset the transcript (normalized) counts
+            transcriptKmerDist.clear();
+            transcriptKmerDist.resize(constExprPow(4, K), 1.0);
+
+            // Make this const so there are no shenanigans
+            const auto& transcripts = readExp.transcripts();
+
+            // The effective lengths adjusted for bias
+            Eigen::VectorXd effLensOut(effLensIn.size());
+
+            for(size_t it=0; it < transcripts.size(); ++it) {
+
+                // First in the forward direction
+                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
+                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+
+                // How much of this transcript (beginning and end) should
+                // not be considered
+                int32_t unprocessedLen = std::max(0, refLen - elen);
+
+                // Skip transcripts with trivial expression or that are too
+                // short.
+                if (alphas[it] < minAlpha or unprocessedLen <= 0) {
+                    continue;
+                }
+
+                // Otherwise, proceed with the following weight.
+                double contribution = 0.5*(alphas[it]/effLensIn(it));
+
+                // From the start of the transcript up until the last valid
+                // kmer.
+                bool firstKmer{true};
+                uint32_t idx{0};
+
+                // This transcript's sequence
+                const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
+
+                // From the start of the transcript through the effective length
+                for (int32_t i = 0; i < elen - K; ++i) {
+                    if (firstKmer) {
+                        idx = indexForKmer(tseq, K, Direction::FORWARD);
+                        firstKmer = false;
+                    } else {
+                        idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
+                    }
+                    transcriptKmerDist[idx] += contribution;
+                }
+
+                // Then in the reverse complement direction
+                firstKmer = true;
+                idx = 0;
+                // Start from the end and go until the fragment length
+                // distribution says we should stop
+                for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
+                    if (firstKmer) {
+                        idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
+                        firstKmer = false;
+                    } else {
+                        idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
+                    }
+                    transcriptKmerDist[idx] += contribution;
+                }
+            }
+
+            // The total mass of the transcript distribution
+            double txomeNormFactor = 0.0;
+            for(auto m : transcriptKmerDist) { txomeNormFactor += m; }
+
+            // Now, compute the effective length of each transcript using
+            // the k-mer biases
+            for(size_t it = 0; it < transcripts.size(); ++it) {
+                // Starts out as 0
+                double effLength = 0.0;
+
+                // First in the forward direction, from the start of the
+                // transcript up until the last valid kmer.
+                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
+                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+
+                // How much of this transcript (beginning and end) should
+                // not be considered
+                int32_t unprocessedLen = std::max(0, refLen - elen);
+
+                if (alphas[it] >= minAlpha and unprocessedLen > 0) {
+                    bool firstKmer{true};
+                    uint32_t idx{0};
+                    // This transcript's sequence
+                    const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
+
+                    for (int32_t i = 0; i < elen - K; ++i) {
+                        if (firstKmer) {
+                            idx = indexForKmer(tseq, K, Direction::FORWARD);
+                            firstKmer = false;
+                        } else {
+                            idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
+                        }
+                        effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+                    }
+
+                    // Then in the reverse complement direction
+                    firstKmer = true;
+                    idx = 0;
+                    // Start from the end and go until the fragment length
+                    // distribution says we should stop
+                    for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
+                        if (firstKmer) {
+                            idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
+                            firstKmer = false;
+                        } else {
+                            idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
+                        }
+                        effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+                    }
+
+                    effLength *= 0.5 * (txomeNormFactor / readNormFactor);
+                }
+
+                if(unprocessedLen > 0.0 and effLength > unprocessedLen) {
+                    effLensOut(it) = effLength;
+                } else {
+                    effLensOut(it) = effLensIn(it);
+                }
+            }
+
+            return effLensOut;
+        }
+        //T_AYUSH_CODE
+
 
         void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::path& inputPath) {
 
@@ -655,6 +843,7 @@ namespace sailfish {
             string l;
             size_t ln{0};
 
+	    bool headerLine{true};
             while (getline(expFile, l)) {
                 if (++ln % 1000 == 0) {
                     cerr << "\r\rParsed " << ln << " expression lines";
@@ -665,11 +854,17 @@ namespace sailfish {
                     if (*it == '#') {
                         comments.push_back(l);
                     } else {
-                        vector<string> toks = split(l);
-                        ExpressionRecord er(toks);
-                        auto gn = tgm.geneName(er.target);
-                        geneExps[gn].push_back(move(er));
-                    }
+		      // If this isn't the first non-comment line
+		      if (!headerLine) {
+			vector<string> toks = split(l);
+			ExpressionRecord er(toks);
+			auto gn = tgm.geneName(er.target);
+			geneExps[gn].push_back(move(er));
+		      } else { // treat the header line as a comment
+			comments.push_back(l);
+			headerLine = false;
+		      }
+		    }
                 }
             }
             cerr << "\ndone\n";
@@ -689,6 +884,7 @@ namespace sailfish {
                 auto& gn = kv.first;
 
                 double geneLength = kv.second.front().length;
+                double geneEffLength = kv.second.front().effLength;
                 vector<double> expVals(kv.second.front().expVals.size(), 0);
                 const size_t NE{expVals.size()};
 
@@ -704,22 +900,26 @@ namespace sailfish {
                 // If this gene was expressed
                 if (totalTPM > minTPM) {
                     geneLength = 0.0;
+		    geneEffLength = 0.0;
                     for (auto& tranExp : kv.second) {
                         double frac = tranExp.expVals[tpmIdx] / totalTPM;
                         geneLength += tranExp.length * frac;
+                        geneEffLength += tranExp.effLength * frac;
                     }
                 } else {
                     geneLength = 0.0;
+		    geneEffLength = 0.0;
                     double frac = 1.0 / kv.second.size();
                     for (auto& tranExp : kv.second) {
                         geneLength += tranExp.length * frac;
+                        geneEffLength += tranExp.effLength * frac;
                     }
                 }
 
                 // Otherwise, if the gene wasn't expressed, the length
                 // is reported as the longest transcript length.
 
-                outFile << gn << '\t' << geneLength;
+                outFile << gn << '\t' << geneLength << '\t' << geneEffLength;
                 for (size_t i = 0; i < NE; ++i) {
                     outFile << '\t' << expVals[i];
                 }
@@ -733,8 +933,7 @@ namespace sailfish {
 
         void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
                 boost::filesystem::path& estDir,
-                std::string aggKey,
-                bool haveBiasCorrectedFile) {
+                std::string aggKey) {
             namespace bfs = boost::filesystem;
             std::cerr << "Computing gene-level abundance estimates\n";
             bfs::path gtfExtension(".gtf");
@@ -765,6 +964,7 @@ namespace sailfish {
             }
 
             /** Create a gene-level summary of the bias-corrected estimates as well if these exist **/
+            /** No more of this bias correction
             if (haveBiasCorrectedFile) {
                 bfs::path biasCorrectEstFilePath = estDir / "quant_bias_corrected.sf";
                 if (!bfs::exists(biasCorrectEstFilePath)) {
@@ -776,8 +976,23 @@ namespace sailfish {
                     sailfish::utils::aggregateEstimatesToGeneLevel(tranGeneMap, biasCorrectEstFilePath);
                 }
             }
+            */
         }
 
+        // === Explicit instantiations
+        template Eigen::VectorXd updateEffectiveLengths<std::vector<tbb::atomic<double>>>(
+                ReadExperiment& readExp,
+                Eigen::VectorXd& effLensIn,
+                std::vector<tbb::atomic<double>>& alphas,
+                std::vector<double>& expectedBias
+                );
+
+        template Eigen::VectorXd updateEffectiveLengths<std::vector<double>>(
+                ReadExperiment& readExp,
+                Eigen::VectorXd& effLensIn,
+                std::vector<double>& alphas,
+                std::vector<double>& expectedBias
+                );
     }
 }
 

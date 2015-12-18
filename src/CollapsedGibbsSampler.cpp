@@ -23,6 +23,7 @@
 #include "SailfishMath.hpp"
 #include "ReadExperiment.hpp"
 #include "MultinomialSampler.hpp"
+#include "BootstrapWriter.hpp"
 
 using BlockedIndexRange =  tbb::blocked_range<size_t>;
 
@@ -197,6 +198,7 @@ class DistStats {
 template <typename ExpT>
 bool CollapsedGibbsSampler::sample(ExpT& readExp,
         SailfishOpts& sopt,
+        std::function<bool(const std::vector<int>&)>& writeSample, 
         uint32_t numSamples) {
 
     namespace bfs = boost::filesystem;
@@ -219,7 +221,7 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
     }
 
     tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(numSamples)),
-                [&eqVec, &transcripts, priorAlpha,
+                [&eqVec, &transcripts, priorAlpha, &writeSample,
                  &allSamples]( const BlockedIndexRange& range) -> void {
 
                 std::random_device rd;
@@ -232,6 +234,10 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
                     }
                 }
 
+                size_t numTranscripts{transcripts.size()};
+
+                // will hold estimated counts
+                std::vector<double> alphas(numTranscripts, 0.0);
                 std::vector<uint64_t> countMap(countMapSize, 0);
                 std::vector<double> probMap(countMapSize, 0.0);
 
@@ -239,7 +245,7 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
 
                 // For each sample this thread should generate
                 bool isFirstSample{true};
-		bool numInternalRounds = 10;
+                bool numInternalRounds = 10;
                 for (auto sampleID : boost::irange(range.begin(), range.end())) {
                     if (sampleID % 100 == 0) {
                         std::cerr << "gibbs sampling " << sampleID << "\n";
@@ -248,57 +254,22 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
                         // the counts start at what they were last round.
                         allSamples[sampleID] = allSamples[sampleID-1];
                     }
-		    for (size_t i = 0; i < numInternalRounds; ++i){
-			    sampleRound_(eqVec, countMap, probMap, priorAlpha,
-					 allSamples[sampleID], ms);
-		    }
+                    for (size_t i = 0; i < numInternalRounds; ++i){
+                        sampleRound_(eqVec, countMap, probMap, priorAlpha,
+                                allSamples[sampleID], ms);
+                    }
+		    /*
+                    for (size_t tn = 0; tn < numTranscripts; ++tn) {
+                        alphas[tn] = static_cast<double>(allSamples[sampleID][tn]);
+                    }
+		    */
+                    //writeSample(alphas);//bootstrapWriter->writeBootstrap(alphas);
+		    writeSample(allSamples[sampleID]);
                     isFirstSample = false;
                 }
-    });
+            });
 
-    auto numTranscripts = transcripts.size();
-    std::vector<DistStats> ds(numTranscripts);
-
-    // get posterior means
-    tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(numTranscripts)),
-                [&allSamples, &transcripts, &ds, numMappedFragments,
-                 numSamples]( const BlockedIndexRange& range) -> void {
-
-                // For each sample this thread should generate
-                for (auto tid : boost::irange(range.begin(), range.end())) {
-                    double meanNumReads = {0.0};
-                    for (size_t i = 0; i < numSamples; ++i) {
-                      auto val = allSamples[i][tid];
-                      if (val < ds[tid].minVal) { ds[tid].minVal = val; }
-                      if (val > ds[tid].maxVal) { ds[tid].maxVal = val; }
-                      meanNumReads += (1.0 / numSamples) * val;
-                    }
-        		    ds[tid].meanVal = meanNumReads;
-                    transcripts[tid].setMass(ds[tid].meanVal);
-                }
-    });
-
-    bfs::path gibbsSampleFile = sopt.outputDirectory / "samples.txt";
-    sopt.jointLog->info("Writing posterior samples to {}", gibbsSampleFile.string());
-
-    std::ofstream statStream(gibbsSampleFile.string());
-    statStream << "# txpName\tsample_1\tsample_2\t...\tsample_n\n";
-
-    for (size_t i = 0; i < numTranscripts; ++i) {
-	    statStream << transcripts[i].RefName;
-        for (size_t s = 0; s < allSamples.size(); ++s) {
-            statStream << '\t' << allSamples[s][i];
-            /*
-		   << ds[i].meanVal << '\t'
-		   << ds[i].minVal << '\t'
-		   << ds[i].maxVal << '\n';
-           */
-        }
-        statStream << '\n';
-    }
-    statStream.close();
-    sopt.jointLog->info("done writing posterior samples");
-
+    /*
     double cutoff = priorAlpha + 1e-8;
     // Truncate tiny expression values
     double txpSumTrunc = 0.0;
@@ -314,6 +285,7 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
         // relative abundance
         transcripts[i].setMass(transcripts[i].mass(false) / txpSumTrunc);
     }
+    */
 
     return true;
 }
@@ -321,4 +293,5 @@ bool CollapsedGibbsSampler::sample(ExpT& readExp,
 template
 bool CollapsedGibbsSampler::sample<ReadExperiment>(ReadExperiment& readExp,
         SailfishOpts& sopt,
+        std::function<bool(const std::vector<int>&)>& writeSample,
         uint32_t maxIter);

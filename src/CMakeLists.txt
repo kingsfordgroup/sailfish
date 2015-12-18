@@ -2,26 +2,27 @@ set ( SAILFISH_MAIN_SRCS
 Sailfish.cpp
 )
 
+set ( UNIT_TESTS_SRCS
+    ${GAT_SOURCE_DIR}/tests/UnitTests.cpp
+)
+
 # Build the specific Sailfish commands as a 
 # shared libraray (for some reason, building
 # them into a single executable was causing 
 # multiple symbold definition errors).
 set (SAILFISH_LIB_SRCS
-GenomicFeature.cpp
 VersionChecker.cpp
 SailfishIndexer.cpp
 SailfishQuantify.cpp
 SailfishUtils.cpp
 SailfishStringUtils.cpp
-ComputeBiasFeatures.cpp
-PerformBiasCorrection.cpp
-StreamingSequenceParser.cpp
 LibraryFormat.cpp
 TranscriptGroup.cpp
 CollapsedEMOptimizer.cpp
 CollapsedGibbsSampler.cpp
 EmpiricalDistribution.cpp
-cokus.cpp
+#HDF5Writer.cpp
+GZipWriter.cpp
 xxhash.c
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapFileSystem.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapSAIndexer.cpp
@@ -31,9 +32,11 @@ ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapUtils.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/HitManager.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/rank9b.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/bit_array.c
+#${GAT_SOURCE_DIR}/external/install/src/EasyH5Utils.cpp
 )
 
 include_directories( 
+${GAT_SOURCE_DIR}/tests
 ${GAT_SOURCE_DIR}/include
 ${GAT_SOURCE_DIR}/include/eigen3
 ${GAT_SOURCE_DIR}/external
@@ -78,6 +81,9 @@ add_library(sailfish_core STATIC ${SAILFISH_LIB_SRCS} )
 # Build the Sailfish executable
 add_executable(sailfish ${SAILFISH_MAIN_SRCS})
 
+# Build the Sailfish executable
+add_executable(unitTests ${UNIT_TESTS_SRCS})
+
 # our suffix array construction libraries
 set (SUFFARRAY_LIB ${GAT_SOURCE_DIR}/external/install/lib/libdivsufsort.a)
 set (SUFFARRAY64_LIB ${GAT_SOURCE_DIR}/external/install/lib/libdivsufsort64.a)
@@ -96,9 +102,26 @@ target_link_libraries(sailfish
     ${TBB_LIBRARIES}
     ${LIBSAILFISH_LINKER_FLAGS} 
     ${NON_APPLECLANG_LIBS}
+    #${HDF5_LIBRARIES}
     ${FAST_MALLOC_LIB}
 )
 
+# Link the executable
+target_link_libraries(unitTests
+    sailfish_core 
+    ${PTHREAD_LIB}
+    ${Boost_LIBRARIES} 
+    gff
+    ${ZLIB_LIBRARY} 
+    ${SUFFARRAY_LIB}
+    ${SUFFARRAY64_LIB}
+    ${GAT_SOURCE_DIR}/external/install/lib/libjellyfish-2.0.a 
+    m
+    ${TBB_LIBRARIES}
+    ${LIBSAILFISH_LINKER_FLAGS} 
+    ${NON_APPLECLANG_LIBS}
+    ${FAST_MALLOC_LIB}
+)
 
 ##
 #  This ensures that the sailfish executable should work with or without `make install`
@@ -157,6 +180,10 @@ install(TARGETS sailfish sailfish_core
                 ARCHIVE DESTINATION lib
         )
 
+install(TARGETS unitTests
+    RUNTIME DESTINATION tests
+)
+
 set(POST_INSTALL_SCRIPT ${GAT_SOURCE_DIR}/cmake/PostInstall.cmake)
 
 install(
@@ -173,4 +200,5 @@ install(
 # install(FILES ${GAT_SOURCE_DIR}/experimental_configs/SRX016368_25mers.cfg DESTINATION experimental_configs/SRX016368_25mers.cfg )
 
 include(InstallRequiredSystemLibraries)
+add_test( NAME unit_tests COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${CMAKE_INSTALL_PREFIX} -P ${GAT_SOURCE_DIR}/cmake/UnitTests.cmake )
 add_test( NAME simple_test COMMAND ${CMAKE_COMMAND} -DTOPLEVEL_DIR=${CMAKE_INSTALL_PREFIX} -P ${GAT_SOURCE_DIR}/cmake/SimpleTest.cmake )

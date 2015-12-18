@@ -27,9 +27,9 @@
 
 namespace sailfish {
 	constexpr char majorVersion[] = "0";
-	constexpr char minorVersion[] = "8";
+	constexpr char minorVersion[] = "9";
 	constexpr char patchVersion[] = "0";
-	constexpr char version[] = "0.8.0";
+	constexpr char version[] = "0.9.0";
     constexpr uint32_t indexVersion = 2;
 }
 

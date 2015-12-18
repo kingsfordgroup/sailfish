@@ -35,7 +35,6 @@
 #include "SailfishConfig.hpp"
 #include "SailfishUtils.hpp"
 #include "SailfishIndex.hpp"
-#include "GenomicFeature.hpp"
 #include "TranscriptGeneMap.hpp"
 #include "CollapsedEMOptimizer.hpp"
 #include "CollapsedGibbsSampler.hpp"
@@ -46,8 +45,14 @@
 #include "SACollector.hpp"
 #include "EmpiricalDistribution.hpp"
 #include "TextBootstrapWriter.hpp"
+#include "GZipWriter.hpp"
+//#include "HDF5Writer.hpp"
 
 #include "spdlog/spdlog.h"
+
+//S_AYUSH_CODE
+#include "ReadKmerDist.hpp"
+//T_AYUSH_CODE
 
 /****** QUASI MAPPING DECLARATIONS *********/
 using MateStatus = rapmap::utils::MateStatus;
@@ -55,7 +60,8 @@ using QuasiAlignment = rapmap::utils::QuasiAlignment;
 /****** QUASI MAPPING DECLARATIONS  *******/
 
 /****** Parser aliases ***/
-using paired_parser = pair_sequence_parser<char**>;
+//using paired_parser = pair_sequence_parser<std::vector<std::ifstream*>::iterator>;
+using paired_parser = pair_sequence_parser<char**>;//std::vector<std::ifstream*>::iterator>;
 using stream_manager = jellyfish::stream_manager<std::vector<std::string>::const_iterator>;
 using single_parser = jellyfish::whole_sequence_parser<stream_manager>;
 /****** Parser aliases ***/
@@ -68,10 +74,12 @@ using std::string;
 
 constexpr uint32_t readGroupSize{1000};
 
+/* No more of this bias correction
 int performBiasCorrectionSalmon(boost::filesystem::path featPath,
                                 boost::filesystem::path expPath,
                                 boost::filesystem::path outPath,
                                 size_t numThreads);
+*/
 
 
 /**
@@ -83,8 +91,9 @@ int32_t getMeanFragLen(const FragLengthCountMap& flMap) {
     double totalCount{0.0};
     double totalLength{0.0};
     for (size_t i = 0; i < flMap.size(); ++i) {
-        totalLength += i * flMap[i];
-        totalCount += flMap[i];
+        auto c = flMap[i];
+        totalLength += i * c;
+        totalCount += c;
     }
     double ret{200.0};
     if (totalCount <= 0.0) {
@@ -108,7 +117,7 @@ void processReadsQuasi(paired_parser* parser,
                IndexT* sidx,
                ReadExperiment& readExp,
                ReadLibrary& rl,
-               const SailfishOpts& sfOpts,
+               SailfishOpts& sfOpts,
                FragLengthCountMap& flMap,
                std::atomic<int32_t>& remainingFLOps,
 	           std::mutex& iomutex) {
@@ -133,7 +142,11 @@ void processReadsQuasi(paired_parser* parser,
   auto& eqBuilder = readExp.equivalenceClassBuilder();
   auto& transcripts = readExp.transcripts();
 
-  //auto sidx = readExp.getIndex();
+  //S_AYUSH_CODE
+  auto& readBias = readExp.readBias();
+  const char* txomeStr = sidx->seq.c_str();
+  //T_AYUSH_CODE
+
   SACollector<IndexT> hitCollector(sidx);
   SASearcher<IndexT> saSearcher(sidx);
   rapmap::utils::HitCounters hctr;
@@ -200,15 +213,18 @@ void processReadsQuasi(paired_parser* parser,
 
         if (jointHits.size() > sfOpts.maxReadOccs ) { jointHits.clear(); }
 
+	/*
         if (!sfOpts.allowOrphans) {
             if (jointHits.size() > 0 and jointHits.front().mateStatus != MateStatus::PAIRED_END_PAIRED) {
                 jointHits.clear();
             }
         }
+	*/
 
         if (jointHits.size() > 0) {
             // Are the jointHits paired-end quasi-mappings or orphans?
             bool isPaired = jointHits.front().mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
+            bool bothEndsMap = isPaired;
 
             // If these aren't paired-end reads --- so that
             // we have orphans --- make sure we sort the
@@ -220,6 +236,8 @@ void processReadsQuasi(paired_parser* parser,
                         [](const QuasiAlignment& q) -> bool {
                         return q.mateStatus == rapmap::utils::MateStatus::PAIRED_END_LEFT;
                         });
+                bothEndsMap = (leftHitEndIt > jointHits.begin()) and
+                              (leftHitEndIt < jointHits.end());
                 // Merge the hits so that the entire list is in order
                 // by transcript ID.
                 std::inplace_merge(jointHits.begin(), leftHitEndIt, jointHits.end(),
@@ -231,16 +249,47 @@ void processReadsQuasi(paired_parser* parser,
 
             double auxSumAll = 0.0;
             double auxSumCompat = 0.0;
-            for (auto& h : jointHits) {
+            //S_AYUSH_CODE
+            bool needBiasSample = sfOpts.biasCorrect;
+            //T_AYUSH_CODE
+
+
+	    for (auto& h : jointHits) {
                 auto transcriptID = h.transcriptID();
+
+                int32_t pos = static_cast<int32_t>(h.pos);
+                auto dir = sailfish::utils::boolToDirection(h.fwd);
+
+                //S_AYUSH_CODE
+                // Note: sidx is a pointer to type IndexT, not RapMapSAIndex!
+
+                // If bias correction is turned on, and we haven't sampled a mapping
+                // for this read yet, and we haven't collected the required number of
+                // samples overall.
+                if(needBiasSample and sfOpts.numBiasSamples > 0){
+                    // the "start" position is the leftmost position if
+                    // we hit the forward strand, and the leftmost
+                    // position + the read length if we hit the reverse complement
+                    int32_t startPos = h.fwd ? pos : pos + h.readLen;
+
+                    if (startPos > 0 and startPos < sidx->txpLens[h.tid]) {
+                        const char* txpStart = txomeStr + sidx->txpOffsets[h.tid];
+                        const char* readStart = txpStart + startPos; // is this correct?
+                        const char* txpEnd = txpStart + sidx->txpLens[h.tid]; //??
+                        bool success = readBias.update(txpStart, readStart, txpEnd, dir);
+                        if (success) {
+                            sfOpts.numBiasSamples -= 1;
+                            needBiasSample = false;
+                        }
+                    }
+                }
+                //T_AYUSH_CODE
+
 
                 if (!isPaired) {
                     if (remainingFLOps <= 0 and meanFragLen < 0) {
                         meanFragLen = getMeanFragLen(flMap);
                     }
-
-                    int32_t pos = static_cast<int32_t>(h.pos);
-
                     // True if the read is compatible with the
                     // expected library type; false otherwise.
                     bool compat = ignoreCompat;
@@ -250,11 +299,21 @@ void processReadsQuasi(paired_parser* parser,
                                 h.fwd, h.mateStatus);
                     }
 
-                    bool positionOK = (
-                            (h.fwd and (pos + meanFragLen) <= static_cast<int32_t>(transcripts[transcriptID].RefLength))
-                            or
-                            (!h.fwd and (pos - meanFragLen) >= 0 )
-                            );
+
+                    bool positionOK = true;
+                    /** TODO: Consider how best to filter orphans in the future **/
+                    /*
+                    if (meanFragLen > 0 and positionOK) {
+                        int32_t startPos = h.fwd ? pos : pos + h.readLen;
+                        if (h.fwd) {
+                            positionOK =
+                                (startPos + meanFragLen) <= static_cast<int32_t>(transcripts[transcriptID].RefLength);
+                        } else {
+                            positionOK = (startPos - meanFragLen) >= 0.0;
+                        }
+                    }
+                    */
+
 
                     if (positionOK) {
                         if (compat) {
@@ -357,13 +416,17 @@ void processReadsQuasi(single_parser* parser,
         IndexT* sidx,
         ReadExperiment& readExp,
         ReadLibrary& rl,
-        const SailfishOpts& sfOpts,
+        SailfishOpts& sfOpts,
         std::mutex& iomutex) {
 
     uint64_t prevObservedFrags{1};
 
     size_t locRead{0};
     uint64_t localUpperBoundHits{0};
+    //S_AYUSH_CODE
+    auto& readBias = readExp.readBias();
+    const char* txomeStr = sidx->seq.c_str();
+    //T_AYUSH_CODE
 
     bool tooManyHits{false};
     size_t readLen{0};
@@ -428,9 +491,40 @@ void processReadsQuasi(single_parser* parser,
 
                 double auxSumAll = 0.0;
                 double auxSumCompat = 0.0;
+
+                //S_AYUSH_CODE
+                bool needBiasSample = sfOpts.biasCorrect;
+                //T_AYUSH_CODE
+
                 for (auto& h : jointHits) {
 
                     int32_t pos = static_cast<int32_t>(h.pos);
+                    auto dir = sailfish::utils::boolToDirection(h.fwd);
+
+                    //S_AYUSH_CODE
+                    // Note: sidx is a pointer to type IndexT, not RapMapSAIndex!
+
+                    // If bias correction is turned on, and we haven't sampled a mapping
+                    // for this read yet, and we haven't collected the required number of
+                    // samples overall.
+                    if(needBiasSample and sfOpts.numBiasSamples > 0){
+                        // the "start" position is the leftmost position if
+                        // we hit the forward strand, and the leftmost
+                        // position + the read length if we hit the reverse complement
+                        int32_t startPos = h.fwd ? pos : pos + h.readLen;
+
+                        if (startPos > 0 and startPos < sidx->txpLens[h.tid]) {
+                            const char* txpStart = txomeStr + sidx->txpOffsets[h.tid];
+                            const char* readStart = txpStart + startPos; // is this correct?
+                            const char* txpEnd = txpStart + sidx->txpLens[h.tid]; //??
+                            bool success = readBias.update(txpStart, readStart, txpEnd, dir);
+                            if (success) {
+                                sfOpts.numBiasSamples -= 1;
+                                needBiasSample = false;
+                            }
+                        }
+                    }
+                    //T_AYUSH_CODE
 
                     // True if the read is compatible with the
                     // expected library type; false otherwise.
@@ -453,7 +547,7 @@ void processReadsQuasi(single_parser* parser,
                         auxProbsAll.push_back(1.0);
                         auxSumAll += 1.0;
                     }
-                }
+        }
 
                 // If we have compatible hits, only use those
                 if (haveCompat) {
@@ -507,17 +601,49 @@ std::vector<double> getNormalFragLengthDist(
     };
 
     double cumulativeMass{0.0};
-    double cumulativeDenisty{0.0};
+    double cumulativeDensity{0.0};
     for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
         auto d = kernel(static_cast<double>(i));
         cumulativeMass += i * d;
-        cumulativeDenisty += d;
-        if (cumulativeDenisty > 0) {
-            correctionFactors[i] = cumulativeMass / cumulativeDenisty;
+        cumulativeDensity += d;
+        if (cumulativeDensity > 0) {
+            correctionFactors[i] = cumulativeMass / cumulativeDensity;
         }
     }
     return correctionFactors;
 }
+
+std::vector<int32_t> getNormalFragLengthCounts(
+        const SailfishOpts& sfOpts) {
+
+    std::vector<int> dist(sfOpts.maxFragLen, 0);
+    int32_t totalCount = sfOpts.numFragSamples;
+    auto maxLen = sfOpts.maxFragLen;
+    auto mean = sfOpts.fragLenDistPriorMean;
+    auto sd = sfOpts.fragLenDistPriorSD;
+
+    auto kernel = [mean, sd](double p) -> double {
+        double invStd = 1.0 / sd;
+        double x = invStd * (p - mean);
+        return std::exp(-0.5 * x * x) * invStd;
+    };
+
+    double totalMass{0.0};
+    for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
+        totalMass += kernel(static_cast<double>(i));
+    }
+
+    double currentDensity{0.0};
+    if (totalMass > 0) {
+        for (size_t i = 0; i < sfOpts.maxFragLen; ++i) {
+            currentDensity = kernel(static_cast<double>(i));
+            dist[i] = static_cast<int>(
+                    std::round(currentDensity * totalCount / totalMass));
+        }
+    }
+    return dist;
+}
+
 
 void setEffectiveLengthsDirect(ReadExperiment& readExp,
         const SailfishOpts& sfOpts) {
@@ -665,7 +791,7 @@ std::vector<std::string> split(const std::string &s, char delim) {
 
 void quasiMapReads(
         ReadExperiment& readExp,
-        const SailfishOpts& sfOpts,
+        SailfishOpts& sfOpts,
         std::mutex& iomutex){
 
     std::vector<std::thread> threads;
@@ -696,19 +822,24 @@ void quasiMapReads(
 
         size_t numFiles = rl.mates1().size() + rl.mates2().size();
         char** pairFileList = new char*[numFiles];
+        //std::vector<std::ifstream*> pairFileList(numFiles);
+        //pairFileList.reserve(numFiles);
         for (size_t i = 0; i < rl.mates1().size(); ++i) {
             pairFileList[2*i] = const_cast<char*>(rl.mates1()[i].c_str());
             pairFileList[2*i+1] = const_cast<char*>(rl.mates2()[i].c_str());
+            //pairFileList[2*i] = new std::ifstream(rl.mates1()[i]);
+            //pairFileList[2*i+1] = new std::ifstream(rl.mates2()[i]);
         }
 
         size_t maxReadGroup{readGroupSize}; // Number of reads in each "job"
         size_t concurrentFile{2}; // Number of files to read simultaneously
         pairedParserPtr.reset(new
                 paired_parser(4 * numThreads, maxReadGroup,
-                    concurrentFile, pairFileList, pairFileList+numFiles));
+                    concurrentFile,
+                    pairFileList, pairFileList+numFiles));
+                    //pairFileList.begin(), pairFileList.end()));
 
-        int32_t numRequiredFLDObs{10000};
-        std::atomic<int32_t> remainingFLOps{numRequiredFLDObs};
+        std::atomic<int32_t> remainingFLOps{sfOpts.numFragSamples};
 
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
@@ -754,6 +885,9 @@ void quasiMapReads(
             totalObs += flMap[i];
         }
 
+	// we need an extra newline here.
+	fmt::print(stderr, "\n");
+
         sfOpts.jointLog->info("Gathered fragment lengths from all threads");
 
         /** If we have a sufficient number of observations for the empirical
@@ -772,12 +906,21 @@ void quasiMapReads(
                 sfOpts.jointLog->warn("Sailfish saw fewer then {} uniquely mapped reads "
                         "so {} will be used as the mean fragment length and {} as "
                         "the standard deviation for effective length correction",
-                        numRequiredFLDObs,
+                        sfOpts.numFragSamples,
                         sfOpts.fragLenDistPriorMean,
                         sfOpts.fragLenDistPriorSD);
+                // Set the fragment length distribution in the ReadExperiment
+                readExp.setFragLengthDist(getNormalFragLengthCounts(sfOpts));
                 auto correctionFactors = getNormalFragLengthDist(sfOpts);
                 computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
             } else {
+                // Set the fragment length distribution in the ReadExperiment
+                std::vector<int32_t> fld(flMap.size(), 0);
+                for (size_t i = 0; i < flMap.size(); ++i) {
+                    fld[i] = static_cast<int32_t>(flMap[i]);
+                }
+                readExp.setFragLengthDist(fld);
+
                 if (sfOpts.useUnsmoothedFLD) {
                     computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
                 } else {
@@ -831,6 +974,9 @@ void quasiMapReads(
         if (sfOpts.noEffectiveLengthCorrection) {
             setEffectiveLengthsDirect(readExp, sfOpts);
         } else {
+            // Set the fragment length distribution in the ReadExperiment
+            readExp.setFragLengthDist(getNormalFragLengthCounts(sfOpts));
+
             auto correctionFactors = getNormalFragLengthDist(sfOpts);
             computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
         }
@@ -877,8 +1023,7 @@ int mainQuantify(int argc, char* argv[]) {
          "separated by a tab.  The extension of the file is used to determine how the file "
          "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
          "format; files with any other extension are assumed to be in the simple format.")
-       ("biasCorrect", po::value(&biasCorrect)->zero_tokens(), "[Experimental]: Output both bias-corrected and non-bias-corrected "
-         "qunatification estimates.");
+       ("biasCorrect", po::value(&(sopt.biasCorrect))->zero_tokens(), "Perform sequence-specific bias correction");
 
     po::options_description advanced("\n"
             "advanced options");
@@ -902,6 +1047,9 @@ int mainQuantify(int argc, char* argv[]) {
         ("allowDovetail", po::bool_switch(&(sopt.allowDovetail))->default_value(false), "Allow "
              "paired-end reads from the same fragment to \"dovetail\", such that the ends "
              "of the mapped reads can extend past each other.")
+        ("numFragSamples", po::value<int32_t>(&(sopt.numFragSamples))->default_value(10000),
+            "Number of fragments from unique alignments to sample when building the fragment "
+            "length distribution")
         ("fldMean", po::value<size_t>(&(sopt.fragLenDistPriorMean))->default_value(200),
             "If single end reads are being used for quantification, or there are an insufficient "
             "number of uniquely mapping reads when performing paired-end quantification to estimate "
@@ -962,6 +1110,12 @@ int mainQuantify(int argc, char* argv[]) {
         std::string commentString = commentStream.str();
         fmt::print(stderr, "{}", commentString);
 
+	// Get the time at the start of the run
+	std::time_t result = std::time(NULL);
+	std::string runStartTime(std::asctime(std::localtime(&result)));
+	runStartTime.pop_back(); // remove the newline
+
+
         // Verify the geneMap before we start doing any real work.
         bfs::path geneMapPath;
         if (vm.count("geneMap")) {
@@ -1020,6 +1174,23 @@ int mainQuantify(int argc, char* argv[]) {
         // {
         // }
 
+        // Write out information about the command / run
+        {
+            bfs::path cmdInfoPath = outputDirectory / "cmd_info.json";
+            std::ofstream os(cmdInfoPath.string());
+            cereal::JSONOutputArchive oa(os);
+            oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
+            for (auto& opt : orderedOptions.options) {
+                if (opt.value.size() == 1) {
+                    oa(cereal::make_nvp(opt.string_key, opt.value.front()));
+                } else {
+                    oa(cereal::make_nvp(opt.string_key, opt.value));
+                }
+            }
+
+            //os.close();
+        }
+
         jointLog->info("parsing read library format");
 
         if (sopt.numGibbsSamples > 0 and sopt.numBootstraps > 0) {
@@ -1038,7 +1209,6 @@ int mainQuantify(int argc, char* argv[]) {
 
         ReadExperiment experiment(readLibraries, indexDirectory, sopt);
         // end parameter validation
-
 
         // This will be the class in charge of maintaining our
         // rich equivalence classes
@@ -1072,33 +1242,50 @@ int mainQuantify(int argc, char* argv[]) {
         commentStream << "# [ mapping rate ] => { " << experiment.mappingRate() * 100.0 << "\% }\n";
         commentString = commentStream.str();
 
+
+	/*
+	bfs::path hdfFilePath = outputDirectory / "quant.h5";
+	HDF5Writer h5w(hdfFilePath, jointLog);
+	h5w.writeMeta(sopt, experiment);
+	h5w.writeAbundances(sopt, experiment);
         sailfish::utils::writeAbundancesFromCollapsed(
                 sopt, experiment, estFilePath, commentString);
+	*/
 
-        {
-          bfs::path statPath = outputDirectory / "stats.tsv";
-          std::ofstream statStream(statPath.string(), std::ofstream::out);
-          statStream << "numObservedFragments\t" << experiment.numObservedFragments() << '\n';
-          for (auto& t : experiment.transcripts()) {
-              auto l = (sopt.noEffectiveLengthCorrection) ? t.RefLength : t.EffectiveLength;
-              statStream << t.RefName << '\t' << l << '\n';
-          }
-          statStream.close();
-        }
+	GZipWriter gzw(outputDirectory, jointLog);
+	// Write the main results 
+	gzw.writeAbundances(sopt, experiment);
+	// Write meta-information about the run
+	gzw.writeMeta(sopt, experiment, runStartTime);
 
         if (sopt.numGibbsSamples > 0) {
             jointLog->info("Starting Gibbs Sampler");
             CollapsedGibbsSampler sampler;
-            sampler.sample(experiment, sopt, sopt.numGibbsSamples);
+	    // The function we'll use as a callback to write samples
+	    std::function<bool(const std::vector<int>&)> bsWriter =
+		[&gzw](const std::vector<int>& alphas) -> bool {
+		    return gzw.writeBootstrap(alphas);
+	    	};
+
+            bool sampleSuccess = sampler.sample(experiment, sopt,
+                                                bsWriter,
+                                                sopt.numGibbsSamples);
+            if (!sampleSuccess) {
+                jointLog->error("Encountered error during Gibb sampling .\n"
+                                "This should not happen.\n"
+                                "Please file a bug report on GitHub.\n");
+                return 1;
+            }
             jointLog->info("Finished Gibbs Sampler");
         } else if (sopt.numBootstraps > 0) {
-            bfs::path bspath = outputDirectory / "quant_bootstraps.sf";
-            std::unique_ptr<BootstrapWriter> bsWriter(new TextBootstrapWriter(bspath, jointLog));
-            bsWriter->writeHeader(commentString, experiment.transcripts());
-
+	    // The function we'll use as a callback to write samples
+	    std::function<bool(const std::vector<double>&)> bsWriter =
+		[&gzw](const std::vector<double>& alphas) -> bool {
+		    return gzw.writeBootstrap(alphas);
+	    	};
             bool bootstrapSuccess = optimizer.gatherBootstraps(
                                               experiment, sopt,
-                                              bsWriter.get(), 0.01, 10000);
+					      bsWriter, 0.01, 10000);
             if (!bootstrapSuccess) {
                 jointLog->error("Encountered error during bootstrapping.\n"
                                 "This should not happen.\n"
@@ -1106,38 +1293,13 @@ int mainQuantify(int argc, char* argv[]) {
                 return 1;
             }
         }
-        /*
-        // Now create a subdirectory for any parameters of interest
-        bfs::path paramsDir = outputDirectory / "libParams";
-        if (!boost::filesystem::exists(paramsDir)) {
-        if (!boost::filesystem::create_directory(paramsDir)) {
-        fmt::print(stderr, "{}ERROR{}: Could not create "
-        "output directory for experimental parameter "
-        "estimates [{}]. exiting.", ioutils::SET_RED,
-        ioutils::RESET_COLOR, paramsDir);
-        std::exit(-1);
-        }
-        }
-        */
-
-        if (biasCorrect) {
-            auto origExpressionFile = estFilePath;
-
-            auto outputDirectory = estFilePath;
-            outputDirectory.remove_filename();
-
-            auto biasFeatPath = indexDirectory / "bias_feats.txt";
-            auto biasCorrectedFile = outputDirectory / "quant_bias_corrected.sf";
-            performBiasCorrectionSalmon(biasFeatPath, estFilePath, biasCorrectedFile, sopt.numThreads);
-        }
 
         /** If the user requested gene-level abundances, then compute those now **/
         if (vm.count("geneMap")) {
             try {
                 sailfish::utils::generateGeneLevelEstimates(geneMapPath,
                         outputDirectory,
-                        txpAggregationKey,
-                        biasCorrect);
+                        txpAggregationKey);
             } catch (std::invalid_argument& e) {
                 fmt::print(stderr, "Error: [{}] when trying to compute gene-level "\
                         "estimates. The gene-level file(s) may not exist",
