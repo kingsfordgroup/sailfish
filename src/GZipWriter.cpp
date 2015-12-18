@@ -16,6 +16,10 @@ GZipWriter::~GZipWriter() {
   }
 }
 
+/**
+ * Creates a new gzipped file (path) and writes the contents
+ * of the vector (vec) to the file in binary.
+ */
 template <typename T>
 bool writeVectorToFile(boost::filesystem::path path,
                        const std::vector<T>& vec) {
@@ -115,6 +119,7 @@ bool GZipWriter::writeMeta(
 
       std::time_t result = std::time(NULL);
       std::string tstring(std::asctime(std::localtime(&result)));
+      tstring.pop_back(); // remove the newline
 
       oa(cereal::make_nvp("start_time", tstring));
   }

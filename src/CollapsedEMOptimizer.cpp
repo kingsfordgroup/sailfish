@@ -810,13 +810,19 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     double alphaCheckCutoff = 1e-2;
     double cutoff = (useVBEM) ? (priorAlpha + minAlpha) : minAlpha;
 
+    // Iterations in which we will allow re-computing the effective lengths
+    // if bias-correction is enabled.
+    std::vector<uint32_t> recomputeIt{50, 500, 1000};
+
     bool converged{false};
     double maxRelDiff = -std::numeric_limits<double>::max();
     while (itNum < minIter or (itNum < maxIter and !converged)) {
 
         // Recompute the effective lengths to account for sequence-specific
         // bias.  Consider a better metric here.
-        if (doBiasCorrect and (itNum == minIter or ((itNum + minIter) % 500) == 0)) {
+        if (doBiasCorrect and
+             (find(recomputeIt.begin(), recomputeIt.end(), itNum) != recomputeIt.end())) {
+
             jointLog->info("iteration {}, recomputing effective lengths", itNum);
             effLens = sailfish::utils::updateEffectiveLengths(
                         readExp,
