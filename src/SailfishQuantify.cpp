@@ -994,6 +994,7 @@ int mainQuantify(int argc, char* argv[]) {
     SailfishOpts sopt;
     sopt.numThreads = std::thread::hardware_concurrency();
     sopt.allowOrphans = true;
+    int32_t numBiasSamples{0};
 
     vector<string> unmatedReadFiles;
     vector<string> mate1ReadFiles;
@@ -1047,6 +1048,8 @@ int mainQuantify(int argc, char* argv[]) {
         ("allowDovetail", po::bool_switch(&(sopt.allowDovetail))->default_value(false), "Allow "
              "paired-end reads from the same fragment to \"dovetail\", such that the ends "
              "of the mapped reads can extend past each other.")
+        ("numBiasSamples", po::value<int32_t>(&numBiasSamples)->default_value(1000000),
+            "Number of fragment mappings to use when learning the sequence-specific bias model.")
         ("numFragSamples", po::value<int32_t>(&(sopt.numFragSamples))->default_value(10000),
             "Number of fragments from unique alignments to sample when building the fragment "
             "length distribution")
@@ -1110,6 +1113,8 @@ int mainQuantify(int argc, char* argv[]) {
         std::string commentString = commentStream.str();
         fmt::print(stderr, "{}", commentString);
 
+        // Set the atomic variable numBiasSamples from the local version.
+        sopt.numBiasSamples.store(numBiasSamples);
 	// Get the time at the start of the run
 	std::time_t result = std::time(NULL);
 	std::string runStartTime(std::asctime(std::localtime(&result)));
@@ -1253,7 +1258,7 @@ int mainQuantify(int argc, char* argv[]) {
 	*/
 
 	GZipWriter gzw(outputDirectory, jointLog);
-	// Write the main results 
+	// Write the main results
 	gzw.writeAbundances(sopt, experiment);
 	// Write meta-information about the run
 	gzw.writeMeta(sopt, experiment, runStartTime);
