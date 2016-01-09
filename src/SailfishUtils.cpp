@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <iostream>
 #include <tuple>
+#include <fstream>
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
@@ -648,42 +649,38 @@ namespace sailfish {
             return result;
         }
 
-
-        //S_AYUSH_CODE
-        /*
-        void getTranscriptKmerCounts(IndexT *sidx, ReadExperiment& readExp, std::vector<KmerDist<6> > &txpCount)
-        {
-            vector<Transcript> &transcript = readExp.transcripts();
-            for(size_t it=0;it<(size_t)transcript.size();++it)
-            {
-                char *start = sidx->seq.c_str() + sidx->txpOffsets[it];
-                char *end = sidx->seq.c_str() + sidx->txpOffsets[it] + sidx->txpLens[it];
-                txpCount[it].addKmers(start,end,false);
-                txpCount[it].addKmers(start,end,true);
-            }
-        }
-        */
-        //T_AYUSH_CODE
-
-
-
-        //S_AYUSH_CODE
         /**
          * Computes (and returns) new effective lengths for the transcripts
          * based on the current abundance estimates (alphas) and the current
-         * effective lengths (effLensIn).  This approach is based on the one 
-	 * taken in Kallisto, and seems to work well given its low computational
-	 * requirements.
+         * effective lengths (effLensIn).  This approach is based on the one
+	 * taken in Kallisto (for sequence-specific bias), and seems to work
+	 * well given its low computational requirements.  The handling of
+	 * fragment GC bias below is similar, but is not done in Kallisto.
          */
         template <typename AbundanceVecT>
-        Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
+        Eigen::VectorXd updateEffectiveLengths(
+				    SailfishOpts& sfopts,
+			  	    ReadExperiment& readExp,
                                     Eigen::VectorXd& effLensIn,
-                                    AbundanceVecT& alphas,
-                                    std::vector<double>& transcriptKmerDist) {
+                                    AbundanceVecT& alphas) {
             using std::vector;
             double minAlpha = 1e-8;
-            auto sfIndex = readExp.getIndex();
-            const char* txomeStr = sfIndex->transcriptomeSeq();
+
+	    // TODO: This assumes, for the time being, that all read
+	    // libraries have the same type.
+	    auto libFormat = readExp.readLibraries().front().format();
+
+	    bool unstrandedFormat = (libFormat.strandedness ==  ReadStrandedness::U);
+
+	    double strandFrac = unstrandedFormat ? 0.5 : 1.0;
+
+	    bool checkFwd = (unstrandedFormat or
+		libFormat.strandedness == ReadStrandedness::SA  or
+		libFormat.strandedness == ReadStrandedness::S);
+
+	    bool checkRC = (unstrandedFormat or
+		libFormat.strandedness == ReadStrandedness::AS  or
+		libFormat.strandedness == ReadStrandedness::A);
 
             // calculate read bias normalization factor -- total count in read
             // distribution.
@@ -691,9 +688,46 @@ namespace sailfish {
             int32_t K = readBias.getK();
             double readNormFactor = static_cast<double>(readBias.totalCount());
 
+	    // The *expected* biases from sequence-specific effects
+	    auto& transcriptKmerDist = readExp.expectedSeqBias();
+
             // Reset the transcript (normalized) counts
             transcriptKmerDist.clear();
             transcriptKmerDist.resize(constExprPow(4, K), 1.0);
+
+
+            EmpiricalDistribution& fld = *(readExp.fragLengthDist());
+
+	    // The *expected* biases from GC effects
+	    auto& transcriptGCDist = readExp.expectedGCBias();
+	    auto& gcCounts = readExp.observedGC();
+	    double readGCNormFactor = 0.0;
+	    int32_t fldLow{0};
+	    int32_t fldHigh{1};
+
+            // if GC bias
+            bool correctGC{sfopts.gcBiasCorrect};
+	    if (correctGC) {
+
+	      transcriptGCDist.clear();
+	      transcriptGCDist.resize(101, 1.0);
+
+	      bool first{false};
+	      bool second{false};
+	      for (size_t i = 0; i <= fld.maxValue(); ++i) {
+		auto density = fld.cdf(i);
+		if (!first and density >= 0.01) {
+		  first = true;
+		  fldLow = i;
+		}
+		if (!second and density >= 0.99) {
+		  second = true;
+		  fldHigh = i;
+		}
+	      }
+
+	      for (auto& c : gcCounts) { readGCNormFactor += c; }
+	    }
 
             // Make this const so there are no shenanigans
             const auto& transcripts = readExp.transcripts();
@@ -702,10 +736,10 @@ namespace sailfish {
             Eigen::VectorXd effLensOut(effLensIn.size());
 
             for(size_t it=0; it < transcripts.size(); ++it) {
-
+                auto& txp = transcripts[it];
                 // First in the forward direction
-                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
-                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+                int32_t refLen = static_cast<int32_t>(txp.RefLength);
+                int32_t elen = static_cast<int32_t>(txp.EffectiveLength);
 
                 // How much of this transcript (beginning and end) should
                 // not be considered
@@ -718,7 +752,7 @@ namespace sailfish {
                 }
 
                 // Otherwise, proceed with the following weight.
-                double contribution = 0.5*(alphas[it]/effLensIn(it));
+                double contribution = strandFrac * (alphas[it]/effLensIn(it));
 
                 // From the start of the transcript up until the last valid
                 // kmer.
@@ -726,49 +760,96 @@ namespace sailfish {
                 uint32_t idx{0};
 
                 // This transcript's sequence
-                const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
+                const char* tseq = txp.Sequence();
 
-                // From the start of the transcript through the effective length
-                for (int32_t i = 0; i < elen - K; ++i) {
-                    if (firstKmer) {
-                        idx = indexForKmer(tseq, K, Direction::FORWARD);
-                        firstKmer = false;
-                    } else {
-                        idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
-                    }
-                    transcriptKmerDist[idx] += contribution;
-                }
+		if (checkFwd) {
+		  // From the start of the transcript through the effective length
+		  for (int32_t i = 0; i <= refLen - fldLow; ++i) {
+		    if (firstKmer) {
+		      idx = indexForKmer(tseq, K, Direction::FORWARD);
+		      firstKmer = false;
+		    } else {
+		      idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
+		    }
+		    transcriptKmerDist[idx] += contribution * fld.cdf(refLen - i);
+		  }
+		}
 
-                // Then in the reverse complement direction
-                firstKmer = true;
-                idx = 0;
-                // Start from the end and go until the fragment length
-                // distribution says we should stop
-                for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
-                    if (firstKmer) {
-                        idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
-                        firstKmer = false;
-                    } else {
-                        idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
-                    }
-                    transcriptKmerDist[idx] += contribution;
-                }
+		if (checkRC) {
+		  // Then in the reverse complement direction
+		  firstKmer = true;
+		  idx = 0;
+		  // Start from the end and go until the fragment length
+		  // distribution says we should stop
+		  for (int32_t i = refLen - K - 1; i >= fldLow; --i) {
+		    if (firstKmer) {
+		      idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
+		      firstKmer = false;
+		    } else {
+		      idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
+		    }
+		    transcriptKmerDist[idx] += contribution * fld.cdf(i);
+		  }
+		}
+
+		/**
+		 * GC correction
+		 */
+		if (correctGC) {
+
+		  if (checkFwd) {
+		    // For every possible start position
+		    for (int32_t i = 0; i < refLen - fldLow; ++i) {
+		      auto startGC = txp.gcCount(i);
+		      for (int32_t fl = fldLow; fl <= std::min(refLen - i - 1, fldHigh); ++fl) {
+			if (i + fl >= refLen) { continue; }
+			auto stopGC = txp.gcCount(i + fl);
+			auto gcFrac = std::lrint(100.0 * static_cast<double>(stopGC - startGC) / fl);
+			transcriptGCDist[gcFrac] += contribution * (fld.pdf(fl));
+		      }
+		    }
+		  }
+
+		  if (checkRC) {
+		    // For every possible start position
+		    for (int32_t i = fldLow; i < refLen; ++i) {
+		      for (int32_t fl = fldLow; fl <= std::min(i, fldHigh); ++fl) {
+			if (i + fl >= refLen) { continue; }
+			auto startGC = txp.gcCount(i);
+			auto stopGC = txp.gcCount(i + fl);
+			auto gcFrac = std::lrint( 100.0 * static_cast<double>(stopGC - startGC) / fl);
+			transcriptGCDist[gcFrac] += contribution * (fld.pdf(fl));
+		      }
+		    }
+		  }
+
+		} // correctGC
+
             }
 
             // The total mass of the transcript distribution
             double txomeNormFactor = 0.0;
             for(auto m : transcriptKmerDist) { txomeNormFactor += m; }
 
+            double txomeGCNormFactor = 0.0;
+            double gcPrior = 0.0;
+            if (correctGC) {
+                for (auto m : transcriptGCDist) { txomeGCNormFactor += m; }
+                gcPrior = ((101.0 / (readGCNormFactor - 101.0)) * txomeGCNormFactor) / 101.0;
+            }
+
             // Now, compute the effective length of each transcript using
             // the k-mer biases
             for(size_t it = 0; it < transcripts.size(); ++it) {
                 // Starts out as 0
                 double effLength = 0.0;
+                double effLengthGC = 0.0;
 
+                auto& txp = transcripts[it];
                 // First in the forward direction, from the start of the
                 // transcript up until the last valid kmer.
-                int32_t refLen = static_cast<int32_t>(transcripts[it].RefLength);
-                int32_t elen = static_cast<int32_t>(transcripts[it].EffectiveLength);
+                int32_t refLen = static_cast<int32_t>(txp.RefLength);
+                int32_t elen = static_cast<int32_t>(txp.EffectiveLength);
 
                 // How much of this transcript (beginning and end) should
                 // not be considered
@@ -778,34 +859,80 @@ namespace sailfish {
                     bool firstKmer{true};
                     uint32_t idx{0};
                     // This transcript's sequence
-                    const char* tseq = txomeStr + sfIndex->transcriptOffset(it);
+                    const char* tseq = txp.Sequence();
 
-                    for (int32_t i = 0; i < elen - K; ++i) {
-                        if (firstKmer) {
-                            idx = indexForKmer(tseq, K, Direction::FORWARD);
-                            firstKmer = false;
-                        } else {
-                            idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
-                        }
-                        effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+		    if (checkFwd) {
+		      for (int32_t i = 0; i < elen - K; ++i) {
+			if (firstKmer) {
+			  idx = indexForKmer(tseq, K, Direction::FORWARD);
+			  firstKmer = false;
+			} else {
+			  idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
+			}
+			effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+		      }
+		    }
+
+		    if (checkRC) {
+		      // Then in the reverse complement direction
+		      firstKmer = true;
+		      idx = 0;
+		      // Start from the end and go until the fragment length
+		      // distribution says we should stop
+		      for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
+			if (firstKmer) {
+			  idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
+			  firstKmer = false;
+			} else {
+			  idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
+			}
+			effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
+		      }
+		    }
+
+		    /**
+		     * GC correction
+		     */
+		    if (correctGC) {
+		      if (checkFwd) {
+			// For every possible start position
+			for (int32_t i = 0; i <= refLen - fldLow; ++i) {
+			  auto startGC = txp.gcCount(i);
+			  for (int32_t fl = fldLow; fl <= std::min(refLen - i - 1, fldHigh); ++fl) {
+			    if (i +fl >= refLen) { continue; }
+			    auto stopGC = txp.gcCount(i + fl);
+			    auto gcFrac = std::lrint(100.0 * static_cast<double>(stopGC - startGC) / fl);
+			    effLengthGC +=
+			      (gcCounts[gcFrac] / (gcPrior + transcriptGCDist[gcFrac])) *
+			      (fld.pdf(fl));
+			  }
+			}
+		      }
+
+		      if (checkRC) {
+			// For every possible start position
+			for (int32_t i = fldLow; i < refLen; ++i) {
+			  for (int32_t fl = fldLow; fl <= std::min(i, fldHigh); ++fl) {
+			    if (i + fl >= refLen) { continue; }
+			    auto startGC = txp.gcCount(i);
+			    auto stopGC = txp.gcCount(i + fl);
+			    auto gcFrac = std::lrint(100.0 * static_cast<double>(stopGC - startGC) / fl);
+			    effLengthGC +=
+			      (gcCounts[gcFrac] / (gcPrior + transcriptGCDist[gcFrac])) *
+			      (fld.pdf(fl));
+			  }
+			}
+		      }
+
+		    }
+
+
+                    effLength *= strandFrac * (txomeNormFactor / readNormFactor);
+                    if (correctGC) {
+                        double gcPerc = 0.90;
+                        effLengthGC *= strandFrac * (txomeGCNormFactor / readGCNormFactor);
+                        effLength = (gcPerc * effLengthGC) + (1.0 - gcPerc) * effLength;
                     }
-
-                    // Then in the reverse complement direction
-                    firstKmer = true;
-                    idx = 0;
-                    // Start from the end and go until the fragment length
-                    // distribution says we should stop
-                    for (int32_t i = refLen - K - 1; i >= unprocessedLen; --i) {
-                        if (firstKmer) {
-                            idx = indexForKmer(tseq + i, K, Direction::REVERSE_COMPLEMENT);
-                            firstKmer = false;
-                        } else {
-                            idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
-                        }
-                        effLength += (readBias.counts[idx]/transcriptKmerDist[idx]);
-                    }
-
-                    effLength *= 0.5 * (txomeNormFactor / readNormFactor);
                 }
 
                 if(unprocessedLen > 0.0 and effLength > unprocessedLen) {
@@ -817,7 +944,6 @@ namespace sailfish {
 
             return effLensOut;
         }
-        //T_AYUSH_CODE
 
 
         void aggregateEstimatesToGeneLevel(TranscriptGeneMap& tgm, boost::filesystem::path& inputPath) {
@@ -983,18 +1109,16 @@ namespace sailfish {
 
         // === Explicit instantiations
         template Eigen::VectorXd updateEffectiveLengths<std::vector<tbb::atomic<double>>>(
+		SailfishOpts& sfopts,
                 ReadExperiment& readExp,
                 Eigen::VectorXd& effLensIn,
-                std::vector<tbb::atomic<double>>& alphas,
-                std::vector<double>& expectedBias
-                );
+                std::vector<tbb::atomic<double>>& alphas);
 
         template Eigen::VectorXd updateEffectiveLengths<std::vector<double>>(
+		SailfishOpts& sfopts,
                 ReadExperiment& readExp,
                 Eigen::VectorXd& effLensIn,
-                std::vector<double>& alphas,
-                std::vector<double>& expectedBias
-                );
+                std::vector<double>& alphas);
     }
 }
 

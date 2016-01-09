@@ -18,6 +18,8 @@ struct SailfishOpts {
     bool enforceLibCompat{false};
     bool allowDovetail{false};
     bool biasCorrect{false};
+    bool gcBiasCorrect{false};
+    bool firstCorrectionPass{true};
     std::atomic<int32_t> numBiasSamples{1000000};
     int32_t numFragSamples{10000};
     uint32_t maxFragLen;

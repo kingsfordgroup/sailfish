@@ -147,14 +147,12 @@ namespace sailfish{
                 boost::filesystem::path& fname,
                 std::string headerComments="");
 
-        // S_AYUSH_CODE
         template <typename AbundanceVecT>
-        Eigen::VectorXd updateEffectiveLengths(ReadExperiment& readExp,
+        Eigen::VectorXd updateEffectiveLengths(
+				    SailfishOpts& sfopts,
+				    ReadExperiment& readExp,
                                     Eigen::VectorXd& effLensIn,
-                                    AbundanceVecT& alphas,
-                                    std::vector<double>& transcriptKmerDist);
-        // T_AYUSH_CODE
-
+                                    AbundanceVecT& alphas);
 
         //double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected, double incompatPrior);
         //std::ostream& operator<<(std::ostream& os, OrphanStatus s);

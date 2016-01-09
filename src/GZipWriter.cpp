@@ -89,16 +89,27 @@ bool GZipWriter::writeMeta(
   }
 
   bfs::path fldPath = auxDir / "fld.gz";
-  writeVectorToFile(fldPath, experiment.fragLengthDist());
+  auto* fld = experiment.fragLengthDist();
+  auto fragLengthSamples = fld->realize();
+  writeVectorToFile(fldPath, fragLengthSamples);
 
   bfs::path normBiasPath = auxDir / "expected_bias.gz";
-  writeVectorToFile(normBiasPath, experiment.expectedBias());
+  writeVectorToFile(normBiasPath, experiment.expectedSeqBias());
 
   bfs::path obsBiasPath = auxDir / "observed_bias.gz";
   const auto& bcounts = experiment.readBias().counts;
   std::vector<int32_t> observedBias(bcounts.size(), 0);
   std::copy(bcounts.begin(), bcounts.end(), observedBias.begin());
   writeVectorToFile(obsBiasPath, observedBias);
+
+  bfs::path normGCPath = auxDir / "expected_gc.gz";
+  writeVectorToFile(normGCPath, experiment.expectedGCBias());
+
+  bfs::path obsGCPath = auxDir / "observed_gc.gz";
+  const auto& gcCounts = experiment.observedGC();
+  std::vector<int32_t> observedGC(gcCounts.size(), 0);
+  std::copy(gcCounts.begin(), gcCounts.end(), observedGC.begin());
+  writeVectorToFile(obsGCPath, observedGC); 
 
   bfs::path info = auxDir / "meta_info.json";
 
@@ -117,7 +128,7 @@ bool GZipWriter::writeMeta(
       auto& transcripts = experiment.transcripts();
       oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
       oa(cereal::make_nvp("samp_type", sampType));
-      oa(cereal::make_nvp("frag_dist_length", experiment.fragLengthDist().size()));
+      oa(cereal::make_nvp("frag_dist_length", fld->maxValue()));
       oa(cereal::make_nvp("bias_correct", opts.biasCorrect));
       oa(cereal::make_nvp("num_bias_bins", bcounts.size()));
       oa(cereal::make_nvp("num_targets", transcripts.size()));
@@ -128,12 +139,6 @@ bool GZipWriter::writeMeta(
       oa(cereal::make_nvp("call", std::string("quant")));
       oa(cereal::make_nvp("start_time", tstring));
   }
-  // For spoofing kallisto version
-  //std::vector<std::string> kalVer{"0.42.4"};
-  //file_->writeVectorToGroup(kalVer, "/aux", "kallisto_version");
-
-  //std::vector<int> kalIndexVersion{10};
-  //file_->writeVectorToGroup(kalIndexVersion, "/aux", "index_version");
   return true;
 }
 

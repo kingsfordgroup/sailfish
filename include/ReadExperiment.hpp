@@ -21,11 +21,11 @@
 #include <vector>
 #include <memory>
 #include <fstream>
+#include <atomic>
 
-//S_AYUSH_CODE
 #include "UtilityFunctions.hpp"
 #include "ReadKmerDist.hpp"
-//T_AYUSH_CODE
+#include "EmpiricalDistribution.hpp"
 
 /**
   *  This class represents a library of reads used to quantify
@@ -41,9 +41,14 @@ class ReadExperiment {
         readLibraries_(readLibraries),
         transcripts_(std::vector<Transcript>()),
     	eqBuilder_(sopt.jointLog),
-	expectedBias_(constExprPow(4, readBias_.getK()), 1.0)
+	expectedSeqBias_(constExprPow(4, readBias_.getK()), 1.0),
+	expectedGC_(101, 1.0),
+        observedGC_(101)
 	{
             namespace bfs = boost::filesystem;
+
+	    // pseudocount for the observed distribution
+	    for (size_t i = 0; i < observedGC_.size(); ++i) { observedGC_[i] += 1; }
 
             // Make sure the read libraries are valid.
             for (auto& rl : readLibraries_) { rl.checkValid(); }
@@ -101,10 +106,12 @@ class ReadExperiment {
             transcripts_.emplace_back(id, name, len);
             auto& txp = transcripts_.back();
             // The transcript sequence
-            auto txpSeq = idx_->seq.substr(idx_->txpOffsets[i], len);
-            txp.Sequence = txpSeq;
+            txp.setSequence(idx_->seq.c_str() + idx_->txpOffsets[i]);
+            //auto txpSeq = idx_->seq.substr(idx_->txpOffsets[i], len);
+            //txp.Sequence = txpSeq;
         }
         // ====== Done loading the transcripts from file
+        fmt::print(stderr, "Loaded targets\n");
     }
 
     void loadTranscriptsFromQuasi() {
@@ -146,28 +153,53 @@ class ReadExperiment {
     //FragmentLengthDistribution* fragmentLengthDistribution() { return fragLengthDist_.get(); }
 
     void setFragLengthDist(const std::vector<int32_t>& fldIn) {
-        fld_ = fldIn;
+        // vector of positions
+	std::vector<uint32_t> pos(fldIn.size());
+	std::iota(pos.begin(), pos.end(), 0);
+	// vector of counts
+	std::vector<uint32_t> counts(fldIn.begin(), fldIn.end());
+	fld_.reset(new EmpiricalDistribution(pos, counts)); 
     }
 
-    std::vector<int32_t>& fragLengthDist() {
-        return fld_;
+    EmpiricalDistribution* fragLengthDist() {
+        return fld_.get();
     }
 
-    const std::vector<int32_t>& fragLengthDist() const {
-        return fld_;
+    const EmpiricalDistribution* fragLengthDist() const {
+        return fld_.get();
     }
 
 
-    void setExpectedBias(const std::vector<double>& expectedBiasIn) {
-        expectedBias_ = expectedBiasIn;
+    void setExpectedSeqBias(const std::vector<double>& expectedBiasIn) {
+        expectedSeqBias_ = expectedBiasIn;
     }
 
-    std::vector<double>& expectedBias() {
-        return expectedBias_;
+    std::vector<double>& expectedSeqBias() {
+        return expectedSeqBias_;
     }
 
-    const std::vector<double>& expectedBias() const {
-        return expectedBias_;
+    const std::vector<double>& expectedSeqBias() const {
+        return expectedSeqBias_;
+    }
+
+    void setExpectedGCBias(const std::vector<double>& expectedBiasIn) {
+        expectedGC_ = expectedBiasIn;
+    }
+
+    std::vector<double>& expectedGCBias() {
+        return expectedGC_;
+    }
+
+    const std::vector<double>& expectedGCBias() const {
+        return expectedGC_;
+    }
+
+    const std::vector<std::atomic<uint32_t>>& observedGC() const {
+        return observedGC_;
+    }
+
+    std::vector<std::atomic<uint32_t>>& observedGC() {
+        return observedGC_;
     }
 
     //S_AYUSH_CODE
@@ -208,10 +240,14 @@ class ReadExperiment {
     // Since multiple threads can touch this dist, we
     // need atomic counters.
     ReadKmerDist<6, std::atomic<uint32_t>> readBias_;
-    std::vector<double> expectedBias_;
+    std::vector<double> expectedSeqBias_;
     //T_AYUSH_CODE
 
-    std::vector<int32_t> fld_;
+    // One bin for each percentage GC content
+    std::vector<std::atomic<uint32_t>> observedGC_;
+    std::vector<double> expectedGC_;
+
+    std::unique_ptr<EmpiricalDistribution> fld_;
 };
 
 #endif // EXPERIMENT_HPP
