@@ -90,6 +90,12 @@ class ReadExperiment {
         return static_cast<double>(numMappedFragments_) / numObservedFragments_;
     }
 
+    void addNumFwd(int32_t numMappings) { numFwd_ += numMappings; }
+    void addNumRC(int32_t numMappings) { numRC_ += numMappings; }
+
+    int64_t numFwd() const { return numFwd_.load(); }
+    int64_t numRC() const { return numRC_.load(); }
+
     SailfishIndex* getIndex() { return sfIndex_.get(); }
 
     template <typename IndexT>
@@ -158,7 +164,7 @@ class ReadExperiment {
 	std::iota(pos.begin(), pos.end(), 0);
 	// vector of counts
 	std::vector<uint32_t> counts(fldIn.begin(), fldIn.end());
-	fld_.reset(new EmpiricalDistribution(pos, counts)); 
+	fld_.reset(new EmpiricalDistribution(pos, counts));
     }
 
     EmpiricalDistribution* fragLengthDist() {
@@ -232,6 +238,8 @@ class ReadExperiment {
     std::atomic<uint64_t> numMappedFragments_{0};
     std::atomic<uint64_t> numFragHits_{0};
     std::atomic<uint64_t> upperBoundHits_{0};
+    std::atomic<int64_t> numFwd_{0};
+    std::atomic<int64_t> numRC_{0};
     double effectiveMappingRate_{0.0};
     //std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
     EquivalenceClassBuilder eqBuilder_;

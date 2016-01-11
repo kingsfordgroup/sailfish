@@ -217,14 +217,6 @@ void processReadsQuasi(paired_parser* parser,
 
         if (jointHits.size() > sfOpts.maxReadOccs ) { jointHits.clear(); }
 
-	/*
-        if (!sfOpts.allowOrphans) {
-            if (jointHits.size() > 0 and jointHits.front().mateStatus != MateStatus::PAIRED_END_PAIRED) {
-                jointHits.clear();
-            }
-        }
-	*/
-
         if (jointHits.size() > 0) {
             // Are the jointHits paired-end quasi-mappings or orphans?
             bool isPaired = jointHits.front().mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
@@ -250,6 +242,10 @@ void processReadsQuasi(paired_parser* parser,
                         });
             }
 
+            int32_t fwAll = 0;
+            int32_t fwCompat = 0;
+            int32_t rcAll = 0;
+            int32_t rcCompat = 0;
 
             double auxSumAll = 0.0;
             double auxSumCompat = 0.0;
@@ -315,6 +311,14 @@ void processReadsQuasi(paired_parser* parser,
                     }
                     */
 
+                    bool fwdHit {false};
+                    if (h.mateStatus == MateStatus::PAIRED_END_LEFT) {
+                        // If the left end matches fwd
+                        if (h.fwd) { fwdHit = true; }
+                    } else if (h.mateStatus == MateStatus::PAIRED_END_RIGHT) {
+                        // If the right end matches RC
+                        if (!h.fwd) { fwdHit = true; }
+                    }
 
                     if (positionOK) {
                         if (compat) {
@@ -322,11 +326,13 @@ void processReadsQuasi(paired_parser* parser,
                             txpIDsCompat.push_back(transcriptID);
                             auxProbsCompat.push_back(1.0);
                             auxSumCompat += 1.0;
+                            if (fwdHit) { fwCompat++; } else { rcCompat++; }
                         }
                         if (!haveCompat and !enforceCompat) {
                             txpIDsAll.push_back(transcriptID);
                             auxProbsAll.push_back(1.0);
                             auxSumAll += 1.0;
+                            if (fwdHit) { fwAll++; } else { rcAll++; }
                         }
                     }
                 } else {
@@ -341,16 +347,21 @@ void processReadsQuasi(paired_parser* parser,
                         compat = sailfish::utils::compatibleHit(
                                 expectedLibType, observedLibType);
                     }
+
+                    bool fwdHit {h.fwd};
+
                     if (compat) {
                         haveCompat = true;
                         txpIDsCompat.push_back(transcriptID);
                         auxProbsCompat.push_back(1.0);
                         auxSumCompat += 1.0;
+                        if (fwdHit) { fwCompat++; } else { rcCompat++; }
                     }
                     if (!haveCompat and !enforceCompat) {
                         txpIDsAll.push_back(transcriptID);
                         auxProbsAll.push_back(1.0);
                         auxSumAll += 1.0;
+                        if (fwdHit) { fwAll++; } else { rcAll++; }
                     }
                 }
 
@@ -362,8 +373,8 @@ void processReadsQuasi(paired_parser* parser,
 		  auto transcriptID = h.transcriptID();
 		  auto& txp = transcripts[transcriptID];
 
-		  int32_t start = h.pos;
-		  int32_t stop = h.pos + h.fragLen;
+          int32_t start = std::min(h.pos, h.matePos);
+          int32_t stop = start + h.fragLen;
 
 		  if (start > 0 and stop < txp.RefLength) {
 		    uint32_t gcStart = txp.gcCount(start);
@@ -389,6 +400,8 @@ void processReadsQuasi(paired_parser* parser,
                     mappedFrag = true;
                     TranscriptGroup tg(txpIDsCompat);
                     eqBuilder.addGroup(std::move(tg), auxProbsCompat);
+                    readExp.addNumFwd(fwCompat);
+                    readExp.addNumRC(rcCompat);
                 }
             } else {
                 if (txpIDsAll.size() > 0) {
@@ -396,6 +409,8 @@ void processReadsQuasi(paired_parser* parser,
                     mappedFrag = true;
                     TranscriptGroup tg(txpIDsAll);
                     eqBuilder.addGroup(std::move(tg), auxProbsAll);
+                    readExp.addNumFwd(fwAll);
+                    readExp.addNumRC(rcAll);
                 }
             }
         }
@@ -518,12 +533,15 @@ void processReadsQuasi(single_parser* parser,
 
             if (jointHits.size() > 0) {
 
+                int32_t fwAll = 0;
+                int32_t fwCompat = 0;
+                int32_t rcAll = 0;
+                int32_t rcCompat = 0;
+
                 double auxSumAll = 0.0;
                 double auxSumCompat = 0.0;
 
-                //S_AYUSH_CODE
                 bool needBiasSample = sfOpts.biasCorrect;
-                //T_AYUSH_CODE
 
                 for (auto& h : jointHits) {
                     auto transcriptID = h.transcriptID();
@@ -575,11 +593,13 @@ void processReadsQuasi(single_parser* parser,
                         txpIDsCompat.push_back(transcriptID);
                         auxProbsCompat.push_back(1.0);
                         auxSumCompat += 1.0;
+                        if (h.fwd) { fwCompat++; } else { rcCompat++; }
                     }
                     if (!haveCompat and !enforceCompat) {
                         txpIDsAll.push_back(transcriptID);
                         auxProbsAll.push_back(1.0);
                         auxSumAll += 1.0;
+                        if (h.fwd) { fwAll++; } else { rcAll++; }
                     }
         }
 
@@ -589,6 +609,8 @@ void processReadsQuasi(single_parser* parser,
                         mappedFrag = true;
                         TranscriptGroup tg(txpIDsCompat);
                         eqBuilder.addGroup(std::move(tg), auxProbsCompat);
+                        readExp.addNumFwd(fwCompat);
+                        readExp.addNumRC(rcCompat);
                     }
                 } else {
                     if (txpIDsAll.size() > 0) {
@@ -596,6 +618,8 @@ void processReadsQuasi(single_parser* parser,
                         mappedFrag = true;
                         TranscriptGroup tg(txpIDsAll);
                         eqBuilder.addGroup(std::move(tg), auxProbsAll);
+                        readExp.addNumFwd(fwAll);
+                        readExp.addNumRC(rcAll);
                     }
                 }
             }
@@ -1247,7 +1271,7 @@ int mainQuantify(int argc, char* argv[]) {
         {
 	  if (sopt.gcBiasCorrect) {
 	    for (auto& rl : readLibraries) {
-	      // We can't use fragment GC correction with single 
+	      // We can't use fragment GC correction with single
 	      // end reads yet.
 	      if (rl.format().type == ReadType::SINGLE_END) {
 		jointLog->warn("Fragment GC bias correction is currently "

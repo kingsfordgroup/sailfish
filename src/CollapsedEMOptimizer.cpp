@@ -714,7 +714,7 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
         uint32_t maxIter) {
 
     uint32_t minIter = 50;
-    bool doBiasCorrect = sopt.biasCorrect;
+    bool doBiasCorrect = sopt.biasCorrect or sopt.gcBiasCorrect;
 
     auto& expectedSeqDist = readExp.expectedSeqBias();
     auto& expectedGCDist = readExp.expectedGCBias();
