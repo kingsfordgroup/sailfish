@@ -16,9 +16,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
-//#include <boost/iostreams/filtering_streambuf.hpp>
-//#include <boost/iostreams/copy.hpp>
-//#include <boost/iostreams/filter/gzip.hpp>
 
 // TBB include
 #include "tbb/atomic.h"
@@ -73,14 +70,6 @@ using FragLengthCountMap = std::vector<tbb::atomic<uint32_t>>;
 using std::string;
 
 constexpr uint32_t readGroupSize{1000};
-
-/* No more of this bias correction
-int performBiasCorrectionSalmon(boost::filesystem::path featPath,
-                                boost::filesystem::path expPath,
-                                boost::filesystem::path outPath,
-                                size_t numThreads);
-*/
-
 
 /**
  * Compute and return the mean fragment length ---
@@ -209,7 +198,8 @@ void processReadsQuasi(paired_parser* parser,
 							   true // strict check
 							   );
 
-        rapmap::utils::mergeLeftRightHits(
+        rapmap::utils::mergeLeftRightHitsFuzzy(
+                lh, rh,
                 leftHits, rightHits, jointHits,
                 readLen, maxNumHits, tooManyHits, hctr);
 
@@ -1092,6 +1082,8 @@ int mainQuantify(int argc, char* argv[]) {
     po::options_description advanced("\n"
             "advanced options");
     advanced.add_options()
+        ("dumpEq", po::bool_switch(&(sopt.dumpEq))->default_value(false), "Dump the equivalence class counts "
+            "that were computed during quasi-mapping")
         ("unsmoothedFLD", po::bool_switch(&(sopt.useUnsmoothedFLD))->default_value(false), "Use the \"un-smoothed\" "
             "(i.e. traditional) approach to effective length correction by convolving the FLD with the "
             "characteristic function over each transcript")
@@ -1178,11 +1170,11 @@ int mainQuantify(int argc, char* argv[]) {
 
         // Set the atomic variable numBiasSamples from the local version.
         sopt.numBiasSamples.store(numBiasSamples);
-	// Get the time at the start of the run
-	std::time_t result = std::time(NULL);
-	std::string runStartTime(std::asctime(std::localtime(&result)));
-	runStartTime.pop_back(); // remove the newline
 
+        // Get the time at the start of the run
+        std::time_t result = std::time(NULL);
+        std::string runStartTime(std::asctime(std::localtime(&result)));
+        runStartTime.pop_back(); // remove the newline
 
         // Verify the geneMap before we start doing any real work.
         bfs::path geneMapPath;
@@ -1238,7 +1230,7 @@ int mainQuantify(int argc, char* argv[]) {
         sopt.jointLog = jointLog;
         sopt.fileLog = fileLog;
 
-	// Write out information about the command / run
+        // Write out information about the command / run
         {
             bfs::path cmdInfoPath = outputDirectory / "cmd_info.json";
             std::ofstream os(cmdInfoPath.string());
@@ -1269,20 +1261,20 @@ int mainQuantify(int argc, char* argv[]) {
 
         // Verify that no inconsistent options were provided
         {
-	  if (sopt.gcBiasCorrect) {
-	    for (auto& rl : readLibraries) {
-	      // We can't use fragment GC correction with single
-	      // end reads yet.
-	      if (rl.format().type == ReadType::SINGLE_END) {
-		jointLog->warn("Fragment GC bias correction is currently "
-			       "only implemented for paired-end libraries. "
-			       "It is being disabled");
-		sopt.gcBiasCorrect = false;
-		break;
-	      }
-	    }
-	  }
-        }
+          if (sopt.gcBiasCorrect) {
+            for (auto& rl : readLibraries) {
+              // We can't use fragment GC correction with single
+              // end reads yet.
+              if (rl.format().type == ReadType::SINGLE_END) {
+                jointLog->warn("Fragment GC bias correction is currently "
+                    "only implemented for paired-end libraries. "
+                    "It is being disabled");
+                sopt.gcBiasCorrect = false;
+                break;
+              }
+            }
+          }
+        } // Done verifying options
 
         SailfishIndexVersionInfo versionInfo;
         boost::filesystem::path versionPath = indexDirectory / "versionInfo.json";
@@ -1300,6 +1292,15 @@ int mainQuantify(int argc, char* argv[]) {
 		quasiMapReads(experiment, sopt, ioMutex);
 		fmt::print(stderr, "Done Quasi-Mapping \n\n");
 		experiment.equivalenceClassBuilder().finish();
+
+
+	    GZipWriter gzw(outputDirectory, jointLog);
+
+        // If we are dumping the equivalence classes, then
+        // do it here.
+        if (sopt.dumpEq) {
+            gzw.writeEquivCounts(sopt, experiment);
+        }
 
         // Now that we have our reads mapped and our equivalence
         // classes, iterate the abundance estimates to convergence.
@@ -1333,7 +1334,6 @@ int mainQuantify(int argc, char* argv[]) {
                 sopt, experiment, estFilePath, commentString);
 	*/
 
-	GZipWriter gzw(outputDirectory, jointLog);
 	// Write the main results
 	gzw.writeAbundances(sopt, experiment);
 	// Write meta-information about the run

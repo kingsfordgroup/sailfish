@@ -43,6 +43,55 @@ bool writeVectorToFile(boost::filesystem::path path,
 }
 
 /**
+ * Write the equivalence class information to file.
+ * The header will contain the transcript / target ids in
+ * a fixed order, then each equivalence class will consist
+ * of a line / row.
+ */
+bool GZipWriter::writeEquivCounts(
+    const SailfishOpts& opts,
+    ReadExperiment& experiment) {
+
+  namespace bfs = boost::filesystem;
+
+  bfs::path auxDir = path_ / "aux";
+  bool auxSuccess = boost::filesystem::create_directories(auxDir);
+  bfs::path eqFilePath = auxDir / "eq_classes.txt";
+
+  std::ofstream equivFile(eqFilePath.string());
+
+  auto& transcripts = experiment.transcripts();
+  std::vector<std::pair<const TranscriptGroup, TGValue>>& eqVec =
+        experiment.equivalenceClassBuilder().eqVec();
+
+  // Number of transcripts
+  equivFile << transcripts.size() << '\n';
+
+  // Number of equivalence classes
+  equivFile << eqVec.size() << '\n';
+
+  for (auto& t : transcripts) {
+    equivFile << t.RefName << '\n';
+  }
+
+  for (auto& eq : eqVec) {
+    uint64_t count = eq.second.count;
+    // for each transcript in this class
+    const TranscriptGroup& tgroup = eq.first;
+    const std::vector<uint32_t>& txps = tgroup.txps;
+    // group size
+    equivFile << txps.size() << '\t';
+    // each group member
+    for (auto tid : txps) { equivFile << tid << '\t'; }
+    // count for this class
+    equivFile << count << '\n';
+  }
+
+  equivFile.close();
+  return true;
+}
+
+/**
  * Write the ``main'' metadata to file.  Currently this includes:
  *   -- Names of the target id's if bootstrapping / gibbs is performed
  *   -- The fragment length distribution
@@ -109,7 +158,7 @@ bool GZipWriter::writeMeta(
   const auto& gcCounts = experiment.observedGC();
   std::vector<int32_t> observedGC(gcCounts.size(), 0);
   std::copy(gcCounts.begin(), gcCounts.end(), observedGC.begin());
-  writeVectorToFile(obsGCPath, observedGC); 
+  writeVectorToFile(obsGCPath, observedGC);
 
   bfs::path info = auxDir / "meta_info.json";
 
@@ -145,7 +194,7 @@ bool GZipWriter::writeMeta(
 bool GZipWriter::writeAbundances(
     const SailfishOpts& sopt,
     ReadExperiment& readExp) {
-  
+
   using sailfish::math::LOG_0;
   using sailfish::math::LOG_1;
   namespace bfs = boost::filesystem;

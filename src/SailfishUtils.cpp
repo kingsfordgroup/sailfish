@@ -863,29 +863,31 @@ namespace sailfish {
                     } else {
                       idx = nextKmerIndex(idx, tseq[i], K, Direction::REVERSE_COMPLEMENT);
                     }
-                    seqFactors[i] += probFwd * (readBias.counts[idx]/transcriptKmerDist[idx]) * fld.cdf(refLen - i);
+                    if (i+2 < refLen) {
+                    seqFactors[i+2] += probFwd * (readBias.counts[idx]/transcriptKmerDist[idx]) * fld.cdf(refLen - i);
+                    }
                   }
 
-                  /** GC bias **/
                   if (gcBiasCorrect) {
                     for (int32_t fl = fldLow; fl <= fldHigh; ++fl) {
                       if (i + fl < refLen) {
                         auto startGC = txp.gcCount(i);
-                      auto stopGC = txp.gcCount(i + fl);
-                      auto gcFrac = std::lrint(100.0 * static_cast<double>(stopGC - startGC) / fl);
-                      // count it in the forward orientation
-                      gcFactors[i] +=
-                        probFwd *
-                        (gcCounts[gcFrac] / (gcPrior + transcriptGCDist[gcFrac])) *
-                        fld.pdf(fl);
-                      // count it in the reverse compliment orientation
-                      gcFactors[i+fl] +=
-                        probRC *
-                        (gcCounts[gcFrac] / (gcPrior + transcriptGCDist[gcFrac])) *
-                        fld.pdf(fl);
+                        auto stopGC = txp.gcCount(i + fl);
+                        auto gcFrac = std::lrint(100.0 * static_cast<double>(stopGC - startGC) / fl);
+                        // count it in the forward orientation
+                        gcFactors[i] +=
+                          probFwd *
+                          (gcCounts[gcFrac] / (gcPrior + transcriptGCDist[gcFrac])) *
+                          fld.pdf(fl);
+                        // count it in the reverse compliment orientation
+                        gcFactors[i+fl] +=
+                          probRC *
+                          (gcCounts[gcFrac] / (gcPrior + transcriptGCDist[gcFrac])) *
+                          fld.pdf(fl);
                       }
                     }
-                  } // end checkFwd
+                  } // end GC bias
+
                 } // end checkFwd
 
                 // Then in the reverse complement direction
@@ -895,14 +897,17 @@ namespace sailfish {
                 // distribution says we should stop
                 if (seqBiasCorrect) {
                   for (int32_t i = 0; i <= refLen - trunc - 1; ++i) {
-                    if (seqBiasCorrect) {
-                      if (firstKmer) {
-                        idx = indexForKmer(tseq, K, Direction::FORWARD);
-                        firstKmer = false;
-                      } else {
-                        idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
-                      }
-                      seqFactors[i] += probRC * (readBias.counts[idx]/transcriptKmerDist[idx]) * fld.cdf(i);
+                    if (firstKmer) {
+                      idx = indexForKmer(tseq, K, Direction::FORWARD);
+                      firstKmer = false;
+                    } else {
+                      idx = nextKmerIndex(idx, tseq[i-1+K], K, Direction::FORWARD);
+                    }
+                    if (i+4 < refLen) {
+                    seqFactors[i+4] +=
+                      probRC *
+                      (readBias.counts[idx]/transcriptKmerDist[idx]) *
+                      fld.cdf(i);
                     }
                   }
                 }

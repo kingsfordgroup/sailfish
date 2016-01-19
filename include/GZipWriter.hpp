@@ -17,11 +17,15 @@
 class GZipWriter {
   public:
     GZipWriter(const boost::filesystem::path path, std::shared_ptr<spdlog::logger> logger);
-    
+
     ~GZipWriter();
 
+    bool writeEquivCounts(
+        const SailfishOpts& opts,
+        ReadExperiment& experiment);
+
     bool writeMeta(
-	const SailfishOpts& opts, 
+	const SailfishOpts& opts,
 	const ReadExperiment& experiment,
         const std::string& tstring  = "now"  // the start time of the run
 	);
@@ -31,7 +35,7 @@ class GZipWriter {
       ReadExperiment& readExp);
 
     template <typename T>
-    bool writeBootstrap(const std::vector<T>& abund); 
+    bool writeBootstrap(const std::vector<T>& abund);
 
    private:
      boost::filesystem::path path_;
