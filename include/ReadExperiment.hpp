@@ -59,7 +59,7 @@ class ReadExperiment {
 
             sfIndex_.reset(new SailfishIndex(sopt.jointLog));
             sfIndex_->load(indexDirectory);
-            loadTranscriptsFromQuasi();
+            loadTranscriptsFromQuasi(sopt);
         }
 
     EquivalenceClassBuilder& equivalenceClassBuilder() {
@@ -99,7 +99,7 @@ class ReadExperiment {
     SailfishIndex* getIndex() { return sfIndex_.get(); }
 
     template <typename IndexT>
-    void loadTranscriptsFromQuasiIndex(IndexT* idx_) {
+    void loadTranscriptsFromQuasiIndex(IndexT* idx_, const SailfishOpts& sopt) {
         size_t numRecords = idx_->txpNames.size();
 
         fmt::print(stderr, "Index contained {} targets\n", numRecords);
@@ -112,21 +112,19 @@ class ReadExperiment {
             transcripts_.emplace_back(id, name, len);
             auto& txp = transcripts_.back();
             // The transcript sequence
-            txp.setSequence(idx_->seq.c_str() + idx_->txpOffsets[i]);
-            //auto txpSeq = idx_->seq.substr(idx_->txpOffsets[i], len);
-            //txp.Sequence = txpSeq;
+            txp.setSequence(idx_->seq.c_str() + idx_->txpOffsets[i], sopt.gcBiasCorrect);
         }
         // ====== Done loading the transcripts from file
         fmt::print(stderr, "Loaded targets\n");
     }
 
-    void loadTranscriptsFromQuasi() {
+    void loadTranscriptsFromQuasi(const SailfishOpts& sopt) {
         if (sfIndex_->is64BitQuasi()) {
             loadTranscriptsFromQuasiIndex<RapMapSAIndex<int64_t>>(
-                    sfIndex_->quasiIndex64());
+                    sfIndex_->quasiIndex64(), sopt);
         } else {
             loadTranscriptsFromQuasiIndex<RapMapSAIndex<int32_t>>(
-                    sfIndex_->quasiIndex32());
+                    sfIndex_->quasiIndex32(), sopt);
         }
 	}
 

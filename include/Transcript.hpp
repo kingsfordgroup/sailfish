@@ -74,20 +74,24 @@ public:
     void setActive() { active_ = true; }
     bool getActive() { return active_; }
 
+    // NOTE: Is it worth it to check if we have GC here?
+    // we should never access these without bias correction.
     uint32_t gcCount(int32_t p) { return GCCount_[p]; }
     uint32_t gcCount(int32_t p) const { return GCCount_[p]; }
 
-    void setSequence(const char* seq) {
+    void setSequence(const char* seq, bool needGC=false) {
         Sequence_ = seq;
-        GCCount_.clear();
-        GCCount_.resize(RefLength, 0);
-        size_t totGC{0};
-        for (size_t i = 0; i < RefLength; ++i) {
+        if (needGC) {
+          GCCount_.clear();
+          GCCount_.resize(RefLength, 0);
+          size_t totGC{0};
+          for (size_t i = 0; i < RefLength; ++i) {
             auto c = std::toupper(seq[i]);
             if (c == 'G' or c == 'C') {
-                totGC++;
+              totGC++;
             }
             GCCount_[i] = totGC;
+          }
         }
     }
 
