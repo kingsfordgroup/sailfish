@@ -54,7 +54,7 @@ bool GZipWriter::writeEquivCounts(
 
   namespace bfs = boost::filesystem;
 
-  bfs::path auxDir = path_ / "aux";
+  bfs::path auxDir = path_ / opts.auxDir;
   bool auxSuccess = boost::filesystem::create_directories(auxDir);
   bfs::path eqFilePath = auxDir / "eq_classes.txt";
 
@@ -106,7 +106,7 @@ bool GZipWriter::writeMeta(
 
   namespace bfs = boost::filesystem;
 
-  bfs::path auxDir = path_ / "aux";
+  bfs::path auxDir = path_ / opts.auxDir;
   bool auxSuccess = boost::filesystem::create_directories(auxDir);
 
   auto numBootstraps = opts.numBootstraps;

@@ -1082,6 +1082,8 @@ int mainQuantify(int argc, char* argv[]) {
     po::options_description advanced("\n"
             "advanced options");
     advanced.add_options()
+        ("auxDir", po::value<std::string>(&(sopt.auxDir))->default_value("aux"), "The sub-directory of the quantification directory where auxiliary information "
+     			"e.g. bootstraps, bias parameters, etc. will be written.")
         ("dumpEq", po::bool_switch(&(sopt.dumpEq))->default_value(false), "Dump the equivalence class counts "
             "that were computed during quasi-mapping")
         ("unsmoothedFLD", po::bool_switch(&(sopt.useUnsmoothedFLD))->default_value(false), "Use the \"un-smoothed\" "

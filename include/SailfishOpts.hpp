@@ -9,6 +9,7 @@
 struct SailfishOpts {
     uint32_t numThreads; // number of threads to use
     bool allowOrphans;
+    std::string auxDir;
     bool dumpEq{false};
     bool noEffectiveLengthCorrection;
     bool noFragLengthDist;
