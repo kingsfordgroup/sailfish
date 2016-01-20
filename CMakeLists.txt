@@ -222,7 +222,7 @@ if ((NOT Boost_FOUND) AND (NOT FETCH_BOOST))
 elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
     set (BOOST_LIB_SUBSET --with-atomic --with-chrono --with-container --with-date_time --with-exception
-                          --with-filesystem --with-graph --with-graph_parallel --with-math
+                          --with-filesystem --with-math
                           --with-program_options --with-system --with-thread --with-iostreams
                           --with-timer)
     set (BOOST_WILL_RECONFIGURE TRUE)
