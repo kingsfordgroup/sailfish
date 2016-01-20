@@ -198,8 +198,8 @@ void processReadsQuasi(paired_parser* parser,
 							   true // strict check
 							   );
 
-        rapmap::utils::mergeLeftRightHitsFuzzy(
-                lh, rh,
+        rapmap::utils::mergeLeftRightHits(
+                //lh, rh,
                 leftHits, rightHits, jointHits,
                 readLen, maxNumHits, tooManyHits, hctr);
 
