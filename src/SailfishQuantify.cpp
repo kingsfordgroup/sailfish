@@ -134,6 +134,7 @@ void processReadsQuasi(paired_parser* parser,
   auto& readBias = readExp.readBias();
   auto& observedGC = readExp.observedGC();
   bool estimateGCBias = sfOpts.gcBiasCorrect;
+  bool strictIntersect = sfOpts.strictIntersect;
 
   SACollector<IndexT> hitCollector(sidx);
   SASearcher<IndexT> saSearcher(sidx);
@@ -198,10 +199,16 @@ void processReadsQuasi(paired_parser* parser,
 							   true // strict check
 							   );
 
-        rapmap::utils::mergeLeftRightHits(
-                //lh, rh,
-                leftHits, rightHits, jointHits,
-                readLen, maxNumHits, tooManyHits, hctr);
+        if (strictIntersect) {
+          rapmap::utils::mergeLeftRightHits(
+              leftHits, rightHits, jointHits,
+              readLen, maxNumHits, tooManyHits, hctr);
+        } else {
+          rapmap::utils::mergeLeftRightHitsFuzzy(
+              lh, rh,
+              leftHits, rightHits, jointHits,
+              readLen, maxNumHits, tooManyHits, hctr);
+        }
 
         upperBoundHits += (jointHits.size() > 0);
 
@@ -1075,7 +1082,7 @@ int mainQuantify(int argc, char* argv[]) {
          "should be parsed.  Files ending in \'.gtf\' or \'.gff\' are assumed to be in GTF "
          "format; files with any other extension are assumed to be in the simple format.")
        ("biasCorrect", po::value(&(sopt.biasCorrect))->zero_tokens(), "Perform sequence-specific bias correction")
-       ("gcBiasCorrect", po::value(&(sopt.gcBiasCorrect))->zero_tokens(), "Perform fragment GC bias correction");
+       ("gcBiasCorrect", po::value(&(sopt.gcBiasCorrect))->zero_tokens(), "[experimental] Perform fragment GC bias correction");
 
 
 
@@ -1086,6 +1093,10 @@ int mainQuantify(int argc, char* argv[]) {
      			"e.g. bootstraps, bias parameters, etc. will be written.")
         ("dumpEq", po::bool_switch(&(sopt.dumpEq))->default_value(false), "Dump the equivalence class counts "
             "that were computed during quasi-mapping")
+        ("strictIntersect", po::bool_switch(&(sopt.strictIntersect))->default_value(false), "Modifies how orphans are "
+            "assigned.  When this flag is set, if the intersection of the quasi-mappings for the left and right "
+            "is empty, then all mappings for the left and all mappings for the right read are reported as orphaned "
+            "quasi-mappings")
         ("unsmoothedFLD", po::bool_switch(&(sopt.useUnsmoothedFLD))->default_value(false), "Use the \"un-smoothed\" "
             "(i.e. traditional) approach to effective length correction by convolving the FLD with the "
             "characteristic function over each transcript")

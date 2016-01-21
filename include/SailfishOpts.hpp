@@ -20,6 +20,7 @@ struct SailfishOpts {
     bool enforceLibCompat{false};
     bool allowDovetail{false};
     bool biasCorrect{false};
+    bool strictIntersect{false};
     bool gcBiasCorrect{false};
     bool firstCorrectionPass{true};
     std::atomic<int32_t> numBiasSamples{1000000};
