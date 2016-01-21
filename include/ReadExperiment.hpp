@@ -21,11 +21,11 @@
 #include <vector>
 #include <memory>
 #include <fstream>
+#include <atomic>
 
-//S_AYUSH_CODE
 #include "UtilityFunctions.hpp"
 #include "ReadKmerDist.hpp"
-//T_AYUSH_CODE
+#include "EmpiricalDistribution.hpp"
 
 /**
   *  This class represents a library of reads used to quantify
@@ -41,9 +41,14 @@ class ReadExperiment {
         readLibraries_(readLibraries),
         transcripts_(std::vector<Transcript>()),
     	eqBuilder_(sopt.jointLog),
-	expectedBias_(constExprPow(4, readBias_.getK()), 1.0)
+	expectedSeqBias_(constExprPow(4, readBias_.getK()), 1.0),
+	expectedGC_(101, 1.0),
+        observedGC_(101)
 	{
             namespace bfs = boost::filesystem;
+
+	    // pseudocount for the observed distribution
+	    for (size_t i = 0; i < observedGC_.size(); ++i) { observedGC_[i] += 1; }
 
             // Make sure the read libraries are valid.
             for (auto& rl : readLibraries_) { rl.checkValid(); }
@@ -54,7 +59,7 @@ class ReadExperiment {
 
             sfIndex_.reset(new SailfishIndex(sopt.jointLog));
             sfIndex_->load(indexDirectory);
-            loadTranscriptsFromQuasi();
+            loadTranscriptsFromQuasi(sopt);
         }
 
     EquivalenceClassBuilder& equivalenceClassBuilder() {
@@ -85,10 +90,16 @@ class ReadExperiment {
         return static_cast<double>(numMappedFragments_) / numObservedFragments_;
     }
 
+    void addNumFwd(int32_t numMappings) { numFwd_ += numMappings; }
+    void addNumRC(int32_t numMappings) { numRC_ += numMappings; }
+
+    int64_t numFwd() const { return numFwd_.load(); }
+    int64_t numRC() const { return numRC_.load(); }
+
     SailfishIndex* getIndex() { return sfIndex_.get(); }
 
     template <typename IndexT>
-    void loadTranscriptsFromQuasiIndex(IndexT* idx_) {
+    void loadTranscriptsFromQuasiIndex(IndexT* idx_, const SailfishOpts& sopt) {
         size_t numRecords = idx_->txpNames.size();
 
         fmt::print(stderr, "Index contained {} targets\n", numRecords);
@@ -101,19 +112,19 @@ class ReadExperiment {
             transcripts_.emplace_back(id, name, len);
             auto& txp = transcripts_.back();
             // The transcript sequence
-            auto txpSeq = idx_->seq.substr(idx_->txpOffsets[i], len);
-            txp.Sequence = txpSeq;
+            txp.setSequence(idx_->seq.c_str() + idx_->txpOffsets[i], sopt.gcBiasCorrect);
         }
         // ====== Done loading the transcripts from file
+        fmt::print(stderr, "Loaded targets\n");
     }
 
-    void loadTranscriptsFromQuasi() {
+    void loadTranscriptsFromQuasi(const SailfishOpts& sopt) {
         if (sfIndex_->is64BitQuasi()) {
             loadTranscriptsFromQuasiIndex<RapMapSAIndex<int64_t>>(
-                    sfIndex_->quasiIndex64());
+                    sfIndex_->quasiIndex64(), sopt);
         } else {
             loadTranscriptsFromQuasiIndex<RapMapSAIndex<int32_t>>(
-                    sfIndex_->quasiIndex32());
+                    sfIndex_->quasiIndex32(), sopt);
         }
 	}
 
@@ -146,28 +157,53 @@ class ReadExperiment {
     //FragmentLengthDistribution* fragmentLengthDistribution() { return fragLengthDist_.get(); }
 
     void setFragLengthDist(const std::vector<int32_t>& fldIn) {
-        fld_ = fldIn;
+        // vector of positions
+	std::vector<uint32_t> pos(fldIn.size());
+	std::iota(pos.begin(), pos.end(), 0);
+	// vector of counts
+	std::vector<uint32_t> counts(fldIn.begin(), fldIn.end());
+	fld_.reset(new EmpiricalDistribution(pos, counts));
     }
 
-    std::vector<int32_t>& fragLengthDist() {
-        return fld_;
+    EmpiricalDistribution* fragLengthDist() {
+        return fld_.get();
     }
 
-    const std::vector<int32_t>& fragLengthDist() const {
-        return fld_;
+    const EmpiricalDistribution* fragLengthDist() const {
+        return fld_.get();
     }
 
 
-    void setExpectedBias(const std::vector<double>& expectedBiasIn) {
-        expectedBias_ = expectedBiasIn;
+    void setExpectedSeqBias(const std::vector<double>& expectedBiasIn) {
+        expectedSeqBias_ = expectedBiasIn;
     }
 
-    std::vector<double>& expectedBias() {
-        return expectedBias_;
+    std::vector<double>& expectedSeqBias() {
+        return expectedSeqBias_;
     }
 
-    const std::vector<double>& expectedBias() const {
-        return expectedBias_;
+    const std::vector<double>& expectedSeqBias() const {
+        return expectedSeqBias_;
+    }
+
+    void setExpectedGCBias(const std::vector<double>& expectedBiasIn) {
+        expectedGC_ = expectedBiasIn;
+    }
+
+    std::vector<double>& expectedGCBias() {
+        return expectedGC_;
+    }
+
+    const std::vector<double>& expectedGCBias() const {
+        return expectedGC_;
+    }
+
+    const std::vector<std::atomic<uint32_t>>& observedGC() const {
+        return observedGC_;
+    }
+
+    std::vector<std::atomic<uint32_t>>& observedGC() {
+        return observedGC_;
     }
 
     //S_AYUSH_CODE
@@ -200,6 +236,8 @@ class ReadExperiment {
     std::atomic<uint64_t> numMappedFragments_{0};
     std::atomic<uint64_t> numFragHits_{0};
     std::atomic<uint64_t> upperBoundHits_{0};
+    std::atomic<int64_t> numFwd_{0};
+    std::atomic<int64_t> numRC_{0};
     double effectiveMappingRate_{0.0};
     //std::unique_ptr<FragmentLengthDistribution> fragLengthDist_;
     EquivalenceClassBuilder eqBuilder_;
@@ -208,10 +246,14 @@ class ReadExperiment {
     // Since multiple threads can touch this dist, we
     // need atomic counters.
     ReadKmerDist<6, std::atomic<uint32_t>> readBias_;
-    std::vector<double> expectedBias_;
+    std::vector<double> expectedSeqBias_;
     //T_AYUSH_CODE
 
-    std::vector<int32_t> fld_;
+    // One bin for each percentage GC content
+    std::vector<std::atomic<uint32_t>> observedGC_;
+    std::vector<double> expectedGC_;
+
+    std::unique_ptr<EmpiricalDistribution> fld_;
 };
 
 #endif // EXPERIMENT_HPP

@@ -13,14 +13,15 @@ class Transcript {
 public:
     Transcript(size_t idIn, const char* name, uint32_t len) :
         RefName(name), RefLength(len), EffectiveLength(len), id(idIn),
-        mass_(0.0), estCount_(0.0), active_(false) { }
+        Sequence_(nullptr), mass_(0.0), estCount_(0.0), active_(false) { }
 
     Transcript(Transcript&& other) {
         id = other.id;
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
         EffectiveLength = other.EffectiveLength;
-        Sequence = other.Sequence;
+        Sequence_ = other.Sequence_;
+        GCCount_ = other.GCCount_;
         mass_.store(other.mass_.load());
         estCount_.store(other.estCount_.load());
         active_ = other.active_;
@@ -31,7 +32,8 @@ public:
         RefName = std::move(other.RefName);
         RefLength = other.RefLength;
         EffectiveLength = other.EffectiveLength;
-        Sequence = other.Sequence;
+        Sequence_ = other.Sequence_;
+        GCCount_ = other.GCCount_;
         mass_.store(other.mass_.load());
         estCount_.store(other.estCount_.load());
         active_ = other.active_;
@@ -71,55 +73,29 @@ public:
 
     void setActive() { active_ = true; }
     bool getActive() { return active_; }
-    /**
-      *  NOTE: Adopted from "est_effective_length" at (https://github.com/adarob/eXpress/blob/master/src/targets.cpp)
-      *  originally written by Adam Roberts.
-      *
-      *
-      */
-    /*
-    double updateEffectiveLength(const FragmentLengthDistribution& fragLengthDist) {
 
-        double effectiveLength = salmon::math::LOG_0;
-        double refLen = static_cast<double>(RefLength);
-        double logLength = std::log(refLen);
+    // NOTE: Is it worth it to check if we have GC here?
+    // we should never access these without bias correction.
+    uint32_t gcCount(int32_t p) { return GCCount_[p]; }
+    uint32_t gcCount(int32_t p) const { return GCCount_[p]; }
 
-        if (logLength < fragLengthDist.mean()) {
-            effectiveLength = logLength;
-        } else {
-            uint32_t mval = fragLengthDist.maxVal();
-            for (size_t l = fragLengthDist.minVal(); l <= std::min(RefLength, mval); ++l) {
-                effectiveLength = salmon::math::logAdd(
-                        effectiveLength,
-                        fragLengthDist.pmf(l) + std::log(refLen - l + 1));
+    void setSequence(const char* seq, bool needGC=false) {
+        Sequence_ = seq;
+        if (needGC) {
+          GCCount_.clear();
+          GCCount_.resize(RefLength, 0);
+          size_t totGC{0};
+          for (size_t i = 0; i < RefLength; ++i) {
+            auto c = std::toupper(seq[i]);
+            if (c == 'G' or c == 'C') {
+              totGC++;
             }
-        }
-
-        return effectiveLength;
-    }
-
-    double getCachedEffectiveLength() {
-        return cachedEffectiveLength_.load();
-    }
-
-    double getEffectiveLength(const FragmentLengthDistribution& fragLengthDist,
-                              size_t currObs,
-                              size_t burnInObs) {
-        if (lastUpdate_ == 0 or
-            (currObs - lastUpdate_ >= 250000) or
-            (lastUpdate_ < burnInObs and currObs > burnInObs)) {
-            // compute new number
-            double cel = updateEffectiveLength(fragLengthDist);
-            cachedEffectiveLength_.store(cel);
-            lastUpdate_.store(currObs);
-            //priorMass_ = cel + logPerBasePrior_;
-            return cachedEffectiveLength_.load();
-        } else {
-            // return cached number
-            return cachedEffectiveLength_.load();
+            GCCount_[i] = totGC;
+          }
         }
     }
-    */
+
+    const char* Sequence() const { return Sequence_; }
 
     std::string RefName;
     uint32_t RefLength;
@@ -130,9 +106,12 @@ public:
     double totalCounts{0.0};
     double projectedCounts{0.0};
     double sharedCounts{0.0};
-    std::string Sequence;
 
 private:
+    const char* Sequence_;
+    std::vector<uint32_t> GCCount_;
+    //std::unique_ptr<const char, void(*)(const char*)> Sequence =
+    //    std::unique_ptr<const char, void(*)(const char*)>(nullptr, [](const char*) {});
     tbb::atomic<double> mass_;
     tbb::atomic<double> estCount_;
     bool active_;

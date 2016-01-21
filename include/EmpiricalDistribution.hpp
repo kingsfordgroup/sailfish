@@ -53,6 +53,11 @@ class EmpiricalDistribution
         /* True if there are observations and false otherwise */
         bool valid() const;
 
+	/* Realize the distribution as a vector of counts, where 
+	 * numSamp samples are drawn from the underlying distribution
+	 */
+	std::vector<int32_t> realize(uint32_t numSamp = 10000) const;
+
     private:
         std::vector<float> pdfvals;
         std::vector<float> cdfvals;

@@ -9,6 +9,8 @@
 struct SailfishOpts {
     uint32_t numThreads; // number of threads to use
     bool allowOrphans;
+    std::string auxDir;
+    bool dumpEq{false};
     bool noEffectiveLengthCorrection;
     bool noFragLengthDist;
     bool useVBOpt{false};
@@ -18,6 +20,9 @@ struct SailfishOpts {
     bool enforceLibCompat{false};
     bool allowDovetail{false};
     bool biasCorrect{false};
+    bool strictIntersect{false};
+    bool gcBiasCorrect{false};
+    bool firstCorrectionPass{true};
     std::atomic<int32_t> numBiasSamples{1000000};
     int32_t numFragSamples{10000};
     uint32_t maxFragLen;

@@ -43,6 +43,55 @@ bool writeVectorToFile(boost::filesystem::path path,
 }
 
 /**
+ * Write the equivalence class information to file.
+ * The header will contain the transcript / target ids in
+ * a fixed order, then each equivalence class will consist
+ * of a line / row.
+ */
+bool GZipWriter::writeEquivCounts(
+    const SailfishOpts& opts,
+    ReadExperiment& experiment) {
+
+  namespace bfs = boost::filesystem;
+
+  bfs::path auxDir = path_ / opts.auxDir;
+  bool auxSuccess = boost::filesystem::create_directories(auxDir);
+  bfs::path eqFilePath = auxDir / "eq_classes.txt";
+
+  std::ofstream equivFile(eqFilePath.string());
+
+  auto& transcripts = experiment.transcripts();
+  std::vector<std::pair<const TranscriptGroup, TGValue>>& eqVec =
+        experiment.equivalenceClassBuilder().eqVec();
+
+  // Number of transcripts
+  equivFile << transcripts.size() << '\n';
+
+  // Number of equivalence classes
+  equivFile << eqVec.size() << '\n';
+
+  for (auto& t : transcripts) {
+    equivFile << t.RefName << '\n';
+  }
+
+  for (auto& eq : eqVec) {
+    uint64_t count = eq.second.count;
+    // for each transcript in this class
+    const TranscriptGroup& tgroup = eq.first;
+    const std::vector<uint32_t>& txps = tgroup.txps;
+    // group size
+    equivFile << txps.size() << '\t';
+    // each group member
+    for (auto tid : txps) { equivFile << tid << '\t'; }
+    // count for this class
+    equivFile << count << '\n';
+  }
+
+  equivFile.close();
+  return true;
+}
+
+/**
  * Write the ``main'' metadata to file.  Currently this includes:
  *   -- Names of the target id's if bootstrapping / gibbs is performed
  *   -- The fragment length distribution
@@ -57,7 +106,7 @@ bool GZipWriter::writeMeta(
 
   namespace bfs = boost::filesystem;
 
-  bfs::path auxDir = path_ / "aux";
+  bfs::path auxDir = path_ / opts.auxDir;
   bool auxSuccess = boost::filesystem::create_directories(auxDir);
 
   auto numBootstraps = opts.numBootstraps;
@@ -89,16 +138,27 @@ bool GZipWriter::writeMeta(
   }
 
   bfs::path fldPath = auxDir / "fld.gz";
-  writeVectorToFile(fldPath, experiment.fragLengthDist());
+  auto* fld = experiment.fragLengthDist();
+  auto fragLengthSamples = fld->realize();
+  writeVectorToFile(fldPath, fragLengthSamples);
 
   bfs::path normBiasPath = auxDir / "expected_bias.gz";
-  writeVectorToFile(normBiasPath, experiment.expectedBias());
+  writeVectorToFile(normBiasPath, experiment.expectedSeqBias());
 
   bfs::path obsBiasPath = auxDir / "observed_bias.gz";
   const auto& bcounts = experiment.readBias().counts;
   std::vector<int32_t> observedBias(bcounts.size(), 0);
   std::copy(bcounts.begin(), bcounts.end(), observedBias.begin());
   writeVectorToFile(obsBiasPath, observedBias);
+
+  bfs::path normGCPath = auxDir / "expected_gc.gz";
+  writeVectorToFile(normGCPath, experiment.expectedGCBias());
+
+  bfs::path obsGCPath = auxDir / "observed_gc.gz";
+  const auto& gcCounts = experiment.observedGC();
+  std::vector<int32_t> observedGC(gcCounts.size(), 0);
+  std::copy(gcCounts.begin(), gcCounts.end(), observedGC.begin());
+  writeVectorToFile(obsGCPath, observedGC);
 
   bfs::path info = auxDir / "meta_info.json";
 
@@ -117,7 +177,7 @@ bool GZipWriter::writeMeta(
       auto& transcripts = experiment.transcripts();
       oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
       oa(cereal::make_nvp("samp_type", sampType));
-      oa(cereal::make_nvp("frag_dist_length", experiment.fragLengthDist().size()));
+      oa(cereal::make_nvp("frag_dist_length", fld->maxValue()));
       oa(cereal::make_nvp("bias_correct", opts.biasCorrect));
       oa(cereal::make_nvp("num_bias_bins", bcounts.size()));
       oa(cereal::make_nvp("num_targets", transcripts.size()));
@@ -128,19 +188,13 @@ bool GZipWriter::writeMeta(
       oa(cereal::make_nvp("call", std::string("quant")));
       oa(cereal::make_nvp("start_time", tstring));
   }
-  // For spoofing kallisto version
-  //std::vector<std::string> kalVer{"0.42.4"};
-  //file_->writeVectorToGroup(kalVer, "/aux", "kallisto_version");
-
-  //std::vector<int> kalIndexVersion{10};
-  //file_->writeVectorToGroup(kalIndexVersion, "/aux", "index_version");
   return true;
 }
 
 bool GZipWriter::writeAbundances(
     const SailfishOpts& sopt,
     ReadExperiment& readExp) {
-  
+
   using sailfish::math::LOG_0;
   using sailfish::math::LOG_1;
   namespace bfs = boost::filesystem;

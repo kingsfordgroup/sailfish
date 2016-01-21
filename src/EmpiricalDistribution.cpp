@@ -8,6 +8,7 @@
 #include <boost/math/special_functions/fpclassify.hpp>
 #include <algorithm>
 #include <limits>
+#include <random>
 
 #include "EmpiricalDistribution.hpp"
 
@@ -122,4 +123,24 @@ float EmpiricalDistribution::cdf(unsigned int x) const
 {
     return x < cdfvals.size() ? cdfvals[x] : 1.0;
 }
+
+std::vector<int32_t> EmpiricalDistribution::realize(uint32_t numSamp) const {
+  // start at 0 instead of minVal
+  size_t distSize = maxVal + 1;
+  std::vector<double> paddedPDF(distSize, 0.0);
+  for (size_t i = 0; i <= maxVal; ++i) {
+    paddedPDF[i] = pdf(i);
+  }
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::discrete_distribution<int32_t> d(paddedPDF.begin(), paddedPDF.end());
+
+  std::vector<int32_t> samples(distSize, 0);
+  for (size_t i = 0; i < numSamp; ++i) {
+    ++samples[d(gen)];
+  }
+
+  return samples;
+}
+
 
