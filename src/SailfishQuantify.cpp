@@ -374,9 +374,7 @@ void processReadsQuasi(paired_parser* parser,
           int32_t stop = start + h.fragLen;
 
 		  if (start > 0 and stop < txp.RefLength) {
-		    uint32_t gcStart = txp.gcCount(start);
-		    uint32_t gcStop = txp.gcCount(stop);
-		    int32_t gcFrac = std::lrint(100.0 * static_cast<double>(gcStop - gcStart) / h.fragLen);
+		    int32_t gcFrac = txp.gcFrac(start, stop);
 		    observedGC[gcFrac]++;
 		    //needGCSample = false;
 		  } else {
@@ -1093,6 +1091,10 @@ int mainQuantify(int argc, char* argv[]) {
      			"e.g. bootstraps, bias parameters, etc. will be written.")
         ("dumpEq", po::bool_switch(&(sopt.dumpEq))->default_value(false), "Dump the equivalence class counts "
             "that were computed during quasi-mapping")
+        ("gcSizeSamp", po::value<std::uint32_t>(&(sopt.gcSampFactor))->default_value(1), "The value by which to down-sample transcripts when representing the "
+             "GC content.  Larger values will reduce memory usage, but may decrease the fidelity of bias modeling results.")
+        ("gcSpeedSamp", po::value<std::uint32_t>(&(sopt.pdfSampFactor))->default_value(1), "The value at which the fragment length PMF is down-sampled "
+             "when evaluating GC fragment bias.  Larger values speed up effective length correction, but may decrease the fidelity of bias modeling results.")
         ("strictIntersect", po::bool_switch(&(sopt.strictIntersect))->default_value(false), "Modifies how orphans are "
             "assigned.  When this flag is set, if the intersection of the quasi-mappings for the left and right "
             "is empty, then all mappings for the left and all mappings for the right read are reported as orphaned "
@@ -1274,6 +1276,11 @@ int mainQuantify(int argc, char* argv[]) {
 
         // Verify that no inconsistent options were provided
         {
+          if (sopt.biasCorrect and sopt.gcBiasCorrect) {
+            sopt.jointLog->error("Enabling both sequence-specific and fragment GC bias correction "
+                "simultaneously is not yet supported. Please disable one of these options.");
+            return 1;
+          }
           if (sopt.gcBiasCorrect) {
             for (auto& rl : readLibraries) {
               // We can't use fragment GC correction with single

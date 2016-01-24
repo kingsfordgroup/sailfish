@@ -24,6 +24,8 @@ struct SailfishOpts {
     bool gcBiasCorrect{false};
     bool firstCorrectionPass{true};
     std::atomic<int32_t> numBiasSamples{1000000};
+    uint32_t gcSampFactor;
+    uint32_t pdfSampFactor;
     int32_t numFragSamples{10000};
     uint32_t maxFragLen;
     uint32_t numGibbsSamples;

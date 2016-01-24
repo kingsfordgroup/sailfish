@@ -41,11 +41,10 @@ class ReadExperiment {
         readLibraries_(readLibraries),
         transcripts_(std::vector<Transcript>()),
     	eqBuilder_(sopt.jointLog),
-	expectedSeqBias_(constExprPow(4, readBias_.getK()), 1.0),
-	expectedGC_(101, 1.0),
-        observedGC_(101)
-	{
-            namespace bfs = boost::filesystem;
+        expectedSeqBias_(constExprPow(4, readBias_.getK()), 1.0),
+        expectedGC_(101, 1.0),
+        observedGC_(101) {
+    namespace bfs = boost::filesystem;
 
 	    // pseudocount for the observed distribution
 	    for (size_t i = 0; i < observedGC_.size(); ++i) { observedGC_[i] += 1; }
@@ -112,7 +111,8 @@ class ReadExperiment {
             transcripts_.emplace_back(id, name, len);
             auto& txp = transcripts_.back();
             // The transcript sequence
-            txp.setSequence(idx_->seq.c_str() + idx_->txpOffsets[i], sopt.gcBiasCorrect);
+            txp.setSequence(idx_->seq.c_str() + idx_->txpOffsets[i],
+                            sopt.gcBiasCorrect, sopt.gcSampFactor);
         }
         // ====== Done loading the transcripts from file
         fmt::print(stderr, "Loaded targets\n");
