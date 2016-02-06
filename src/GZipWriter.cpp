@@ -199,7 +199,7 @@ bool GZipWriter::writeAbundances(
   using sailfish::math::LOG_1;
   namespace bfs = boost::filesystem;
 
-  bool useScaledCounts = (sopt.allowOrphans == false);
+  bool useScaledCounts = false;//(sopt.allowOrphans == false);
   bfs::path fname = path_ / "quant.sf";
 
   std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(fname.c_str(), "w"), std::fclose);

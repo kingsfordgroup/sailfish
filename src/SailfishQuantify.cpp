@@ -135,6 +135,7 @@ void processReadsQuasi(paired_parser* parser,
   auto& observedGC = readExp.observedGC();
   bool estimateGCBias = sfOpts.gcBiasCorrect;
   bool strictIntersect = sfOpts.strictIntersect;
+  bool discardOrphans = !sfOpts.allowOrphans;
 
   SACollector<IndexT> hitCollector(sidx);
   SASearcher<IndexT> saSearcher(sidx);
@@ -218,6 +219,10 @@ void processReadsQuasi(paired_parser* parser,
             // Are the jointHits paired-end quasi-mappings or orphans?
             bool isPaired = jointHits.front().mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
             bool bothEndsMap = isPaired;
+
+            // If we're not allowing orphans and the hits are orphans
+            // then simply discard them.
+            if (discardOrphans and !isPaired) { jointHits.clear(); }
 
             // If these aren't paired-end reads --- so that
             // we have orphans --- make sure we sort the
@@ -1056,6 +1061,7 @@ int mainQuantify(int argc, char* argv[]) {
     vector<string> mate2ReadFiles;
     string txpAggregationKey;
 
+    bool discardOrphans = false;
     po::options_description generic("\n"
             "basic options");
     generic.add_options()
@@ -1118,6 +1124,9 @@ int mainQuantify(int argc, char* argv[]) {
         ("allowDovetail", po::bool_switch(&(sopt.allowDovetail))->default_value(false), "Allow "
              "paired-end reads from the same fragment to \"dovetail\", such that the ends "
              "of the mapped reads can extend past each other.")
+        ("discardOrphans", po::bool_switch(&discardOrphans)->default_value(false), "This option will discard orphaned fragments.  This only "
+            "has an effect on paired-end input, but enabling this option will discard, rather than count, any reads where only one of the paired "
+            "fragments maps to a transcript.")
         ("numBiasSamples", po::value<int32_t>(&numBiasSamples)->default_value(1000000),
             "Number of fragment mappings to use when learning the sequence-specific bias model.")
         ("numFragSamples", po::value<int32_t>(&(sopt.numFragSamples))->default_value(10000),
@@ -1168,6 +1177,10 @@ int mainQuantify(int argc, char* argv[]) {
         }
 
         po::notify(vm);
+
+        if (discardOrphans) {
+            sopt.allowOrphans = false;
+        }
 
         std::stringstream commentStream;
         commentStream << "# sailfish (quasi-mapping-based) v" << sailfish::version << "\n";

@@ -56,55 +56,6 @@ namespace sailfish {
         using IndexVector = std::vector<size_t>;
         using KmerVector = std::vector<uint64_t>;
 
-
-        void writeAbundancesFromCollapsed(
-                const SailfishOpts& sopt,
-                ReadExperiment& readExp,
-                boost::filesystem::path& fname,
-                std::string headerComments) {
-            using sailfish::math::LOG_0;
-            using sailfish::math::LOG_1;
-
-            bool useScaledCounts = (sopt.allowOrphans == false);
-
-            std::unique_ptr<std::FILE, int (*)(std::FILE *)> output(std::fopen(fname.c_str(), "w"), std::fclose);
-
-            fmt::print(output.get(), "{}", headerComments);
-            fmt::print(output.get(), "Name\tLength\tEffectiveLength\tTPM\tNumReads\n");
-
-            double numMappedFrags = readExp.numMappedFragments();
-
-            std::vector<Transcript>& transcripts_ = readExp.transcripts();
-            for (auto& transcript : transcripts_) {
-                transcript.projectedCounts = useScaledCounts ?
-                    (transcript.mass() * numMappedFrags) : transcript.estCount();
-            }
-
-            double tfracDenom{0.0};
-            for (auto& transcript : transcripts_) {
-                double refLength = sopt.noEffectiveLengthCorrection ?
-                    transcript.RefLength :
-                    transcript.EffectiveLength;
-                tfracDenom += (transcript.projectedCounts / numMappedFrags) / refLength;
-            }
-
-            double million = 1000000.0;
-            // Now posterior has the transcript fraction
-            for (auto& transcript : transcripts_) {
-                auto effLen = sopt.noEffectiveLengthCorrection ?
-                    transcript.RefLength :
-                    transcript.EffectiveLength;
-                double count = transcript.projectedCounts;
-                double npm = (transcript.projectedCounts / numMappedFrags);
-                double tfrac = (npm / effLen) / tfracDenom;
-                double tpm = tfrac * million;
-                fmt::print(output.get(), "{}\t{}\t{}\t{}\t{}\n",
-                        transcript.RefName, transcript.RefLength, effLen,
-                        tpm, count);
-            }
-
-        }
-
         /**
          * This function parses the library format string that specifies the format in which
          * the reads are to be expected.

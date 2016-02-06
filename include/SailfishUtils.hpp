@@ -142,11 +142,6 @@ namespace sailfish{
 
         enum class OrphanStatus: uint8_t { LeftOrphan = 0, RightOrphan = 1, Paired = 2 };
 
-        void writeAbundancesFromCollapsed(const SailfishOpts& sopt,
-                ReadExperiment& alnLib,
-                boost::filesystem::path& fname,
-                std::string headerComments="");
-
         template <typename AbundanceVecT>
         Eigen::VectorXd updateEffectiveLengths(
 				    SailfishOpts& sfopts,
