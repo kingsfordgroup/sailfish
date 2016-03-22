@@ -23,6 +23,7 @@ struct SailfishOpts {
     bool strictIntersect{false};
     bool gcBiasCorrect{false};
     bool firstCorrectionPass{true};
+    bool noBiasLengthThreshold{false};
     std::atomic<int32_t> numBiasSamples{1000000};
     uint32_t gcSampFactor;
     uint32_t pdfSampFactor;

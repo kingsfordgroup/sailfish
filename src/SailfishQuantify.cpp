@@ -865,6 +865,9 @@ void quasiMapReads(
     //std::vector<FragLengthCountMap> flMaps(numThreads);
     FragLengthCountMap flMap(sfOpts.maxFragLen, 0);
 
+    bool largeIndex = readExp.getIndex()->is64BitQuasi();
+    bool perfectHashIndex = readExp.getIndex()->isPerfectHashQuasi();
+
     // If the read library is paired-end
     // ------ Paired-end --------
     if (rl.format().type == ReadType::PAIRED_END) {
@@ -904,9 +907,23 @@ void quasiMapReads(
             // change value before the lambda below is evaluated --- crazy!
 
             // if we have a 64-bit index
-            if (readExp.getIndex()->is64BitQuasi()) {
+            if (largeIndex) {
+	      if (perfectHashIndex) {
                 auto threadFun = [&,i]() -> void {
-                    processReadsQuasi<RapMapSAIndex<int64_t>>(
+		  processReadsQuasi<RapMapSAIndex<int64_t, PerfectHash<int64_t>>>(
+                            pairedParserPtr.get(),
+                            readExp.getIndex()->quasiIndexPerfectHash64(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            flMap,
+                            remainingFLOps,
+                            iomutex);
+                };
+                threads.emplace_back(threadFun);
+	      } else {
+                auto threadFun = [&,i]() -> void {
+		  processReadsQuasi<RapMapSAIndex<int64_t, DenseHash<int64_t>>>(
                             pairedParserPtr.get(),
                             readExp.getIndex()->quasiIndex64(),
                             readExp,
@@ -917,9 +934,25 @@ void quasiMapReads(
                             iomutex);
                 };
                 threads.emplace_back(threadFun);
-            } else {
+	      }
+            } else { // 32-bit
+	      
+	      if (perfectHashIndex) {
                 auto threadFun = [&,i]() -> void {
-                    processReadsQuasi<RapMapSAIndex<int32_t>>(
+		  processReadsQuasi<RapMapSAIndex<int32_t, PerfectHash<int32_t>>>(
+                            pairedParserPtr.get(),
+                            readExp.getIndex()->quasiIndexPerfectHash32(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            flMap,
+                            remainingFLOps,
+                            iomutex);
+                };
+		threads.emplace_back(threadFun);
+	      } else {
+                auto threadFun = [&,i]() -> void {
+		  processReadsQuasi<RapMapSAIndex<int32_t, DenseHash<int32_t>>>(
                             pairedParserPtr.get(),
                             readExp.getIndex()->quasiIndex32(),
                             readExp,
@@ -929,8 +962,10 @@ void quasiMapReads(
                             remainingFLOps,
                             iomutex);
                 };
-            threads.emplace_back(threadFun);
-            }
+		threads.emplace_back(threadFun);
+	      }
+
+            } // end if (largeIndex) 
         }
 
         // Join the threads and collect the results from the count maps
@@ -1006,9 +1041,22 @@ void quasiMapReads(
         for(int i = 0; i < numThreads; ++i)  {
             // NOTE: we *must* capture i by value here, b/c it can (sometimes, does)
             // change value before the lambda below is evaluated --- crazy!
-            if (readExp.getIndex()->is64BitQuasi()) {
+            if (largeIndex) {
+	      
+	      if (perfectHashIndex) {
                 auto threadFun = [&,i]() -> void {
-                    processReadsQuasi<RapMapSAIndex<int64_t>>(
+		  processReadsQuasi<RapMapSAIndex<int64_t, PerfectHash<int64_t>>>(
+                            singleParserPtr.get(),
+                            readExp.getIndex()->quasiIndexPerfectHash64(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            iomutex);
+                };
+                threads.emplace_back(threadFun);
+	      } else { // dense hash index
+                auto threadFun = [&,i]() -> void {
+		  processReadsQuasi<RapMapSAIndex<int64_t, DenseHash<int64_t>>>(
                             singleParserPtr.get(),
                             readExp.getIndex()->quasiIndex64(),
                             readExp,
@@ -1017,9 +1065,24 @@ void quasiMapReads(
                             iomutex);
                 };
                 threads.emplace_back(threadFun);
-            } else {
+	      }
+
+            } else { // 32-bit
+	      
+	      if (perfectHashIndex) {
                 auto threadFun = [&,i]() -> void {
-                    processReadsQuasi<RapMapSAIndex<int32_t>>(
+		  processReadsQuasi<RapMapSAIndex<int32_t, PerfectHash<int32_t>>>(
+                            singleParserPtr.get(),
+                            readExp.getIndex()->quasiIndexPerfectHash32(),
+                            readExp,
+                            rl,
+                            sfOpts,
+                            iomutex);
+                };
+		threads.emplace_back(threadFun);
+	      } else { // dense hash index
+                auto threadFun = [&,i]() -> void {
+		  processReadsQuasi<RapMapSAIndex<int32_t, DenseHash<int32_t>>>(
                             singleParserPtr.get(),
                             readExp.getIndex()->quasiIndex32(),
                             readExp,
@@ -1027,8 +1090,10 @@ void quasiMapReads(
                             sfOpts,
                             iomutex);
                 };
-                threads.emplace_back(threadFun);
-            }
+		threads.emplace_back(threadFun);
+	      }
+
+            } // end if (largeIndex)
         }
         for(int i = 0; i < numThreads; ++i) { threads[i].join(); }
         if (sfOpts.noEffectiveLengthCorrection) {
@@ -1127,6 +1192,9 @@ int mainQuantify(int argc, char* argv[]) {
         ("discardOrphans", po::bool_switch(&discardOrphans)->default_value(false), "This option will discard orphaned fragments.  This only "
             "has an effect on paired-end input, but enabling this option will discard, rather than count, any reads where only one of the paired "
             "fragments maps to a transcript.")
+        ("noBiasLengthThreshold", po::bool_switch(&(sopt.noBiasLengthThreshold))->default_value(false), "[experimental] : "
+                        "If this option is enabled, then bias correction will be allowed to estimate effective lengths "
+                        "shorter than the approximate mean fragment length")
         ("numBiasSamples", po::value<int32_t>(&numBiasSamples)->default_value(1000000),
             "Number of fragment mappings to use when learning the sequence-specific bias model.")
         ("numFragSamples", po::value<int32_t>(&(sopt.numFragSamples))->default_value(10000),
@@ -1289,11 +1357,13 @@ int mainQuantify(int argc, char* argv[]) {
 
         // Verify that no inconsistent options were provided
         {
+	  /*
           if (sopt.biasCorrect and sopt.gcBiasCorrect) {
             sopt.jointLog->error("Enabling both sequence-specific and fragment GC bias correction "
                 "simultaneously is not yet supported. Please disable one of these options.");
             return 1;
           }
+	  */
           if (sopt.gcBiasCorrect) {
             for (auto& rl : readLibraries) {
               // We can't use fragment GC correction with single

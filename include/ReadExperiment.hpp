@@ -119,13 +119,23 @@ class ReadExperiment {
     }
 
     void loadTranscriptsFromQuasi(const SailfishOpts& sopt) {
-        if (sfIndex_->is64BitQuasi()) {
-            loadTranscriptsFromQuasiIndex<RapMapSAIndex<int64_t>>(
-                    sfIndex_->quasiIndex64(), sopt);
-        } else {
-            loadTranscriptsFromQuasiIndex<RapMapSAIndex<int32_t>>(
-                    sfIndex_->quasiIndex32(), sopt);
-        }
+	    if (sfIndex_->is64BitQuasi()) {
+		if (sfIndex_->isPerfectHashQuasi()) {
+		  loadTranscriptsFromQuasiIndex<RapMapSAIndex<int64_t, PerfectHash<int64_t>>>
+		    (sfIndex_->quasiIndexPerfectHash64(), sopt);
+		} else {
+  		    loadTranscriptsFromQuasiIndex<RapMapSAIndex<int64_t, DenseHash<int64_t>>>
+		      (sfIndex_->quasiIndex64(), sopt);
+		}
+	    } else { // 32-bit
+		if (sfIndex_->isPerfectHashQuasi()) {
+		  loadTranscriptsFromQuasiIndex<RapMapSAIndex<int32_t, PerfectHash<int32_t>>>
+		    (sfIndex_->quasiIndexPerfectHash32(), sopt);
+		} else {
+  		    loadTranscriptsFromQuasiIndex<RapMapSAIndex<int32_t, DenseHash<int32_t>>>
+		      (sfIndex_->quasiIndex32(), sopt);
+		}
+	    }
 	}
 
     std::string readFilesAsString() {

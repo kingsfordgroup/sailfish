@@ -1,6 +1,6 @@
 /**
 >HEADER
-    Copyright (c) 2013 Rob Patro robp@cs.cmu.edu
+    Copyright (c) 2013-2016 Rob Patro rob.patro@cs.stonybrook.edu
 
     This file is part of Sailfish.
 
@@ -27,10 +27,10 @@
 
 namespace sailfish {
 	constexpr char majorVersion[] = "0";
-	constexpr char minorVersion[] = "9";
-	constexpr char patchVersion[] = "2";
-	constexpr char version[] = "0.9.2";
-    constexpr uint32_t indexVersion = 2;
+	constexpr char minorVersion[] = "10";
+	constexpr char patchVersion[] = "0";
+	constexpr char version[] = "0.10.0";
+    constexpr uint32_t indexVersion = 3;
 }
 
 #endif // SAILFISH_CONFIG_HPP

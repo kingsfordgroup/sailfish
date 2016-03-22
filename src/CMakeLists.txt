@@ -32,6 +32,7 @@ ${GAT_SOURCE_DIR}/external/install/src/rapmap/RapMapUtils.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/HitManager.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/rank9b.cpp
 ${GAT_SOURCE_DIR}/external/install/src/rapmap/bit_array.c
+${GAT_SOURCE_DIR}/external/install/src/rapmap/EMPHFCommon.cpp
 #${GAT_SOURCE_DIR}/external/install/src/EasyH5Utils.cpp
 )
 
@@ -43,12 +44,18 @@ ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include
 ${GAT_SOURCE_DIR}/external/install/include/rapmap
-${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.2.3
 ${ZLIB_INCLUDE_DIR}
 ${TBB_INCLUDE_DIRS}
 ${Boost_INCLUDE_DIRS}
 )
 
+if (JELLYFISH_FOUND)
+    include_directories(${JELLYFISH_INCLUDE_DIR})
+else()
+    include_directories(${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.2.5)
+endif()
+
+ 
 link_directories( 
 ${GAT_SOURCE_DIR}/lib
 ${GAT_SOURCE_DIR}/external/install/lib

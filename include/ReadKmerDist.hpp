@@ -47,7 +47,7 @@ class ReadKmerDist {
 	      p -= posBeforeHit;
 	      // If the read matches in the forward direction, we take
 	      // the RC sequence.
-	      auto idx = indexForKmer(p, K, Direction::REVERSE_COMPLEMENT);
+	      auto idx = indexForKmer(p, K, Direction::FORWARD);
 	      if (idx > counts.size()) { return false; }
 	      counts[idx]++;
 	      success = true;
@@ -59,7 +59,7 @@ class ReadKmerDist {
 	    if ((p - start) >= posAfterHit and
 		((p - posAfterHit + K) < end) ) {
 	      p -= posAfterHit;
-	      auto idx = indexForKmer(p, K, Direction::FORWARD);
+	      auto idx = indexForKmer(p, K, Direction::REVERSE_COMPLEMENT);
 	      if (idx > counts.size()) { return false; }
 	      counts[idx]++;
 	      success = true;

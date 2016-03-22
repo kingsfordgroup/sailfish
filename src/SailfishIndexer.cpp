@@ -39,7 +39,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include "jellyfish/config.h"
 #include "jellyfish/err.hpp"
 #include "jellyfish/misc.hpp"
 #include "jellyfish/jellyfish.hpp"
@@ -69,7 +68,8 @@ int mainIndex( int argc, char *argv[] ) {
 
     uint32_t maxThreads = std::thread::hardware_concurrency();
     bool useStreamingParser = false;
-
+    bool perfectHash{false};
+    
     po::options_description generic("Command Line Options");
     generic.add_options()
     ("version,v", "print version string")
@@ -78,6 +78,9 @@ int mainIndex( int argc, char *argv[] ) {
     //("tgmap,m", po::value<string>(), "file that maps transcripts to genes")
     ("kmerSize,k", po::value<uint32_t>()->required()->default_value(31), "Kmer size.")
     ("out,o", po::value<string>()->required(), "Output stem [all files needed by Sailfish will be of the form stem.*].")
+    ("perfectHash", po::bool_switch(&perfectHash)->default_value(false), 
+                              "[quasi index only] Build the index using a perfect hash rather than a dense hash.  This "
+                              "will require less memory (especially during quantification), but will take longer to construct")
     ("threads,p", po::value<uint32_t>()->default_value(maxThreads), "The number of threads to use concurrently.")
     ("force,f", po::bool_switch(), "" )
     ;
@@ -160,7 +163,7 @@ Builds a Sailfish index
         auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
         //auto consoleLog = spdlog::create("consoleLog", {consoleSink});
         //auto fileLog = spdlog::create("fileLog", {fileSink});
-        auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+        auto jointLog = spdlog::create("jLog", {fileSink, consoleSink});
 
         std::cerr << "writing log to " << logPath.string() << "\n";
 
@@ -190,7 +193,7 @@ Builds a Sailfish index
 
         if (mustRecompute) {
 
-            std::vector<const char*> argVec;
+            std::vector<std::string> argVec;
             argVec.push_back("foo");
             argVec.push_back("-k");
 
@@ -204,11 +207,14 @@ Builds a Sailfish index
 
             fmt::MemoryWriter optWriter;
             optWriter << merLen;
-            argVec.push_back(optWriter.str().c_str());
+            argVec.push_back(optWriter.str());
             argVec.push_back("-t");
-            argVec.push_back(transcriptFiles.front().c_str());
+            argVec.push_back(transcriptFiles.front());
             argVec.push_back("-i");
-            argVec.push_back(outputPath.string().c_str());
+            argVec.push_back(outputPath.string());
+	    if (perfectHash) {
+	      argVec.push_back("--perfectHash");
+	    }
             SailfishIndex sidx(jointLog);
             sidx.build(outputPath, argVec, merLen);
         } else {

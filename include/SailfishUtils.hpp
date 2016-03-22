@@ -38,7 +38,7 @@ namespace sailfish{
 
         // An enum class for direction to avoid potential errors
         // with keeping everything as a bool
-        enum class Direction { FORWARD = 0, REVERSE_COMPLEMENT = 1 };
+        enum class Direction { FORWARD = 0, REVERSE_COMPLEMENT = 1, REVERSE = 2 };
 
         // Returns FORWARD if isFwd is true and REVERSE_COMPLEMENT otherwise
         constexpr inline Direction boolToDirection(bool isFwd) {
