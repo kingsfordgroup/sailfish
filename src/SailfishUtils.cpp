@@ -664,7 +664,7 @@ namespace sailfish {
 
             if (gcBiasCorrect) {
               transcriptGCDist.clear();
-              transcriptGCDist.resize(101, 1.0);
+              transcriptGCDist.resize(101, 0.0);
 
               bool first{false};
               bool second{false};
@@ -844,7 +844,7 @@ namespace sailfish {
 	    for (auto m : transcriptGCDist) { txomeGCNormFactor += m; }
 	    auto pmass = 1e-5 * 101.0;
 	    gcPrior = ((pmass / (readGCNormFactor - pmass)) * txomeGCNormFactor) / 101.0;
-	    //txomeGCNormFactor += gcPrior * 101.0;
+	    txomeGCNormFactor += gcPrior * 101.0;
 	}
 
 	double txomeNormFactor = 0.0;
@@ -853,7 +853,7 @@ namespace sailfish {
 	    for(auto m : transcriptKmerDist) { txomeNormFactor += m; }
 	    double pmass = static_cast<double>(constExprPow(4, K));
 	    seqPrior = ((pmass / (readNormFactor - pmass)) * txomeNormFactor) / pmass;
-	    //txomeNormFactor += seqPrior * pmass;
+	    txomeNormFactor += seqPrior * pmass;
 	}
 
 	std::atomic<size_t> numCorrected{0};
