@@ -18,8 +18,8 @@ Requirements:
 
 To build Sailfish from source, the following are required:
 
-* A C++-11 compliant version of GCC.  Any version of [g++](gcc.gnu.org) >= 4.7
-  should work.
+* A C++-11 compliant version of GCC.  Any version of [g++](gcc.gnu.org) >= 4.8.2
+  should work (as would recent versions of Clang).
 
 * [CMake](www.cmake.org).  Sailfish uses the CMake build system to check,
   fetch and install dependencies, and to compile and install Sailfish.  CMake
