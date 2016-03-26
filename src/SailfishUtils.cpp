@@ -983,7 +983,8 @@ namespace sailfish {
 
 		    // throw caution to the wind
 		    double thresh = noThreshold ? 0.0 : unprocessedLen;
-		    if(unprocessedLen > 0.0 and effLength > thresh) {
+            bool cond2 = (elen > 1.0 and effLength > 1.0); 
+		    if(unprocessedLen > 0.0 and cond2) {//}effLength > thresh) {
 			++numCorrected;
 			effLensOut(it) = effLength;
 		    } else {
