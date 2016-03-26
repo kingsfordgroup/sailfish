@@ -10,13 +10,13 @@
 // Can be set to auto flush on every line
 // Throw spdlog_ex exception on errors
 
+#include <spdlog/details/os.h>
+#include <spdlog/details/log_msg.h>
+
+#include <chrono>
+#include <cstdio>
 #include <string>
 #include <thread>
-#include <chrono>
-#include "os.h"
-
-
-
 
 namespace spdlog
 {
@@ -125,16 +125,8 @@ public:
 
     static bool file_exists(const std::string& name)
     {
-        FILE* file;
-        if (!os::fopen_s(&file, name.c_str(), "r"))
-        {
-            fclose(file);
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+
+        return os::file_exists(name);
     }
 
 

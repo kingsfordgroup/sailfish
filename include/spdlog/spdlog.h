@@ -8,9 +8,14 @@
 
 #pragma once
 
-#include "tweakme.h"
-#include "common.h"
-#include "logger.h"
+#include <spdlog/tweakme.h>
+#include <spdlog/common.h>
+#include <spdlog/logger.h>
+
+#include <memory>
+#include <functional>
+#include <chrono>
+#include <string>
 
 namespace spdlog
 {
@@ -78,7 +83,7 @@ std::shared_ptr<logger> stderr_logger_st(const std::string& logger_name);
 //
 // Create and register a syslog logger
 //
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 std::shared_ptr<logger> syslog_logger(const std::string& logger_name, const std::string& ident = "", int syslog_option = 0);
 #endif
 
@@ -132,4 +137,4 @@ void drop_all();
 }
 
 
-#include "details/spdlog_impl.h"
+#include <spdlog/details/spdlog_impl.h>

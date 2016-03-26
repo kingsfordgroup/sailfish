@@ -5,16 +5,19 @@
 
 #pragma once
 
-#include <string>
+#include <spdlog/formatter.h>
+#include <spdlog/details/log_msg.h>
+#include <spdlog/details/os.h>
+#include <spdlog/details/format.h>
+
 #include <chrono>
+#include <ctime>
 #include <memory>
-#include <vector>
+#include <mutex>
+#include <string>
 #include <thread>
-
-
-#include "../formatter.h"
-#include "./log_msg.h"
-#include "./os.h"
+#include <utility>
+#include <vector>
 
 namespace spdlog
 {
@@ -317,8 +320,10 @@ public:
 
         int h = total_minutes / 60;
         int m = total_minutes % 60;
-        char sign = h >= 0 ? '+' : '-';
-        msg.formatted << sign;
+        if (h >= 0) //minus sign will be printed anyway if negative
+        {
+            msg.formatted << '+';
+        }
         pad_n_join(msg.formatted, h, m, ':');
     }
 private:
@@ -481,7 +486,7 @@ inline void spdlog::pattern_formatter::handle_flag(char flag)
 {
     switch (flag)
     {
-        // logger name
+    // logger name
     case 'n':
         _formatters.push_back(std::unique_ptr<details::flag_formatter>(new details::name_formatter()));
         break;

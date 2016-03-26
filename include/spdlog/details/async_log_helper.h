@@ -14,17 +14,21 @@
 
 #pragma once
 
+#include <spdlog/common.h>
+#include <spdlog/sinks/sink.h>
+#include <spdlog/details/mpmc_bounded_q.h>
+#include <spdlog/details/log_msg.h>
+#include <spdlog/details/os.h>
+#include <spdlog/formatter.h>
+
 #include <chrono>
-#include <thread>
+#include <exception>
 #include <functional>
-
-#include "../common.h"
-#include "../sinks/sink.h"
-#include "./mpmc_bounded_q.h"
-#include "./log_msg.h"
-#include "./format.h"
-#include "./os.h"
-
+#include <memory>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace spdlog
 {
@@ -53,6 +57,7 @@ class async_log_helper
         async_msg() = default;
         ~async_msg() = default;
 
+
 async_msg(async_msg&& other) SPDLOG_NOEXCEPT:
         logger_name(std::move(other.logger_name)),
                     level(std::move(other.level)),
@@ -74,6 +79,7 @@ async_msg(async_msg&& other) SPDLOG_NOEXCEPT:
             msg_type = other.msg_type;
             return *this;
         }
+
         // never copy or assign. should only be moved..
         async_msg(const async_msg&) = delete;
         async_msg& operator=(async_msg& other) = delete;

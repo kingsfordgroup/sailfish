@@ -8,10 +8,16 @@
 //
 // Global registry functions
 //
-#include "registry.h"
-#include "../sinks/file_sinks.h"
-#include "../sinks/stdout_sinks.h"
-#include "../sinks/syslog_sink.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/details/registry.h>
+#include <spdlog/sinks/file_sinks.h>
+#include <spdlog/sinks/stdout_sinks.h>
+#include <spdlog/sinks/syslog_sink.h>
+
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
 
 inline void spdlog::register_logger(std::shared_ptr<logger> logger)
 {
@@ -71,7 +77,7 @@ inline std::shared_ptr<spdlog::logger> spdlog::stderr_logger_st(const std::strin
     return details::registry::instance().create(logger_name, spdlog::sinks::stderr_sink_st::instance());
 }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 // Create syslog logger
 inline std::shared_ptr<spdlog::logger> spdlog::syslog_logger(const std::string& logger_name, const std::string& syslog_ident, int syslog_option)
 {

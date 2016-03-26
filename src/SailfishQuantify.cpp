@@ -1330,17 +1330,18 @@ int mainQuantify(int argc, char* argv[]) {
         {
             bfs::path cmdInfoPath = outputDirectory / "cmd_info.json";
             std::ofstream os(cmdInfoPath.string());
-            cereal::JSONOutputArchive oa(os);
-            oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
-            for (auto& opt : orderedOptions.options) {
-                if (opt.value.size() == 1) {
-                    oa(cereal::make_nvp(opt.string_key, opt.value.front()));
-                } else {
-                    oa(cereal::make_nvp(opt.string_key, opt.value));
+            {
+                cereal::JSONOutputArchive oa(os);
+                oa(cereal::make_nvp("sf_version", std::string(sailfish::version)));
+                for (auto& opt : orderedOptions.options) {
+                    if (opt.value.size() == 1) {
+                        oa(cereal::make_nvp(opt.string_key, opt.value.front()));
+                    } else {
+                        oa(cereal::make_nvp(opt.string_key, opt.value));
+                    }
                 }
             }
-
-            //os.close();
+            os.close();
         }
 
         jointLog->info("parsing read library format");
@@ -1492,6 +1493,7 @@ int mainQuantify(int argc, char* argv[]) {
         }
 
         jointLog->flush();
+        spdlog::drop_all();
         logFile.close();
 
     } catch (po::error &e) {

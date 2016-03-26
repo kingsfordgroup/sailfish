@@ -1,19 +1,19 @@
 //
-// Copyright (c) 2015 David Schury, Gabi Melman   
+// Copyright (c) 2015 David Schury, Gabi Melman
 // Distributed under the MIT License (http://opensource.org/licenses/MIT)
 //
 
 #pragma once
 
+#include <spdlog/details/log_msg.h>
+#include <spdlog/details/null_mutex.h>
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/sink.h>
+
 #include <algorithm>
 #include <memory>
 #include <mutex>
-#include <list>
-
-#include "../details/log_msg.h"
-#include "../details/null_mutex.h"
-#include "./base_sink.h"
-#include "./sink.h"
+#include <vector>
 
 namespace spdlog
 {
