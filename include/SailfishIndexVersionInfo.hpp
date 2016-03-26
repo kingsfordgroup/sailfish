@@ -10,7 +10,8 @@ class SailfishIndexVersionInfo {
         /**
          * default constructor(s)
          */
-        SailfishIndexVersionInfo() : indexVersion_(0), kmerLength_(0) {}
+        SailfishIndexVersionInfo() : indexVersion_(sailfish::indexVersion),
+                                     kmerLength_(0) {}
 
         SailfishIndexVersionInfo(uint32_t indexVersionIn, uint32_t kmerLenIn):
             indexVersion_(indexVersionIn), kmerLength_(kmerLenIn) {}

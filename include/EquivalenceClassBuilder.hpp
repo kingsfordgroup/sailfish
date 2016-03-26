@@ -79,6 +79,14 @@ class EquivalenceClassBuilder {
             return true;
         }
 
+        inline void insertGroup(TranscriptGroup g, uint32_t count) {
+            std::vector<double> weights(g.txps.size(), 0.0);
+            //auto updatefn = [count](TGValue& x) { x.count = count; };
+            TGValue v(weights, count);
+            countVec_.push_back(std::make_pair(g, v));
+            //countMap_.upsert(g, updatefn, v);
+        }
+
         inline void addGroup(TranscriptGroup&& g,
                              std::vector<double>& weights) {
 

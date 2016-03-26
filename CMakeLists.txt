@@ -3,13 +3,13 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.7.6")
+set(CPACK_PACKAGE_VERSION "0.10.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "7")
-set(CPACK_PACKAGE_VERSION_PATCH "6")
+set(CPACK_PACKAGE_VERSION_MINOR "10")
+set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
-set(CPACK_PACKAGE_VENDOR "Carnegie Mellon University / Stony Brook University")
+set(CPACK_PACKAGE_VENDOR "Stony Brook University / Carnegie Mellon University")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Sailfish - Alignment-free RNA-seq isoform quantification")
 set(CPACK_PACKAGE_NAME
   "${CMAKE_PROJECT_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
@@ -202,7 +202,7 @@ if (BOOST_RECONFIGURE)
     set(CMAKE_PREFIX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
     set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
     set(Boost_LIBRARY_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/lib)
-    find_package(Boost 1.53.0 COMPONENTS filesystem system thread timer chrono program_options REQUIRED)
+    find_package(Boost 1.53.0 COMPONENTS iostreams filesystem system thread timer chrono program_options REQUIRED)
     set(FETCH_BOOST FALSE)
 endif()
 
@@ -222,8 +222,8 @@ if ((NOT Boost_FOUND) AND (NOT FETCH_BOOST))
 elseif(FETCH_BOOST)
     ## Let the rest of the build process know we're going to be fetching boost
     set (BOOST_LIB_SUBSET --with-atomic --with-chrono --with-container --with-date_time --with-exception
-                          --with-filesystem --with-graph --with-graph_parallel --with-math
-                          --with-program_options --with-system --with-thread
+                          --with-filesystem --with-math
+                          --with-program_options --with-system --with-thread --with-iostreams
                           --with-timer)
     set (BOOST_WILL_RECONFIGURE TRUE)
     set (FETCH_BOOST FALSE)
@@ -231,14 +231,13 @@ elseif(FETCH_BOOST)
     message("==================================================================")
     ExternalProject_Add(libboost
         DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-        DOWNLOAD_COMMAND curl -k -L http://fossies.org/linux/misc/boost_1_59_0.tar.gz -o boost_1_59_0.tar.gz &&
-                tar xzf boost_1_59_0.tar.gz
-        #URL http://downloads.sourceforge.net/project/boost/boost/1.57.0/boost_1_57_0.tar.gz
+        DOWNLOAD_COMMAND curl -k -L  http://downloads.sourceforge.net/project/boost/boost/1.59.0/boost_1_59_0.tar.gz -o boost_1_59_0.tar.gz &&
+                               tar xzf boost_1_59_0.tar.gz
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_59_0
         INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
         #PATCH_COMMAND patch -p2 < ${CMAKE_CURRENT_SOURCE_DIR}/external/boost156.patch
 	CONFIGURE_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_59_0/bootstrap.sh ${BOOST_CONFIGURE_TOOLSET} ${BOOST_BUILD_LIBS} --prefix=<INSTALL_DIR>
-	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_59_0/b2 -d0 -j2 ${BOOST_LIB_SUBSET} toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} install
+	BUILD_COMMAND CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} ${CMAKE_CURRENT_SOURCE_DIR}/external/boost_1_59_0/b2 -d0 -j2 ${BOOST_LIB_SUBSET} toolset=${BOOST_TOOLSET} ${BOOST_EXTRA_FLAGS} cxxflags=${BOOST_CXX_FLAGS} link=static install
         BUILD_IN_SOURCE 1
         INSTALL_COMMAND ""
     )
@@ -269,26 +268,43 @@ endif()
 message("BOOST INCLUDE DIR = ${Boost_INCLUDE_DIR}")
 message("BOOST INCLUDE DIRS = ${Boost_INCLUDE_DIRS}")
 message("BOOST LIB DIR = ${Boost_LIBRARY_DIRS}")
-message("BOOST LIBRAREIS = ${Boost_LIBRARIES}")
+message("BOOST LIBRARIES = ${Boost_LIBRARIES}")
 
 set(EXTERNAL_LIBRARY_PATH $CMAKE_CURRENT_SOURCE_DIR/lib)
 
+message("Build system will build libdivsufsort")
+message("==================================================================")
+include(ExternalProject)
+ExternalProject_Add(libdivsufsort
+    DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
+    URL ${CMAKE_CURRENT_SOURCE_DIR}/external/libdivsufsort.zip
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libdivsufsort-master
+    INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
+    UPDATE_COMMAND sh -c "mkdir -p <SOURCE_DIR>/build"
+    BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/libdivsufsort-master/build
+    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -DBUILD_DIVSUFSORT64=TRUE -DUSE_OPENMP=TRUE -DBUILD_SHARED_LIBS=FALSE
+    )
+set(SUFFARRAY_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/external/install/include)
+
+find_package(Jellyfish 2.2.5)
+
+if (NOT JELLYFISH_FOUND)
 message("Build system will fetch and build Jellyfish")
 message("==================================================================")
 ExternalProject_Add(libjellyfish
     DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    DOWNLOAD_COMMAND curl -k -L https://github.com/gmarcais/Jellyfish/releases/download/v2.2.3/jellyfish-2.2.3.tar.gz -o jellyfish-2.2.3.tgz &&
-	rm -fr jellyfish-2.2.3 &&
-    	tar -xzvf jellyfish-2.2.3.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.2.3
+    DOWNLOAD_COMMAND curl -k -L https://github.com/gmarcais/Jellyfish/releases/download/v2.2.5/jellyfish-2.2.5.tar.gz -o jellyfish-2.2.5.tgz &&
+    	rm -fr jellyfish-2.2.5 &&
+     	tar -xzvf jellyfish-2.2.5.tgz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.2.5
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
-    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.2.3/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${JELLYFISH_CXX_FLAGS}
+    CONFIGURE_COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/external/jellyfish-2.2.5/configure --prefix=<INSTALL_DIR> CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${JELLYFISH_CXX_FLAGS}
     BUILD_COMMAND ${MAKE} CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${JELLYFISH_CXX_FLAGS}
     BUILD_IN_SOURCE 1
-    INSTALL_COMMAND make install &&
-                    cp config.h <INSTALL_DIR>/include/jellyfish-2.2.3/jellyfish/ &&
-                    cp config.h <INSTALL_DIR>/include/
+    INSTALL_COMMAND make install
 )
+endif()
+
 
 find_package(TBB)
 ##
@@ -338,6 +354,24 @@ ExternalProject_Add_Step(libtbb reconfigure
         DEPENDEES install
 )
 endif()
+
+## 
+#  Find HDF5, and prefer the static libs
+##
+#set(HDF5_USE_STATIC_LIBRARIES TRUE)
+#find_package(HDF5 REQUIRED)
+
+#if (HDF5_FOUND)
+#    include_directories(${HDF5_INCLUDE_DIRS})
+#    #set(CMAKE_EXE_LINKER_FLAGS "-static -static-libgcc -static-libstdc++")
+#    set(CMAKE_EXE_LINKER_FLAGS "-Wl,--no-as-needed -ldl")
+#    #set_target_properties(sailfish sailfish_core PROPERTIES LINK_SEARCH_END_STATIC 1)
+#else()
+#    message(FATAL_ERROR "HDF5 libraries are required but were not found!")
+#endif()
+##
+# Done with HDF5
+##
 
 ##
 # If we're fetching tbb, we need to have dummy paths for these variables

@@ -11,6 +11,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 
+#include "tbb/atomic.h"
+
 #include "spdlog/details/format.h"
 
 #include "SailfishOpts.hpp"
@@ -19,7 +21,8 @@
 #include "LibraryFormat.hpp"
 #include "ReadLibrary.hpp"
 #include "TranscriptGeneMap.hpp"
-#include "GenomicFeature.hpp"
+#include "RapMapUtils.hpp"
+#include "Eigen/Dense"
 
 class ReadExperiment;
 class LibraryFormat;
@@ -31,6 +34,16 @@ namespace sailfish{
         using NameVector = std::vector<string>;
         using IndexVector = std::vector<size_t>;
         using KmerVector = std::vector<uint64_t>;
+        using MateStatus = rapmap::utils::MateStatus;
+
+        // An enum class for direction to avoid potential errors
+        // with keeping everything as a bool
+        enum class Direction { FORWARD = 0, REVERSE_COMPLEMENT = 1, REVERSE = 2 };
+
+        // Returns FORWARD if isFwd is true and REVERSE_COMPLEMENT otherwise
+        constexpr inline Direction boolToDirection(bool isFwd) {
+            return isFwd ? Direction::FORWARD : Direction::REVERSE_COMPLEMENT;
+        }
 
         // Returns a uint64_t where the upper 32-bits
         // contain tid and the lower 32-bits contain offset
@@ -44,6 +57,16 @@ namespace sailfish{
         // offset --- lower 32-bits
         uint32_t offset(uint64_t enc);
 
+        // for single end reads or orphans
+        bool compatibleHit(LibraryFormat expected,
+                           int32_t start, bool isForward, MateStatus ms);
+        // for paired-end reads
+        bool compatibleHit(LibraryFormat expected, LibraryFormat observed);
+
+        // Determine the library type of paired-end reads
+        LibraryFormat hitType(int32_t end1Start, bool end1Fwd, uint32_t len1,
+                              int32_t end2Start, bool end2Fwd, uint32_t len2, bool canDovetail);
+
 
         LibraryFormat parseLibraryFormatStringNew(std::string& fmt);
 
@@ -52,9 +75,6 @@ namespace sailfish{
         LibraryFormat parseLibraryFormatString(std::string& fmt);
 
         size_t numberOfReadsInFastaFile(const std::string& fname);
-
-        template< typename T >
-        TranscriptGeneMap transcriptToGeneMapFromFeatures( std::vector<GenomicFeature<T>> &feats );
 
         TranscriptGeneMap transcriptGeneMapFromGTF(const std::string& fname, std::string key="gene_id");
 
@@ -118,16 +138,16 @@ namespace sailfish{
         // not exist!
         void generateGeneLevelEstimates(boost::filesystem::path& geneMapPath,
                 boost::filesystem::path& estDir,
-                std::string aggKey,
-                bool haveBiasCorrectedFile = false);
+                std::string aggKey);
 
         enum class OrphanStatus: uint8_t { LeftOrphan = 0, RightOrphan = 1, Paired = 2 };
 
-        void writeAbundancesFromCollapsed(const SailfishOpts& sopt,
-                ReadExperiment& alnLib,
-                boost::filesystem::path& fname,
-                std::string headerComments="");
-
+        template <typename AbundanceVecT>
+        Eigen::VectorXd updateEffectiveLengths(
+				    SailfishOpts& sfopts,
+				    ReadExperiment& readExp,
+                                    Eigen::VectorXd& effLensIn,
+                                    AbundanceVecT& alphas);
 
         //double logAlignFormatProb(const LibraryFormat observed, const LibraryFormat expected, double incompatPrior);
         //std::ostream& operator<<(std::ostream& os, OrphanStatus s);

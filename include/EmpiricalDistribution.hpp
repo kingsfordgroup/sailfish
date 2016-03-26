@@ -7,6 +7,7 @@
 #ifndef EMPIRICAL_DISTRIBUTION_HPP
 #define EMPIRICAL_DISTRIBUTION_HPP
 
+#include <atomic>
 #include <climits>
 #include <vector>
 
@@ -28,6 +29,12 @@ class EmpiricalDistribution
         EmpiricalDistribution(const std::vector<uint32_t>& vals,
                 const std::vector<uint32_t>& count);
 
+
+	EmpiricalDistribution();
+
+	void buildDistribution( const std::vector<uint32_t>& vals,
+        	const std::vector<uint32_t>& lens);
+
         /* Compute the median of the distribution. */
         float median() const;
 
@@ -46,6 +53,11 @@ class EmpiricalDistribution
         /* True if there are observations and false otherwise */
         bool valid() const;
 
+	/* Realize the distribution as a vector of counts, where 
+	 * numSamp samples are drawn from the underlying distribution
+	 */
+	std::vector<int32_t> realize(uint32_t numSamp = 10000) const;
+
     private:
         std::vector<float> pdfvals;
         std::vector<float> cdfvals;
@@ -56,6 +68,7 @@ class EmpiricalDistribution
         /* Min and Max Values */
         uint32_t minVal;
         uint32_t maxVal;
+	std::atomic<bool> isValid_{false};
 };
 
 

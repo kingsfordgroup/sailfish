@@ -126,13 +126,13 @@ protected:
     // Update the type of the current file and move past first header
     // to beginning of sequence.
     file_type type1 = peek_file_type(*st.stream1);
-    file_type type2 = peek_file_type(*st.stream1);
+    file_type type2 = peek_file_type(*st.stream2);
     if(type1 == DONE_TYPE || type2 == DONE_TYPE)
       return open_next_files(st);
     if(type1 != type2)
-      throw std::runtime_error("Paired files are of different format");
+       throw std::runtime_error("Paired files are of different format");
     if(type1 == ERROR_TYPE || type2 == ERROR_TYPE)
-      throw std::runtime_error("Unsupported format");
+       throw std::runtime_error("Unsupported format");
     st.type = type1;
   }
 
@@ -165,7 +165,7 @@ protected:
       hsq.seq.append(tmp);             // two lines avoiding copying
     }
     if(!is.good())
-      std::runtime_error("Truncated fastq file");
+      throw std::runtime_error("Truncated fastq file");
     is.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     hsq.qual.clear();
     while(hsq.qual.size() < hsq.seq.size() && is.good()) {

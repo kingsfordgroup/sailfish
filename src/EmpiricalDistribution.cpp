@@ -8,16 +8,26 @@
 #include <boost/math/special_functions/fpclassify.hpp>
 #include <algorithm>
 #include <limits>
+#include <random>
 
 #include "EmpiricalDistribution.hpp"
 
 EmpiricalDistribution::EmpiricalDistribution(EmpiricalDistribution& other)
     : pdfvals(other.pdfvals) , cdfvals(other.cdfvals) , med(other.med),
-      minVal(other.minVal), maxVal(other.maxVal) { }
+      minVal(other.minVal), maxVal(other.maxVal) { isValid_.store(other.isValid_.load()); }
 
+
+EmpiricalDistribution::EmpiricalDistribution() {}
 
 EmpiricalDistribution::EmpiricalDistribution(
         const std::vector<uint32_t>& vals,
+        const std::vector<uint32_t>& lens) {
+    buildDistribution(vals, lens);
+}
+
+
+void EmpiricalDistribution::buildDistribution(
+    	const std::vector<uint32_t>& vals,
         const std::vector<uint32_t>& lens) {
     assert(vals.size() == lens.size());
     auto n = vals.size();
@@ -80,8 +90,8 @@ EmpiricalDistribution::EmpiricalDistribution(
         }
     }
     med = vals[i];
+    isValid_ = true;
 }
-
 
 uint32_t EmpiricalDistribution::minValue() const {
     return minVal;
@@ -93,7 +103,7 @@ uint32_t EmpiricalDistribution::maxValue() const {
 }
 
 bool EmpiricalDistribution::valid() const {
-    return (pdfvals.size() > 0);
+    return (isValid_ and (pdfvals.size() > 0));
 }
 
 float EmpiricalDistribution::median() const
@@ -113,4 +123,24 @@ float EmpiricalDistribution::cdf(unsigned int x) const
 {
     return x < cdfvals.size() ? cdfvals[x] : 1.0;
 }
+
+std::vector<int32_t> EmpiricalDistribution::realize(uint32_t numSamp) const {
+  // start at 0 instead of minVal
+  size_t distSize = maxVal + 1;
+  std::vector<double> paddedPDF(distSize, 0.0);
+  for (size_t i = 0; i <= maxVal; ++i) {
+    paddedPDF[i] = pdf(i);
+  }
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::discrete_distribution<int32_t> d(paddedPDF.begin(), paddedPDF.end());
+
+  std::vector<int32_t> samples(distSize, 0);
+  for (size_t i = 0; i < numSamp; ++i) {
+    ++samples[d(gen)];
+  }
+
+  return samples;
+}
+
 

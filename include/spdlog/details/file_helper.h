@@ -1,26 +1,7 @@
-/*************************************************************************/
-/* spdlog - an extremely fast and easy to use c++11 logging library.     */
-/* Copyright (c) 2014 Gabi Melman.                                       */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+//
+// Copyright(c) 2015 Gabi Melman.
+// Distributed under the MIT License (http://opensource.org/licenses/MIT)
+//
 
 #pragma once
 
@@ -87,7 +68,8 @@ public:
 
     }
 
-    void flush() {
+    void flush()
+    {
         std::fflush(_fd);
     }
 
@@ -103,9 +85,9 @@ public:
     void write(const log_msg& msg)
     {
 
-        size_t size = msg.formatted.size();
+        size_t msg_size = msg.formatted.size();
         auto data = msg.formatted.data();
-        if (std::fwrite(data, 1, size, _fd) != size)
+        if (std::fwrite(data, 1, msg_size, _fd) != msg_size)
             throw spdlog_ex("Failed writing to file " + _filename);
 
         if (_force_flush)
@@ -122,16 +104,16 @@ public:
         if (fseek(_fd, 0, SEEK_END) != 0)
             throw spdlog_ex("fseek failed on file " + _filename);
 
-        auto size = ftell(_fd);
+        auto file_size = ftell(_fd);
 
         if(fseek(_fd, pos, SEEK_SET) !=0)
             throw spdlog_ex("fseek failed on file " + _filename);
 
-        if (size == -1)
+        if (file_size == -1)
             throw spdlog_ex("ftell failed on file " + _filename);
 
 
-        return size;
+        return file_size;
 
 
     }

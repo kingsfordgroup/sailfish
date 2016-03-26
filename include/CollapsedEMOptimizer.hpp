@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <functional>
 
 #include "tbb/atomic.h"
 #include "tbb/task_scheduler_init.h"
@@ -29,7 +30,7 @@ class CollapsedEMOptimizer {
         bool gatherBootstraps(
                 ReadExperiment& readExp,
                 SailfishOpts& sopt,
-                BootstrapWriter* bootstrapWriter,
+	        std::function<bool(const std::vector<double>&)>& writeBootstrap,
                 double relDiffTolerance,
                 uint32_t maxIter);
 };
