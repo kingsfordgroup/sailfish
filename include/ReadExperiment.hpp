@@ -22,6 +22,7 @@
 #include <memory>
 #include <fstream>
 #include <atomic>
+#include <numeric>
 
 #include "UtilityFunctions.hpp"
 #include "ReadKmerDist.hpp"
