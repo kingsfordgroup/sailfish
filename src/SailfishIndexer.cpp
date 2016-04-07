@@ -160,7 +160,7 @@ Builds a Sailfish index
         auto consoleSink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
         //auto consoleLog = spdlog::create("consoleLog", {consoleSink});
         //auto fileLog = spdlog::create("fileLog", {fileSink});
-        auto jointLog = spdlog::create("jointLog", {fileSink, consoleSink});
+        auto jointLog = spdlog::create("jLog", {fileSink, consoleSink});
 
         std::cerr << "writing log to " << logPath.string() << "\n";
 
