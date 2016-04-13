@@ -38,6 +38,9 @@ class EmpiricalDistribution
         /* Compute the median of the distribution. */
         float median() const;
 
+        /* Compute the mean of the distribution. */
+        float mean() const;
+
         /* Probability density function. */
         float pdf(unsigned int x) const;
 
@@ -64,6 +67,9 @@ class EmpiricalDistribution
 
         /* Precomputed median */
         float med;
+        /* Precomputed mean */
+        float mu;
+
 
         /* Min and Max Values */
         uint32_t minVal;

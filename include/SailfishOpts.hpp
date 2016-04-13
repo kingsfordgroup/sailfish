@@ -15,7 +15,7 @@ struct SailfishOpts {
     bool noFragLengthDist;
     bool useVBOpt{false};
     bool useGSOpt{false};
-    bool useUnsmoothedFLD{false};
+    bool simplifiedLengthCorrection{false};
     bool ignoreLibCompat{false};
     bool enforceLibCompat{false};
     bool allowDovetail{false};
@@ -25,6 +25,7 @@ struct SailfishOpts {
     bool firstCorrectionPass{true};
     bool noBiasLengthThreshold{false};
     std::atomic<int32_t> numBiasSamples{1000000};
+    std::atomic<uint64_t> fragsTooLong{0};
     uint32_t gcSampFactor;
     uint32_t pdfSampFactor;
     int32_t numFragSamples{10000};

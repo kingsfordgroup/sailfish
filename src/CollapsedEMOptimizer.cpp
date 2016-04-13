@@ -727,7 +727,6 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     VecType alphas(transcripts.size(), 0.0);
     VecType alphasPrime(transcripts.size(), 0.0);
     VecType expTheta(transcripts.size());
-    VecType uniqueCounts(transcripts.size(), 0.0);
     Eigen::VectorXd effLens(transcripts.size());
 
     // Fill in the effective length vector
@@ -742,8 +741,10 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     std::vector<std::pair<const TranscriptGroup, TGValue>>& eqVec =
         readExp.equivalenceClassBuilder().eqVec();
 
+    std::vector<double> uniqueCounts(transcripts.size(), 0.0);
+
     tbb::parallel_for(BlockedIndexRange(size_t(0), size_t(eqVec.size())),
-            [&eqVec, &effLens, &transcripts]( const BlockedIndexRange& range) -> void {
+            [&eqVec, &effLens, &transcripts, &uniqueCounts]( const BlockedIndexRange& range) -> void {
                 // For each index in the equivalence class vector
                 for (auto eqID : boost::irange(range.begin(), range.end())) {
                     // The vector entry
@@ -766,6 +767,10 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
                     double wnorm = 1.0 / wsum;
                     for (size_t i = 0; i < classSize; ++i) {
                         v.weights[i] *= wnorm;
+                    }
+
+                    if (classSize == 1) {
+                        uniqueCounts[k.txps.front()] = kv.second.count;
                     }
 
                 }
@@ -800,6 +805,7 @@ bool CollapsedEMOptimizer::optimize(ReadExperiment& readExp,
     double scale = 1.0 / activeTranscriptIDs.size();
     for (size_t i = 0; i < transcripts.size(); ++i) {
         alphas[i] = transcripts[i].getActive() ? scale * totalNumFrags : 0.0;
+        //alphas[i] = (uniqueCounts[i] > 0) ?  (uniqueCounts[i]) : (transcripts[i].EffectiveLength * 10e-3);
     }
 
     //auto numRemoved = markDegenerateClasses(eqVec, alphas, sopt.jointLog);

@@ -124,6 +124,7 @@ void processReadsQuasi(paired_parser* parser,
   size_t maxNumHits{sfOpts.maxReadOccs};
   size_t readLen{0};
 
+  auto& jointLog = sfOpts.jointLog;
   auto& numObservedFragments = readExp.numObservedFragmentsAtomic();
   auto& validHits = readExp.numMappedFragmentsAtomic();
   auto& totalHits = readExp.numFragHitsAtomic();
@@ -298,22 +299,9 @@ void processReadsQuasi(paired_parser* parser,
                                 h.fwd, h.mateStatus);
                     }
 
-
-                    bool positionOK = true;
-                    /** TODO: Consider how best to filter orphans in the future **/
-                    /*
-                    if (meanFragLen > 0 and positionOK) {
-                        int32_t startPos = h.fwd ? pos : pos + h.readLen;
-                        if (h.fwd) {
-                            positionOK =
-                                (startPos + meanFragLen) <= static_cast<int32_t>(transcripts[transcriptID].RefLength);
-                        } else {
-                            positionOK = (startPos - meanFragLen) >= 0.0;
-                        }
-                    }
-                    */
-
+                    bool positionOK{true};
                     bool fwdHit {false};
+
                     if (h.mateStatus == MateStatus::PAIRED_END_LEFT) {
                         // If the left end matches fwd
                         if (h.fwd) { fwdHit = true; }
@@ -322,6 +310,14 @@ void processReadsQuasi(paired_parser* parser,
                         if (!h.fwd) { fwdHit = true; }
                     }
 
+                    /** TODO: Consider how best to filter orphans in the future **/
+                    if (meanFragLen > 0 and positionOK) {
+                        // The read can't softclip for the time being
+                        positionOK = h.fwd ? 
+                            ( pos <= static_cast<int32_t>(txp.RefLength) ) :
+                            ( pos + h.readLen  >= 0.0 );
+                    }
+                    
                     if (positionOK) {
                         if (compat) {
                             haveCompat = true;
@@ -417,20 +413,30 @@ void processReadsQuasi(paired_parser* parser,
 
         if (jointHits.size() == 1) {
             auto& h = jointHits.front();
-
+            
             // Are the jointHits paired-end quasi-mappings or orphans?
             bool isPaired = h.mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED;
 
             // This is a unique hit
-            if (isPaired and remainingFLOps > 0) {
+            if (isPaired and haveCompat and remainingFLOps > 0) {
                 if (mappedFrag and h.fragLen < maxFragLen) {
                     flMap[h.fragLen]++;
-                    remainingFLOps--;
+                    remainingFLOps--; 
                 }
 
             }
 
+            
         }
+        
+        /*
+        if (jointHits.size() >= 1){
+            auto& h = jointHits.front();
+            if (h.mateStatus == rapmap::utils::MateStatus::PAIRED_END_PAIRED and mappedFrag and h.fragLen > maxFragLen) {
+                sfOpts.fragsTooLong++;
+            }
+        }
+        */
 
         validHits += (mappedFrag) ? 1 : 0;
         totalHits += jointHits.size();
@@ -752,13 +758,13 @@ void computeEmpiricalEffectiveLengths(
                         uint32_t maxVal = empDist.maxValue();
                         bool validDistSupport = (maxVal > minVal);
                         double refLen = txp.RefLength;
-                        if (refLen <= empDist.median() or !validDistSupport) {
-                            txp.EffectiveLength = refLen;
+                        double effectiveLength = 0.0;
+                        for (size_t l = minVal; l <= std::min(txp.RefLength, maxVal); ++l) {
+                            effectiveLength += empDist.pdf(l) * (txp.RefLength - l + 1.0);
+                        }
+                        if (effectiveLength < 1.0) { 
+                            txp.EffectiveLength = txp.RefLength;
                         } else {
-                           double effectiveLength = 0.0;
-                           for (size_t l = minVal; l <= std::min(txp.RefLength, maxVal); ++l) {
-                                effectiveLength += empDist.pdf(l) * (txp.RefLength - l + 1.0);
-                            }
                             txp.EffectiveLength = effectiveLength;
                         }
                     }
@@ -984,6 +990,8 @@ void quasiMapReads(
 	fmt::print(stderr, "\n");
 
         sfOpts.jointLog->info("Gathered fragment lengths from all threads");
+        //sfOpts.jointLog->info("total number of mapped fragments > {} is {}", sfOpts.maxFragLen, sfOpts.fragsTooLong.load());
+
 
         /** If we have a sufficient number of observations for the empirical
          *  distribution, then use that --- otherwise use the provided prior
@@ -1016,11 +1024,11 @@ void quasiMapReads(
                 }
                 readExp.setFragLengthDist(fld);
 
-                if (sfOpts.useUnsmoothedFLD) {
-                    computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
-                } else {
+                if (sfOpts.simplifiedLengthCorrection) {
                     auto correctionFactors = correctionFactorsFromCounts(sfOpts, jointMap);
                     computeSmoothedEffectiveLengths(sfOpts, readExp.transcripts(), correctionFactors);
+                } else {
+                    computeEmpiricalEffectiveLengths(sfOpts, readExp.transcripts(), jointMap);
                 }
             }
         }
@@ -1170,9 +1178,9 @@ int mainQuantify(int argc, char* argv[]) {
             "assigned.  When this flag is set, if the intersection of the quasi-mappings for the left and right "
             "is empty, then all mappings for the left and all mappings for the right read are reported as orphaned "
             "quasi-mappings")
-        ("unsmoothedFLD", po::bool_switch(&(sopt.useUnsmoothedFLD))->default_value(false), "Use the \"un-smoothed\" "
-            "(i.e. traditional) approach to effective length correction by convolving the FLD with the "
-            "characteristic function over each transcript")
+        ("simplifiedLengthCorrection", po::bool_switch(&(sopt.simplifiedLengthCorrection))->default_value(false), "Use a \"simplfied\" "
+            "effective length correction approach, rather than convolving the FLD with the "
+            "characteristic function over each transcript.")
         ("maxFragLen", po::value<uint32_t>(&(sopt.maxFragLen))->default_value(1000), "The maximum length of a fragment to consider when "
             "building the empirical fragment length distribution")
       	//("readEqClasses", po::value<std::string>(&eqClassFile), "Read equivalence classes in directly")
@@ -1358,13 +1366,15 @@ int mainQuantify(int argc, char* argv[]) {
 
         // Verify that no inconsistent options were provided
         {
-	  /*
+	  
           if (sopt.biasCorrect and sopt.gcBiasCorrect) {
-            sopt.jointLog->error("Enabling both sequence-specific and fragment GC bias correction "
-                "simultaneously is not yet supported. Please disable one of these options.");
-            return 1;
+            sopt.jointLog->warn("\n\n"
+                 "===================================\n"
+                 "Enabling both sequence-specific and fragment GC bias correction "
+                 "simultaneously is still experimental, we currently recommend you enable only one for a given sample.\n"
+                 "===================================\n\n");
           }
-	  */
+	  
           if (sopt.gcBiasCorrect) {
             for (auto& rl : readLibraries) {
               // We can't use fragment GC correction with single

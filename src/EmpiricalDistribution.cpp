@@ -34,8 +34,8 @@ void EmpiricalDistribution::buildDistribution(
 
     minVal = std::numeric_limits<uint32_t>::max();
     maxVal = 0;
-
     double valsum = 0;
+
     for (size_t i = 0; i < n; ++i) {
         minVal = (vals[i] < minVal) ? vals[i] : minVal;
         maxVal = (vals[i] > maxVal) ? vals[i] : maxVal;
@@ -52,13 +52,14 @@ void EmpiricalDistribution::buildDistribution(
         }
     }
 
-    pdfvals.resize(maxval);
+    auto upperBound = lastval + 1;
+    pdfvals.resize(upperBound);
     valsum = 0.0;
-    for (unsigned int i = 0; i < lastval; ++i) {
+    for (unsigned int i = 0; i < upperBound; ++i) {
         valsum += lens[i];
     }
 
-    for (unsigned int val = 0, i = 0; val < maxval; ) {
+    for (unsigned int val = 0, i = 0; val < upperBound; ) {
         if (val == vals[i]) {
             pdfvals[val] = lens[i] / valsum;
             ++val;
@@ -69,11 +70,13 @@ void EmpiricalDistribution::buildDistribution(
             ++val;
         }
     }
-
-    cdfvals.resize(maxval);
+    
+    cdfvals.resize(upperBound);
     cdfvals[0] = pdfvals[0];
-    for (unsigned int val = 1; val < maxval; ++val) {
+    mu = 0.0;
+    for (unsigned int val = 1; val < upperBound; ++val) {
         cdfvals[val] = cdfvals[val - 1] + pdfvals[val];
+        mu += val * pdfvals[val];
     }
 
     // compute median
@@ -112,6 +115,11 @@ float EmpiricalDistribution::median() const
     else return med;
 }
 
+float EmpiricalDistribution::mean () const
+{
+    if (pdfvals.size() == 0) return NAN;
+    else return mu;
+}
 
 float EmpiricalDistribution::pdf(unsigned int x) const
 {
