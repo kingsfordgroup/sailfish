@@ -982,9 +982,10 @@ namespace sailfish {
 		    } // for the processed transcript
 
 		    // throw caution to the wind
-		    double thresh = noThreshold ? 0.0 : unprocessedLen;
-            bool cond2 = (elen > 1.0 and effLength > 1.0); 
-		    if(unprocessedLen > 0.0 and cond2) {//}effLength > thresh) {
+		    double thresh = noThreshold ? 1.0 : unprocessedLen;
+		    //bool cond2 = (elen > 1.0 and effLength > 1.0); 
+		    //if(unprocessedLen > 0.0 and cond2) {//}effLength > thresh) {
+		    if(unprocessedLen > 0.0 and effLength > thresh) {
 			++numCorrected;
 			effLensOut(it) = effLength;
 		    } else {
