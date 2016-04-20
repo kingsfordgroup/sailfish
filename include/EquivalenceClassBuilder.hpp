@@ -94,14 +94,12 @@ class EquivalenceClassBuilder {
                 // update the count
                 x.count++;
                 // update the weights
+                /*
                 for (size_t i = 0; i < x.weights.size(); ++i) {
                     // Possibly atomicized in the future
                     weights[i] += x.weights[i];
-                    /* LOG SPACE
-                    x.weights[i] =
-                        salmon::math::logAdd(x.weights[i], weights[i]);
-                    */
                 }
+                */
             };
             TGValue v(weights, 1);
             countMap_.upsert(g, upfn, v);

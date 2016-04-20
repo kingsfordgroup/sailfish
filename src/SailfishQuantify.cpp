@@ -163,6 +163,7 @@ void processReadsQuasi(paired_parser* parser,
   auto expectedLibType = rl.format();
 
   bool canDovetail = sfOpts.allowDovetail;
+  bool consistentHits = sfOpts.consistentHits;
 
   bool mappedFrag{false};
   std::unique_ptr<EmpiricalDistribution> empDist{nullptr};
@@ -192,13 +193,15 @@ void processReadsQuasi(paired_parser* parser,
         bool lh = hitCollector(j->data[i].first.seq,
                                leftHits, saSearcher,
                                MateStatus::PAIRED_END_LEFT,
-							   true // strict check
+							   true, // strict check
+                               consistentHits 
 							   );
 
         bool rh = hitCollector(j->data[i].second.seq,
                                rightHits, saSearcher,
                                MateStatus::PAIRED_END_RIGHT,
-							   true // strict check
+							   true, // strict check
+                               consistentHits 
 							   );
 
         if (strictIntersect) {
@@ -503,7 +506,8 @@ void processReadsQuasi(single_parser* parser,
     // True when we have compatible hits, false otherwise
     bool haveCompat{false};
     auto expectedLibType = rl.format();
-
+    
+    bool consistentHits = sfOpts.consistentHits;
     bool mappedFrag{false};
 
     std::vector<uint32_t> txpIDsAll;
@@ -529,8 +533,11 @@ void processReadsQuasi(single_parser* parser,
             mappedFrag = false;
 
             bool lh = hitCollector(j->data[i].seq,
-                    jointHits, saSearcher,
-                    MateStatus::SINGLE_END);
+                                   jointHits, saSearcher,
+                                   MateStatus::SINGLE_END,
+                                   true,
+                                   consistentHits
+                                   );
 
             upperBoundHits += (jointHits.size() > 0);
 
@@ -1166,6 +1173,8 @@ int mainQuantify(int argc, char* argv[]) {
     po::options_description advanced("\n"
             "advanced options");
     advanced.add_options()
+        ("consistentHits,c", po::bool_switch(&(sopt.consistentHits))->default_value(false), "Force hits gathered during "
+         "quasi-mapping to be \"consistent\" (i.e. co-linear and approximately the right distance apart).")
         ("auxDir", po::value<std::string>(&(sopt.auxDir))->default_value("aux"), "The sub-directory of the quantification directory where auxiliary information "
      			"e.g. bootstraps, bias parameters, etc. will be written.")
         ("dumpEq", po::bool_switch(&(sopt.dumpEq))->default_value(false), "Dump the equivalence class counts "

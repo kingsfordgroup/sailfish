@@ -15,6 +15,7 @@ struct SailfishOpts {
     bool noFragLengthDist;
     bool useVBOpt{false};
     bool useGSOpt{false};
+    bool consistentHits{false};
     bool simplifiedLengthCorrection{false};
     bool ignoreLibCompat{false};
     bool enforceLibCompat{false};
