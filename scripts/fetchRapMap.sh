@@ -17,11 +17,11 @@ if [ -d ${INSTALL_DIR}/src/rapmap ] ; then
 fi
 
 mkdir -p ${EXTERNAL_DIR}
-curl -k -L https://github.com/COMBINE-lab/RapMap/archive/master.zip -o ${EXTERNAL_DIR}/rapmap.zip
+curl -k -L https://github.com/COMBINE-lab/RapMap/archive/sf-v0.10.1.zip -o ${EXTERNAL_DIR}/rapmap.zip
 
 rm -fr ${EXTERNAL_DIR}/RapMap 
 unzip ${EXTERNAL_DIR}/rapmap.zip -d ${EXTERNAL_DIR}
-mv ${EXTERNAL_DIR}/RapMap-master ${EXTERNAL_DIR}/RapMap
+mv ${EXTERNAL_DIR}/RapMap-sf-v0.10.1 ${EXTERNAL_DIR}/RapMap
 
 mkdir -p ${INSTALL_DIR}/include/rapmap 
 mkdir -p ${INSTALL_DIR}/src/rapmap
