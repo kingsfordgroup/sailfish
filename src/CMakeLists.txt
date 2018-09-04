@@ -43,7 +43,7 @@ ${GAT_SOURCE_DIR}/external
 ${GAT_SOURCE_DIR}/external/cereal/include
 ${GAT_SOURCE_DIR}/external/install/include
 ${GAT_SOURCE_DIR}/external/install/include/rapmap
-${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.2.3
+${GAT_SOURCE_DIR}/external/install/include/jellyfish-2.2.10
 ${ZLIB_INCLUDE_DIR}
 ${TBB_INCLUDE_DIRS}
 ${Boost_INCLUDE_DIRS}
