@@ -3,10 +3,10 @@ enable_testing()
 
 project (Sailfish)
 
-set(CPACK_PACKAGE_VERSION "0.9.2")
+set(CPACK_PACKAGE_VERSION "0.10.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "0")
-set(CPACK_PACKAGE_VERSION_MINOR "9")
-set(CPACK_PACKAGE_VERSION_PATCH "2")
+set(CPACK_PACKAGE_VERSION_MINOR "10")
+set(CPACK_PACKAGE_VERSION_PATCH "0")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SOURCE_GENERATOR "TGZ")
 set(CPACK_PACKAGE_VENDOR "Stony Brook University / Carnegie Mellon University")
@@ -334,8 +334,8 @@ endif()
 
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz
-    DOWNLOAD_COMMAND curl -k -L  http://www.threadingbuildingblocks.org/sites/default/files/software_releases/source/tbb43_20140724oss_src.tgz -o tbb_20140724oss_src.tgz &&
+    URL https://distfiles.macports.org/tbb/tbb43_20140724oss_src.tgz
+    DOWNLOAD_COMMAND curl -k -L  https://distfiles.macports.org/tbb/tbb43_20140724oss_src.tgz -o tbb_20140724oss_src.tgz &&
                      tar -xzvf tbb_20140724oss_src.tgz
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
