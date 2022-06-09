@@ -127,6 +127,7 @@ endif ()
 if (NO_RTM)
     set (TBB_CXXFLAGS "-mno-rtm")
 endif()
+set(TBB_CXXFLAGS "${TBB_CXXFLAGS} -std=c++11")
 
 include(ExternalProject)
 
@@ -323,7 +324,7 @@ endif()
 message("Build system will fetch and build Intel Threading Building Blocks")
 message("==================================================================")
 # These are useful for the custom install step we'll do later
-set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss)
+set(TBB_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb44_20150728oss)
 set(TBB_INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install)
 
 if ("${TBB_COMPILER}" STREQUAL "gcc")
@@ -334,10 +335,10 @@ endif()
 
 ExternalProject_Add(libtbb
 	DOWNLOAD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external
-    URL https://distfiles.macports.org/tbb/tbb43_20140724oss_src.tgz
-    DOWNLOAD_COMMAND curl -k -L  https://distfiles.macports.org/tbb/tbb43_20140724oss_src.tgz -o tbb_20140724oss_src.tgz &&
-                     tar -xzvf tbb_20140724oss_src.tgz
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb43_20140724oss
+    URL https://umd.box.com/shared/static/v744ah0kqv2piy7xpkzqqdgz0r58u2dt 
+    DOWNLOAD_COMMAND curl -k -L https://umd.box.com/shared/static/v744ah0kqv2piy7xpkzqqdgz0r58u2dt -o tbb_20150728oss_src.tgz &&
+                     tar -xzvf tbb_20150728oss_src.tgz
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/tbb44_20150728oss
     INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/install
     PATCH_COMMAND "${TBB_PATCH_STEP}"
     CONFIGURE_COMMAND ""

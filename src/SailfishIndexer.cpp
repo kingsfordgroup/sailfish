@@ -190,8 +190,10 @@ Builds a Sailfish index
 
         if (mustRecompute) {
 
-            std::vector<const char*> argVec;
+            std::vector<std::string> argVec;
+            
             argVec.push_back("foo");
+
             argVec.push_back("-k");
 
             if (merLen % 2 == 0) {
@@ -205,10 +207,16 @@ Builds a Sailfish index
             fmt::MemoryWriter optWriter;
             optWriter << merLen;
             argVec.push_back(optWriter.str().c_str());
+            optWriter.clear();
+
             argVec.push_back("-t");
+
             argVec.push_back(transcriptFiles.front().c_str());
+            
             argVec.push_back("-i");
+            
             argVec.push_back(outputPath.string().c_str());
+
             SailfishIndex sidx(jointLog);
             sidx.build(outputPath, argVec, merLen);
         } else {

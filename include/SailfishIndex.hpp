@@ -43,7 +43,7 @@ class SailfishIndex{
         }
 
         bool build(boost::filesystem::path indexDir,
-                std::vector<const char*>& argVec, uint32_t k) {
+                std::vector<std::string>& argVec, uint32_t k) {
             return buildQuasiIndex_(indexDir, argVec, k);
         }
 
@@ -78,16 +78,17 @@ class SailfishIndex{
 
     private:
         bool buildQuasiIndex_(boost::filesystem::path indexDir,
-                             std::vector<const char*>& quasiArgVec,
+                             std::vector<std::string>& quasiArgVec,
                              uint32_t k) {
             namespace bfs = boost::filesystem;
-            char* quasiArgv[] = { const_cast<char*>(quasiArgVec[0]),
-                const_cast<char*>(quasiArgVec[1]),
-                const_cast<char*>(quasiArgVec[2]),
-                const_cast<char*>(quasiArgVec[3]),
-                const_cast<char*>(quasiArgVec[4]),
-                const_cast<char*>(quasiArgVec[5]),
-                const_cast<char*>(quasiArgVec[6])
+            char* quasiArgv[] = { 
+                const_cast<char*>(quasiArgVec[0].c_str()),
+                const_cast<char*>(quasiArgVec[1].c_str()),
+                const_cast<char*>(quasiArgVec[2].c_str()),
+                const_cast<char*>(quasiArgVec[3].c_str()),
+                const_cast<char*>(quasiArgVec[4].c_str()),
+                const_cast<char*>(quasiArgVec[5].c_str()),
+                const_cast<char*>(quasiArgVec[6].c_str())
             };
             int quasiArgc = 7;
 
